@@ -1,0 +1,40 @@
+# Unreal Engine
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Build/
+FileOpenOrder/
+.vs/
+.idea/
+*.VC.db
+*.opensdf
+*.sdf
+*.sln.docstates
+*.suo
+*.user
+*.userosscache
+*.opendb
+*.aps
+x64/
+x86/
+*-Debug.*
+*-Shipping.*
+
+# Local generated
+*.log
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Visual Studio / Rider
+*.VC.opendb
+*.VC.db
+*.pdb
+*.ipch
+.vscode/
+.vsconfig
+
+# Optional: keep solution files out if regenerated; keep them for convenience
+# *.sln
+# *.slnx
