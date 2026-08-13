@@ -24,7 +24,7 @@ File: `GrokExodus/Plugins/GXCore/Source/GXCore/Public/GXVersion.h`
 - **Patch** (`0.4.0` → `0.4.1`) for fixes, HUD, perf, small behavior.
 - **Minor** (`0.4.1` → `0.5.0`) for a wave/feature (sky, grids, ships).
 - **Date** is the calendar day of the bump (use the user_info date).
-- The string is drawn **top-left in PIE**. If the player does not see the new number, they are on a stale editor binary (close Unreal; Live Coding blocks UBT).
+- The string is drawn **top-left in PIE by a Slate viewport overlay** (`UGXBootOverlaySubsystem`). It does **not** depend on `AHUD::DrawHUD`. If the player does not see the new number, they are on a stale editor binary (close Unreal; Live Coding blocks UBT). Check `GrokExodus/Saved/GX_RUNNING_VERSION.txt` and the log line `overlay attached`.
 
 Do **not** ship a user-facing change without bumping this file in the same commit.
 
@@ -76,6 +76,8 @@ Docs-only / AGENTS-only commits may skip the version bump if no binary/HUD chang
 ## Play / verify
 
 1. Close Unreal. Reopen. Map `Lvl_VoxelPlanet`.
-2. PIE: top-left must show current `GX X.Y.Z`.
-3. Loading overlay ≥ 2.5 s, then fade.
-4. Log: `********** GX BUILD X.Y.Z`
+2. PIE: top-left gold `GX X.Y.Z` from the Slate overlay (not the Canvas HUD).
+3. Loading overlay ≥ 2.5 s, then fade. Version stamp stays.
+4. Log: `********** GX BUILD X.Y.Z` and `overlay attached`.
+5. `GrokExodus/Saved/GX_RUNNING_VERSION.txt` must match `GXVersion.h`.
+6. Console: `gx.version` reprints the stamp.

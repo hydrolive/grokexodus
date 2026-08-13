@@ -22,7 +22,7 @@ void AGXHUDLayout::Tick(float DeltaSeconds)
 void AGXHUDLayout::DrawHUD()
 {
 	Super::DrawHUD();
-	if (!Canvas)
+	if (!Canvas || GXLoadScreen::IsSlateOverlayActive())
 	{
 		return;
 	}

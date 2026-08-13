@@ -87,3 +87,18 @@ void GXLoadScreen::DrawVersionStrip(UCanvas* Canvas, const FString& Extra)
 	const FString Line = FString::Printf(TEXT("GX %s  %s"), GX_VERSION_STRING, *Extra);
 	Canvas->DrawText(GEngine->GetSmallFont(), Line, 16.f, 14.f, 1.25f, 1.25f);
 }
+
+namespace
+{
+	bool GSlateOverlayActive = false;
+}
+
+bool GXLoadScreen::IsSlateOverlayActive()
+{
+	return GSlateOverlayActive;
+}
+
+void GXLoadScreen::SetSlateOverlayActive(bool bActive)
+{
+	GSlateOverlayActive = bActive;
+}

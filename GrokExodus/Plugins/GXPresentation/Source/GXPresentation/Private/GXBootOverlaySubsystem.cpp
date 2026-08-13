@@ -1,0 +1,161 @@
+// Copyright Grok Exodus. All Rights Reserved.
+
+#include "GXBootOverlaySubsystem.h"
+#include "SGXBootOverlay.h"
+#include "GXLoadScreen.h"
+#include "GXPresentation.h"
+#include "GXVersion.h"
+#include "GXVoxelWorld.h"
+#include "Engine/Engine.h"
+#include "Engine/GameViewportClient.h"
+#include "Engine/World.h"
+#include "EngineUtils.h"
+#include "Misc/FileHelper.h"
+#include "Misc/Paths.h"
+#include "Stats/Stats.h"
+#include "Widgets/DeclarativeSyntaxSupport.h"
+
+void UGXBootOverlaySubsystem::Initialize(FSubsystemCollectionBase& Collection)
+{
+	Super::Initialize(Collection);
+	WriteRunningVersionFile();
+	UE_LOG(LogGXPresentation, Warning,
+		TEXT("********** GX BUILD %s (%s) boot overlay subsystem init **********"),
+		GX_VERSION_STRING, GX_VERSION_DATE);
+	TryAttach();
+}
+
+void UGXBootOverlaySubsystem::Deinitialize()
+{
+	RemoveOverlay();
+	Super::Deinitialize();
+}
+
+void UGXBootOverlaySubsystem::OnWorldBeginPlay(UWorld& InWorld)
+{
+	Super::OnWorldBeginPlay(InWorld);
+	TryAttach();
+	if (GEngine)
+	{
+		GEngine->bEnableOnScreenDebugMessages = true;
+		GEngine->bEnableOnScreenDebugMessagesDisplay = true;
+		GEngine->AddOnScreenDebugMessage(9, 25.f, FColor::Yellow,
+			FString::Printf(TEXT("GX %s — Slate overlay (not HUD)"), GX_VERSION_STRING));
+	}
+}
+
+void UGXBootOverlaySubsystem::Tick(float DeltaTime)
+{
+	if (!bAttached)
+	{
+		TryAttach();
+	}
+
+	Elapsed += DeltaTime;
+
+	AGXVoxelWorld* WorldActor = nullptr;
+	if (UWorld* World = GetWorld())
+	{
+		for (TActorIterator<AGXVoxelWorld> It(World); It; ++It)
+		{
+			WorldActor = *It;
+			break;
+		}
+	}
+
+	const bool bReady = WorldActor && WorldActor->IsWorldReady();
+	if (bReady && Elapsed >= MinHoldSeconds)
+	{
+		OverlayAlpha = FMath::Max(0.0f, OverlayAlpha - DeltaTime / FMath::Max(FadeSeconds, 0.05f));
+	}
+	else
+	{
+		OverlayAlpha = 1.0f;
+	}
+
+	if (TSharedPtr<SGXBootOverlay> Boot = StaticCastSharedPtr<SGXBootOverlay>(Overlay))
+	{
+		const float Progress = WorldActor ? FMath::Clamp(WorldActor->GetLoadProgress(), 0.02f, 1.0f) : 0.05f;
+		const FString Status = WorldActor ? WorldActor->GetLoadStatus() : FString(TEXT("Starting planet systems…"));
+		const FString Extra = WorldActor
+			? FString::Printf(TEXT("%s  %.0f%%"), *Status, Progress * 100.f)
+			: FString(TEXT("waiting for AGXVoxelWorld"));
+		Boot->SetState(OverlayAlpha, Progress, Status, Extra);
+	}
+}
+
+TStatId UGXBootOverlaySubsystem::GetStatId() const
+{
+	RETURN_QUICK_DECLARE_CYCLE_STAT(UGXBootOverlaySubsystem, STATGROUP_Tickables);
+}
+
+bool UGXBootOverlaySubsystem::DoesSupportWorldType(const EWorldType::Type WorldType) const
+{
+	return WorldType == EWorldType::Game || WorldType == EWorldType::PIE;
+}
+
+bool UGXBootOverlaySubsystem::ShouldCreateSubsystem(UObject* Outer) const
+{
+	if (const UWorld* World = Cast<UWorld>(Outer))
+	{
+		return World->IsGameWorld();
+	}
+	return false;
+}
+
+void UGXBootOverlaySubsystem::TryAttach()
+{
+	if (bAttached && Overlay.IsValid())
+	{
+		return;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World || !World->IsGameWorld())
+	{
+		return;
+	}
+
+	UGameViewportClient* Viewport = World->GetGameViewport();
+	if (!Viewport && GEngine)
+	{
+		Viewport = GEngine->GameViewport;
+	}
+	if (!Viewport)
+	{
+		return;
+	}
+
+	const TSharedRef<SGXBootOverlay> Boot = SNew(SGXBootOverlay);
+	Overlay = Boot;
+	Viewport->AddViewportWidgetContent(Boot, 10000);
+	HostViewport = Viewport;
+	bAttached = true;
+	GXLoadScreen::SetSlateOverlayActive(true);
+
+	UE_LOG(LogGXPresentation, Warning,
+		TEXT("********** GX BUILD %s overlay attached (Slate viewport, independent of HUD) **********"),
+		GX_VERSION_STRING);
+	WriteRunningVersionFile();
+}
+
+void UGXBootOverlaySubsystem::RemoveOverlay()
+{
+	if (Overlay.IsValid() && HostViewport.IsValid())
+	{
+		HostViewport->RemoveViewportWidgetContent(Overlay.ToSharedRef());
+	}
+	Overlay.Reset();
+	HostViewport.Reset();
+	bAttached = false;
+	GXLoadScreen::SetSlateOverlayActive(false);
+}
+
+void UGXBootOverlaySubsystem::WriteRunningVersionFile() const
+{
+	const FString Path = FPaths::ProjectSavedDir() / TEXT("GX_RUNNING_VERSION.txt");
+	const FString Body = FString::Printf(
+		TEXT("GX %s\n%s\nmodule=GXPresentation\nslate_overlay=1\n"),
+		GX_VERSION_STRING, GX_VERSION_DATE);
+	FFileHelper::SaveStringToFile(Body, *Path);
+}

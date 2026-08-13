@@ -11,7 +11,7 @@
 void AVoxelHUD::DrawHUD()
 {
 	Super::DrawHUD();
-	if (!Canvas)
+	if (!Canvas || GXLoadScreen::IsSlateOverlayActive())
 	{
 		return;
 	}

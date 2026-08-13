@@ -22,4 +22,8 @@ namespace GXLoadScreen
 		AGXVoxelWorld* World);
 
 	void DrawVersionStrip(UCanvas* Canvas, const FString& Extra);
+
+	/** Slate viewport overlay owns the boot UI; HUD canvas becomes a no-op. */
+	bool IsSlateOverlayActive();
+	void SetSlateOverlayActive(bool bActive);
 }
