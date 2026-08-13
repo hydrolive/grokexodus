@@ -58,6 +58,7 @@ Docs-only / AGENTS-only commits may skip the version bump if no binary/HUD chang
 - **Plugins own simulation:** `GXCore`, `GXVoxel`, `GXCelestial`, `GXConstruct`, `GXPresentation`.
 - Hardware ray tracing is **off** (`r.RayTracing=False`) until terrain is not hundreds of live PMC chunks. Software **Lumen stays on**.
 - Close the editor before `Build.bat` if Live Coding is active.
+- If the editor says **Plugin 'GXCore' failed to load** (`GetLastError=4551`), the Development DLL is a bad image (UBA cache or a VS rebuild while Live Coding was active). Delete `Plugins/*/Binaries/Win64/UnrealEditor-GX*.dll` and `Binaries/Win64/UnrealEditor-GrokExodus.dll`, then rebuild **Development Editor** with `-NoUBA`. Do not launch until that link finishes. DebugGame DLLs are a different binary and will not fix the default editor.
 
 ---
 
