@@ -8,6 +8,7 @@
 #include "GXGravity.h"
 #include "GXMath.h"
 #include "GXVoxel.h"
+#include "GXVersion.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
@@ -77,9 +78,13 @@ void AGXVoxelWorld::SetupDistantSphere()
 void AGXVoxelWorld::BeginPlay()
 {
 	Super::BeginPlay();
+	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s AGXVoxelWorld BeginPlay radius=%.0f stream=%.0f async=%d"),
+		GX_VERSION_STRING, PlanetRadius, StreamRadius, bAsyncMeshing ? 1 : 0);
 	RebuildParams();
 	SetupDistantSphere();
 	WarmupTimeRemaining = WarmupSeconds;
+	LoadObject<UMaterialInterface>(nullptr,
+		TEXT("/Engine/EngineDebugMaterials/VertexColorViewMode_ColorOnly.VertexColorViewMode_ColorOnly"));
 
 	if (bAutoLoadOnBeginPlay)
 	{
@@ -110,6 +115,7 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	{
 		return;
 	}
+	const double T0 = FPlatformTime::Seconds();
 	if (WarmupTimeRemaining > 0.0f)
 	{
 		WarmupTimeRemaining -= DeltaSeconds;
@@ -117,17 +123,42 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 
 	CachedViewerWorld = GetPrimaryInvokerLocation();
 	StreamCooldown -= DeltaSeconds;
+	double StreamMs = 0.0;
 	const float MovedSq = FVector::DistSquared(CachedViewerWorld, LastStreamViewerWorld);
 	if (StreamCooldown <= 0.0f || MovedSq > FMath::Square(600.0f) || WarmupTimeRemaining > 0.0f)
 	{
+		const double S0 = FPlatformTime::Seconds();
 		UpdateStreaming(CachedViewerWorld);
 		LastStreamViewerWorld = CachedViewerWorld;
 		StreamCooldown = StreamInterval;
+		StreamMs = (FPlatformTime::Seconds() - S0) * 1000.0;
 	}
 
+	const double M0 = FPlatformTime::Seconds();
 	DrainPendingMeshes(MaxMeshBuildsPerFrame);
 	const int32 Budget = (WarmupTimeRemaining > 0.0f) ? WarmupMeshBuildsPerFrame : MaxMeshBuildsPerFrame;
+	const int32 QueueBefore = MeshQueue.Num();
 	ProcessMeshQueue(Budget);
+	const double MeshMs = (FPlatformTime::Seconds() - M0) * 1000.0;
+	RefreshLoadState();
+
+	const double TickMs = (FPlatformTime::Seconds() - T0) * 1000.0;
+	static double LogAcc = 0.0;
+	LogAcc += DeltaSeconds;
+	if (LogAcc >= 1.0)
+	{
+		LogAcc = 0.0;
+		UE_LOG(LogGXVoxel, Warning,
+			TEXT("GX-%s perf tick=%.1fms stream=%.1fms meshApply=%.1fms dt=%.1fms fps~%.1f chunks=%d hollow=%d queue=%d->%d ready=%d status=%s"),
+			GX_VERSION_STRING,
+			TickMs, StreamMs, MeshMs,
+			DeltaSeconds * 1000.0,
+			DeltaSeconds > KINDA_SMALL_NUMBER ? 1.0 / DeltaSeconds : 0.0,
+			ChunkActors.Num(), HollowChunks.Num(),
+			QueueBefore, MeshQueue.Num(),
+			bWorldReady ? 1 : 0,
+			*LoadStatus);
+	}
 }
 
 FVector AGXVoxelWorld::GetPrimaryInvokerLocation() const
@@ -303,6 +334,67 @@ int32 AGXVoxelWorld::SelectLOD(float DistanceM) const
 	return 2;
 }
 
+void AGXVoxelWorld::RefreshLoadState()
+{
+	LastMeshedNear = 0;
+	const FVector Local = WorldToLocalMeters(CachedViewerWorld.IsNearlyZero() ? GetPrimaryInvokerLocation() : CachedViewerWorld);
+	const float ChunkM = VoxelSize * FGXVoxelConstants::ChunkSize;
+	const float NearSq = NearFieldRadius * NearFieldRadius;
+	for (const auto& Pair : ChunkActors)
+	{
+		const FVector Center((Pair.Key.X + 0.5f) * ChunkM, (Pair.Key.Y + 0.5f) * ChunkM, (Pair.Key.Z + 0.5f) * ChunkM);
+		if (FVector::DistSquared(Center, Local) > NearSq)
+		{
+			continue;
+		}
+		if (Pair.Value.IsValid() && Pair.Value->HasRenderableMesh())
+		{
+			++LastMeshedNear;
+		}
+	}
+
+	const int32 Queue = MeshQueue.Num() + AsyncInFlight.Num();
+	const float MeshFrac = (LastDesiredNear > 0)
+		? static_cast<float>(LastMeshedNear) / static_cast<float>(LastDesiredNear)
+		: 0.0f;
+	const float QueueFrac = (Queue <= 0) ? 1.0f : FMath::Clamp(1.0f - Queue / 80.0f, 0.0f, 0.85f);
+
+	if (LastMeshedNear == 0)
+	{
+		LoadStatus = TEXT("Generating crust density…");
+		LoadProgress = 0.08f;
+	}
+	else if (MeshFrac < 0.5f)
+	{
+		LoadStatus = FString::Printf(TEXT("Meshing near-field terrain  %d / %d"), LastMeshedNear, FMath::Max(LastDesiredNear, 1));
+		LoadProgress = 0.10f + 0.45f * MeshFrac;
+	}
+	else if (Queue > 8)
+	{
+		LoadStatus = FString::Printf(TEXT("Streaming horizon  %d chunks queued"), Queue);
+		LoadProgress = 0.55f + 0.25f * QueueFrac;
+	}
+	else if (WarmupTimeRemaining > 0.0f)
+	{
+		LoadStatus = TEXT("Cooking collision underfoot…");
+		LoadProgress = 0.82f;
+	}
+	else
+	{
+		LoadStatus = TEXT("Compiling shaders / lighting…");
+		LoadProgress = 0.92f;
+	}
+
+	const bool bNearFilled = LastMeshedNear >= 4 && MeshFrac >= 0.85f;
+	const bool bQueueQuiet = Queue <= 2;
+	if (bNearFilled && bQueueQuiet && WarmupTimeRemaining <= 0.0f)
+	{
+		LoadStatus = TEXT("Ready");
+		LoadProgress = 1.0f;
+		bWorldReady = true;
+	}
+}
+
 void AGXVoxelWorld::InvalidateHollow(const FGXChunkKey& Coord)
 {
 	HollowChunks.Remove(Coord);
@@ -335,6 +427,7 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 	const float ShellOuter = PlanetRadius + MaxRelief + 16.0f;
 	const float ChunkHalf = ChunkM * 0.866f;
 
+	int32 NearWanted = 0;
 	TSet<FGXChunkKey> Desired;
 	for (int32 Z = -ChunkRadius; Z <= ChunkRadius; ++Z)
 	{
@@ -358,6 +451,10 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 					continue;
 				}
 				Desired.Add(CC);
+				if (Dist <= NearFieldRadius)
+				{
+					++NearWanted;
+				}
 				if (HollowChunks.Contains(CC))
 				{
 					continue;
@@ -396,6 +493,7 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 		}
 		ChunkActors.Remove(K);
 	}
+	LastDesiredNear = NearWanted;
 }
 
 void AGXVoxelWorld::FlushMeshQueue(int32 MaxBuilds)
@@ -543,7 +641,10 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 		Proxy->SetActorLocation(LocalMetersToWorld(OriginM));
 	}
 	Proxy->LOD = LOD;
-	Proxy->ApplyMesh(MeshData, OriginM, GMetersToUU, TerrainMaterial, LOD == 0);
+	const FVector ViewerLocal = WorldToLocalMeters(CachedViewerWorld.IsNearlyZero() ? GetPrimaryInvokerLocation() : CachedViewerWorld);
+	const FVector CenterM = OriginM + FVector(ChunkM * 0.5f);
+	const bool bCollision = FVector::Dist(CenterM, ViewerLocal) <= CollisionRadius;
+	Proxy->ApplyMesh(MeshData, OriginM, GMetersToUU, TerrainMaterial, bCollision);
 }
 
 FString AGXVoxelWorld::GetSavePath() const

@@ -19,6 +19,11 @@ AGXVoxelChunkProxy::AGXVoxelChunkProxy()
 	Mesh->SetGenerateOverlapEvents(false);
 	Mesh->SetCanEverAffectNavigation(false);
 	Mesh->bUseComplexAsSimpleCollision = true;
+	Mesh->bAffectDistanceFieldLighting = false;
+	Mesh->bAffectDynamicIndirectLighting = false;
+	Mesh->bCastContactShadow = false;
+	Mesh->SetVisibleInRayTracing(false);
+	Mesh->bNeverDistanceCull = false;
 }
 
 void AGXVoxelChunkProxy::InitializeChunk(const FGXChunkKey& InCoord, int32 InLOD)

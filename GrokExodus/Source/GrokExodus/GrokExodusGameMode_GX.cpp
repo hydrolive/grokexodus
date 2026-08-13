@@ -5,9 +5,11 @@
 #include "GXVoxelWorld.h"
 #include "GXBodyMovement.h"
 #include "GXHUDLayout.h"
+#include "GXVersion.h"
 #include "Voxel/VoxelPlayerController.h"
 #include "Voxel/VoxelSunSetup.h"
 #include "Engine/DirectionalLight.h"
+#include "Engine/Engine.h"
 #include "EngineUtils.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/Character.h"
@@ -22,6 +24,16 @@ AGXGameMode::AGXGameMode()
 void AGXGameMode::BeginPlay()
 {
 	Super::BeginPlay();
+	UE_LOG(LogTemp, Warning, TEXT("********** GX BUILD %s (%s) AGXGameMode **********"), GX_VERSION_STRING, GX_VERSION_DATE);
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(7, 30.f, FColor::Yellow,
+			FString::Printf(TEXT("GX %s — if you do not see this, you are on old binaries"), GX_VERSION_STRING));
+	}
+	if (APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
+	{
+		PC->ClientSetHUD(AGXHUDLayout::StaticClass());
+	}
 	EnsureLighting();
 	EnsureWorld();
 	PlacePlayerOnSurface();

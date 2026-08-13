@@ -7,7 +7,9 @@
 #include "GXExodusCharacter.h"
 #include "GXVoxelWorld.h"
 #include "GXHUDLayout.h"
+#include "GXVersion.h"
 #include "Engine/DirectionalLight.h"
+#include "Engine/Engine.h"
 #include "EngineUtils.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameFramework/PlayerStart.h"
@@ -30,6 +32,16 @@ void AVoxelGameMode::InitGame(const FString& MapName, const FString& Options, FS
 void AVoxelGameMode::BeginPlay()
 {
 	Super::BeginPlay();
+	UE_LOG(LogTemp, Warning, TEXT("********** GX BUILD %s (%s) VoxelGameMode->GX **********"), GX_VERSION_STRING, GX_VERSION_DATE);
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(7, 30.f, FColor::Yellow,
+			FString::Printf(TEXT("GX %s — if you do not see this, you are on old binaries"), GX_VERSION_STRING));
+	}
+	if (APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
+	{
+		PC->ClientSetHUD(AGXHUDLayout::StaticClass());
+	}
 	EnsureLighting();
 
 	// Tear down the legacy planet so it cannot steal streaming / gravity / HUD.

@@ -15,7 +15,19 @@ public:
 	AGXHUDLayout();
 
 	virtual void DrawHUD() override;
+	virtual void Tick(float DeltaSeconds) override;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GX|HUD")
 	bool bDrawDebugStrip = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GX|HUD")
+	float FadeSeconds = 0.9f;
+
+	/** Keep the overlay up at least this long so a fast load is still visible. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GX|HUD")
+	float MinHoldSeconds = 2.5f;
+
+protected:
+	float OverlayAlpha = 1.0f;
+	float Elapsed = 0.0f;
 };

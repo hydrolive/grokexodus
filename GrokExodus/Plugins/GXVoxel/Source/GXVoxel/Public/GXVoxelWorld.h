@@ -99,6 +99,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
 	float NearFieldRadius = 72.0f;
 
+	/** Collision cooked only inside this radius (meters). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
+	float CollisionRadius = 48.0f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
 	int32 MaxMeshBuildsPerFrame = 4;
 
@@ -168,6 +172,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GX|Persist")
 	bool LoadWorld();
 
+	UFUNCTION(BlueprintPure, Category = "GX|Load")
+	bool IsWorldReady() const { return bWorldReady; }
+
+	UFUNCTION(BlueprintPure, Category = "GX|Load")
+	float GetLoadProgress() const { return LoadProgress; }
+
+	UFUNCTION(BlueprintPure, Category = "GX|Load")
+	FString GetLoadStatus() const { return LoadStatus; }
+
 	FVector WorldToLocalMeters(const FVector& WorldCm) const;
 	FVector LocalMetersToWorld(const FVector& LocalM) const;
 
@@ -200,8 +213,14 @@ protected:
 	TArray<FPendingMesh> PendingMeshes;
 
 	float WarmupTimeRemaining = 0.0f;
+	bool bWorldReady = false;
+	float LoadProgress = 0.0f;
+	FString LoadStatus = TEXT("Booting planet…");
+	int32 LastDesiredNear = 0;
+	int32 LastMeshedNear = 0;
 
 	void RebuildParams();
+	void RefreshLoadState();
 	void EnqueueRemesh(const FGXChunkKey& Coord);
 	void ProcessMeshQueue(int32 Budget);
 	void BuildChunkMeshSync(const FGXChunkKey& Coord);

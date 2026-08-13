@@ -14,4 +14,5 @@ class AVoxelPlayerController : public AGrokExodusPlayerController
 
 public:
 	AVoxelPlayerController();
+	virtual void BeginPlay() override;
 };
