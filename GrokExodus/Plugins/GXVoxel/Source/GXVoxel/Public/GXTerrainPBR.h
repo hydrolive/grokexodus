@@ -29,7 +29,7 @@ private:
 	TObjectPtr<UMaterialInstanceDynamic> Mid;
 	TArray<TObjectPtr<UObject>> Roots;
 
-	UTexture2D* LoadJpg(const FString& Path, bool bNormal, TArray<uint8>& OutBGRA, int32& OutW, int32& OutH);
+	bool LoadJpg(const FString& Path, TArray<uint8>& OutBGRA, int32& OutW, int32& OutH);
 	UTexture2DArray* BuildArray(const TArray<TArray<uint8>>& Slices, const TArray<FIntPoint>& Sizes, bool bNormal, const TCHAR* Name);
 	void ResizeBGRA(const TArray<uint8>& Src, int32 SW, int32 SH, TArray<uint8>& Dst, int32 DW, int32 DH) const;
 };
