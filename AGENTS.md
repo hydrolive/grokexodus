@@ -56,7 +56,7 @@ Docs-only / AGENTS-only commits may skip the version bump if no binary/HUD chang
 - **Voxels = terrain. Blocks = everything built.**
 - **Do not rotate or translate the voxel planet actor.** Dual-layer ephemeris: Kepler in math, body-fixed UE scene.
 - **Plugins own simulation:** `GXCore`, `GXVoxel`, `GXCelestial`, `GXConstruct`, `GXPresentation`.
-- Hardware ray tracing is **off** (`r.RayTracing=False`) until terrain is not hundreds of live PMC chunks. Software **Lumen stays on**.
+- Hardware ray tracing is **on** (`r.RayTracing=True`, Lumen HW RT). Only **near-field collision** voxel chunks are visible to RT. Do not enable `RayTracingProxies` on every PMC chunk (that was ~2 FPS).
 - Close the editor before `Build.bat` if Live Coding is active.
 - If the editor says **Plugin 'GXCore' failed to load** (`GetLastError=4551`), the Development DLL is a bad image (UBA cache or a VS rebuild while Live Coding was active). Delete `Plugins/*/Binaries/Win64/UnrealEditor-GX*.dll` and `Binaries/Win64/UnrealEditor-GrokExodus.dll`, then rebuild **Development Editor** with `-NoUBA`. Do not launch until that link finishes. DebugGame DLLs are a different binary and will not fix the default editor.
 

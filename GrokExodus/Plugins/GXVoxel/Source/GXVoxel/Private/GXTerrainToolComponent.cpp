@@ -136,8 +136,8 @@ void UGXTerrainToolComponent::TickComponent(float DeltaTime, ELevelTick TickType
 
 	const FVector Start = GetTraceStart();
 	const FVector Dir = GetTraceDir();
-	FVector PreviewAt = Start + Dir * 250.0f;
 	bool bHit = false;
+	FVector PreviewAt = FVector::ZeroVector;
 	if (World)
 	{
 		const FGXVoxelHit Hit = World->RaycastVoxels(Start, Dir, Reach);
@@ -148,6 +148,15 @@ void UGXTerrainToolComponent::TickComponent(float DeltaTime, ELevelTick TickType
 		}
 	}
 
+	if (PreviewMesh)
+	{
+		PreviewMesh->SetVisibility(bHit);
+	}
+	if (!bHit)
+	{
+		return;
+	}
+
 	const FColor Col = Mode == EGXToolMode::Drill ? FColor(255, 140, 20) : FColor(40, 200, 220);
 	if (bDrawDebugPreview && GetWorld())
 	{
@@ -155,14 +164,12 @@ void UGXTerrainToolComponent::TickComponent(float DeltaTime, ELevelTick TickType
 	}
 	if (PreviewMesh)
 	{
-		PreviewMesh->SetVisibility(true);
 		PreviewMesh->SetWorldLocation(PreviewAt);
 		const float Scale = (BrushRadiusM * 100.0f) / 50.0f;
 		PreviewMesh->SetWorldScale3D(FVector(Scale));
 		if (UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(PreviewMesh->GetMaterial(0)))
 		{
-			MID->SetVectorParameterValue(TEXT("Color"),
-				bHit ? FLinearColor(Col) : FLinearColor(0.7f, 0.7f, 0.7f));
+			MID->SetVectorParameterValue(TEXT("Color"), FLinearColor(Col));
 		}
 	}
 }

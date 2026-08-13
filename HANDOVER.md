@@ -1,18 +1,19 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-13** · On-disk build stamp: **GX 0.4.6**  
+Last updated: **2026-08-13** · On-disk build stamp: **GX 0.4.7**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
-- **GX 0.4.6** brush writes the same voxel corners the mesher samples (0.4.5 left a stamp “grass” layer over holes; place needed stock so add did nothing). Distant sphere hidden. Lit vertex-color + shadows on near chunks. Place works without inventory.
+- **GX 0.4.7** no bounce in dug holes (unstick only if torso is buried; no crust-snap while solid is within 4 m). Brush sphere hidden unless the ray hits terrain. Hardware RT + Lumen HW on; only near collision chunks are in the RT scene.
+- **GX 0.4.6** brush writes the same voxel corners the mesher samples. Distant sphere hidden. Place works without inventory.
 - **GX 0.4.5** crust winding is clockwise (UE/D3D front faces).
 - **GX 0.4.4** spawn/stream follow the pawn. 0.4.3 streamed the +X crust while ignoring a pawn inside `0.4*R`.
-- Full-screen load overlay + progress + status, ≥2.5 s hold, then fade. Gold `GX 0.4.4` stamp stays top-left. Orange/cyan brush sphere in front of the camera.
+- Full-screen load overlay + progress + status, ≥2.5 s hold, then fade. Gold stamp stays top-left. Brush sphere only when aiming at terrain.
 - `GrokExodus/Saved/GX_RUNNING_VERSION.txt` is written when GXPresentation starts. Console: `gx.version`.
-- Terrain: vertex-color debug material (not black). Hardware RT off. Collision only ≤48 m. Hollow chunks not remeshed every frame.
+- Terrain: lit vertex-color. Hardware RT on; voxel RT only on near collision chunks. Collision ≤80 m.
 - Live Coding often blocks `Build.bat`. **Quit the editor** before compiling.
 - **Plugin GXCore failed to load / GetLastError=4551:** Development `UnrealEditor-GXCore.dll` was an unloadable image (UBA served a bad cached link). DebugGame DLL was fine; the editor loads Development. Fix: delete `Plugins/*/Binaries/Win64/UnrealEditor-GX*.dll` and `Binaries/Win64/UnrealEditor-GrokExodus.dll`, rebuild `GrokExodusEditor Win64 Development -NoUBA`. All six project DLLs now map with `LoadLibraryEx(DONT_RESOLVE)`.
 
@@ -28,12 +29,12 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 
 Then Wave D (grids/industry) and Wave E (Earth→Moon).
 
-## Verify after 0.4.6
+## Verify after 0.4.7
 
 1. Close Unreal. Rebuild Development Editor (`-NoUBA` if GXCore 4551 comes back). Reopen.
-2. Gold `GX 0.4.6`. One crust, not two. LMB drill cuts a hole; the grass layer must not stay flat over it.
-3. RMB / G → blue sphere, LMB places a bump (no inventory needed).
-4. Near-field terrain should take sun shadows so relief is readable.
+2. Gold `GX 0.4.7`. Stand in a dug hole — no bouncing out.
+3. Look at the sky: brush sphere gone. Aim at dirt: sphere on the surface only.
+4. Sun/Lumen should shadow the near crust. If FPS collapses, check `SetVisibleInRayTracing` stayed false on far chunks.
 
 If FPS still ~2 after that log exists, use the perf line (`tick` / `stream` / `meshApply` / `chunks`) to see if it is CPU meshing vs remaining Lumen/DF cost.
 
@@ -46,7 +47,8 @@ See `AGENTS.md`:
 
 ## Recent commits
 
-- (this) GX 0.4.6 brush samples match mesher; place without stock; lit shadows
+- (this) GX 0.4.7 hole standing, hide miss brush, hardware RT on near chunks
+- `037bc13` GX 0.4.6 brush samples match mesher; place without stock; lit shadows
 - `fe8d59f` GX 0.4.5 flip crust winding so surface faces are visible
 - `976ab84` GX 0.4.4 stand on the crust, cook collision underfoot, show brush sphere
 - `f01fa82` GX 0.4.3 load screen counts hollow chunks so it can reach Ready

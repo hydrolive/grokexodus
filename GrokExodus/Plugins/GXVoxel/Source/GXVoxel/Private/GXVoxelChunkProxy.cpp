@@ -136,6 +136,7 @@ void AGXVoxelChunkProxy::ApplyMesh(
 	Mesh->SetCastShadow(bCollision);
 	Mesh->bCastDynamicShadow = bCollision;
 	Mesh->bCastContactShadow = bCollision;
+	Mesh->SetVisibleInRayTracing(bCollision);
 }
 
 void AGXVoxelChunkProxy::ClearMesh()

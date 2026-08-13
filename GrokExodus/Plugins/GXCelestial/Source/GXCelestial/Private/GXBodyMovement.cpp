@@ -19,8 +19,8 @@ UGXBodyMovement::UGXBodyMovement()
 	MaxAcceleration = 2048.0f;
 	JumpZVelocity = 420.0f;
 	MaxStepHeight = 50.0f;
-	SetWalkableFloorAngle(60.0f);
-	bMaintainHorizontalGroundVelocity = true;
+	SetWalkableFloorAngle(80.0f);
+	bMaintainHorizontalGroundVelocity = false;
 }
 
 void UGXBodyMovement::BeginPlay()
@@ -172,8 +172,9 @@ void UGXBodyMovement::TickComponent(float DeltaTime, ELevelTick TickType, FActor
 
 	if (bSnapWhenAirborne && FieldActor)
 	{
-		const bool bAir = !CurrentFloor.IsWalkableFloor();
-		if (bAir)
+		const bool bNoFloor = !CurrentFloor.IsWalkableFloor();
+		const bool bInShallowHole = bNoFloor && HasSolidWithinMeters(4.0f);
+		if (bNoFloor && !bInShallowHole)
 		{
 			AirborneSeconds += DeltaTime;
 			if (AirborneSeconds >= AirborneSnapSeconds)
@@ -243,7 +244,8 @@ void UGXBodyMovement::UnstickIfBuried(float DeltaSeconds)
 		const FVector3d M(P.X * 0.01, P.Y * 0.01, P.Z * 0.01);
 		return Q->SampleDensityMeters(M);
 	};
-	if (Dens(Loc) <= 0.05f && Dens(Loc - Up * Half) <= 0.05f)
+	// Feet in the floor is standing, not buried. Only eject if the torso is inside solid.
+	if (Dens(Loc) <= 0.05f)
 	{
 		return;
 	}
@@ -263,4 +265,26 @@ void UGXBodyMovement::UnstickIfBuried(float DeltaSeconds)
 		Velocity += Up * Into;
 	}
 	(void)DeltaSeconds;
+}
+
+bool UGXBodyMovement::HasSolidWithinMeters(float MaxMeters) const
+{
+	IGXVoxelQuery* Q = Cast<IGXVoxelQuery>(FieldActor);
+	if (!Q || !UpdatedComponent)
+	{
+		return false;
+	}
+	const FVector Loc = UpdatedComponent->GetComponentLocation();
+	const FVector Down = GetGravityDir();
+	const float MaxCm = FMath::Max(MaxMeters, 0.5f) * 100.0f;
+	for (float D = 25.0f; D <= MaxCm; D += 25.0f)
+	{
+		const FVector P = Loc + Down * D;
+		const FVector3d M(P.X * 0.01, P.Y * 0.01, P.Z * 0.01);
+		if (Q->SampleDensityMeters(M) > 0.0f)
+		{
+			return true;
+		}
+	}
+	return false;
 }

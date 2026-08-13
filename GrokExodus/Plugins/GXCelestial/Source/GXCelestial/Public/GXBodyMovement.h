@@ -57,6 +57,7 @@ protected:
 	void UpdateGravity();
 	void AlignCapsule(float DeltaSeconds);
 	void UnstickIfBuried(float DeltaSeconds);
+	bool HasSolidWithinMeters(float MaxMeters) const;
 
 	float AirborneSeconds = 0.0f;
 };
