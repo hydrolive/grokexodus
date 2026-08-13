@@ -28,4 +28,5 @@ public:
 	void ApplyMesh(const FGXMeshBuffers& Buffers, const FVector& ChunkOriginMeters, float MetersToCm, UMaterialInterface* Material, bool bCollision);
 	void ClearMesh();
 	bool HasRenderableMesh() const;
+	bool HasCollision() const;
 };

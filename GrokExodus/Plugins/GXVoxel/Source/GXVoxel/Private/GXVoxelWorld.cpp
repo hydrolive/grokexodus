@@ -18,6 +18,10 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "UObject/ConstructorHelpers.h"
+#include "GXBodyMovement.h"
+#include "GameFramework/Character.h"
+#include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/Pawn.h"
 
 static constexpr float GMetersToUU = 100.0f;
 static constexpr float GUUToMeters = 0.01f;
@@ -122,6 +126,11 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	}
 
 	CachedViewerWorld = GetPrimaryInvokerLocation();
+	if (DistantPlanetSphere)
+	{
+		const float PlayerR = WorldToLocalMeters(CachedViewerWorld).Size();
+		DistantPlanetSphere->SetVisibility(FMath::Abs(PlayerR - PlanetRadius) > StreamRadius * 3.0f);
+	}
 	StreamCooldown -= DeltaSeconds;
 	double StreamMs = 0.0;
 	const float MovedSq = FVector::DistSquared(CachedViewerWorld, LastStreamViewerWorld);
@@ -149,7 +158,7 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	{
 		LogAcc = 0.0;
 		UE_LOG(LogGXVoxel, Warning,
-			TEXT("GX-%s perf tick=%.1fms stream=%.1fms meshApply=%.1fms dt=%.1fms fps~%.1f chunks=%d hollow=%d queue=%d->%d ready=%d status=%s"),
+			TEXT("GX-%s perf tick=%.1fms stream=%.1fms meshApply=%.1fms dt=%.1fms fps~%.1f chunks=%d hollow=%d queue=%d->%d ready=%d status=%s playerR=%.0fm"),
 			GX_VERSION_STRING,
 			TickMs, StreamMs, MeshMs,
 			DeltaSeconds * 1000.0,
@@ -157,7 +166,8 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			ChunkActors.Num(), HollowChunks.Num(),
 			QueueBefore, MeshQueue.Num(),
 			bWorldReady ? 1 : 0,
-			*LoadStatus);
+			*LoadStatus,
+			WorldToLocalMeters(CachedViewerWorld).Size());
 	}
 }
 
@@ -167,10 +177,16 @@ FVector AGXVoxelWorld::GetPrimaryInvokerLocation() const
 	{
 		if (APawn* Pawn = UGameplayStatics::GetPlayerPawn(World, 0))
 		{
-			const float Dist = WorldToLocalMeters(Pawn->GetActorLocation()).Size();
-			if (Dist > PlanetRadius * 0.4f)
+			return Pawn->GetActorLocation();
+		}
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			if (const UGXVoxelInvokerComponent* Inv = It->FindComponentByClass<UGXVoxelInvokerComponent>())
 			{
-				return Pawn->GetActorLocation();
+				if (Inv->bEnabled)
+				{
+					return Inv->GetInvokerWorldLocation();
+				}
 			}
 		}
 	}
@@ -178,7 +194,9 @@ FVector AGXVoxelWorld::GetPrimaryInvokerLocation() const
 	{
 		return CachedViewerWorld;
 	}
-	return FindSurfaceWorldLocation(FVector(1, 0, 0)) + FVector(200, 0, 0);
+	const FVector Surface = FindSurfaceWorldLocation(FVector(1, 0, 0));
+	const FVector Up = -GetGravityDirectionAt(Surface);
+	return Surface + Up * 200.0f;
 }
 
 FVector AGXVoxelWorld::WorldToLocalMeters(const FVector& WorldCm) const
@@ -475,8 +493,9 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 					continue;
 				}
 				const TWeakObjectPtr<AGXVoxelChunkProxy>* Existing = ChunkActors.Find(CC);
-				const bool bNeedMesh = !Existing || !Existing->IsValid() || !Existing->Get()->HasRenderableMesh();
-				if (bNeedMesh)
+				const bool bHaveMesh = Existing && Existing->IsValid() && Existing->Get()->HasRenderableMesh();
+				const bool bNeedCollision = Dist <= CollisionRadius && bHaveMesh && !Existing->Get()->HasCollision();
+				if (!bHaveMesh || bNeedCollision)
 				{
 					EnqueueRemesh(CC);
 				}
@@ -658,8 +677,59 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 	Proxy->LOD = LOD;
 	const FVector ViewerLocal = WorldToLocalMeters(CachedViewerWorld.IsNearlyZero() ? GetPrimaryInvokerLocation() : CachedViewerWorld);
 	const FVector CenterM = OriginM + FVector(ChunkM * 0.5f);
-	const bool bCollision = FVector::Dist(CenterM, ViewerLocal) <= CollisionRadius;
+	const bool bCollision = FVector::Dist(CenterM, ViewerLocal) <= CollisionRadius || WarmupTimeRemaining > 0.0f;
 	Proxy->ApplyMesh(MeshData, OriginM, GMetersToUU, TerrainMaterial, bCollision);
+}
+
+bool AGXVoxelWorld::PlacePawnOnSurface(APawn* Pawn, FVector RadialHint)
+{
+	if (!Pawn || !Volume)
+	{
+		return false;
+	}
+
+	const FVector Surface = FindSurfaceWorldLocation(RadialHint);
+	const FVector Up = -GetGravityDirectionAt(Surface);
+	const FVector SpawnLoc = Surface + Up * 180.0f;
+	CachedViewerWorld = SpawnLoc;
+	LastStreamViewerWorld = FVector(1e12f, 0, 0);
+	UpdateStreaming(SpawnLoc);
+	FlushMeshQueue(256);
+
+	Pawn->SetActorLocation(SpawnLoc, false, nullptr, ETeleportType::TeleportPhysics);
+	FVector Forward = FVector::VectorPlaneProject(FVector(0, 1, 0), Up).GetSafeNormal();
+	if (Forward.IsNearlyZero())
+	{
+		Forward = FVector::VectorPlaneProject(FVector(0, 0, 1), Up).GetSafeNormal();
+	}
+	Pawn->SetActorRotation(FRotationMatrix::MakeFromXZ(Forward, Up).Rotator());
+
+	if (ACharacter* Char = Cast<ACharacter>(Pawn))
+	{
+		if (UGXBodyMovement* Move = Cast<UGXBodyMovement>(Char->GetCharacterMovement()))
+		{
+			Move->TryFindField();
+			Move->SnapToSurface(true);
+		}
+		else if (UCharacterMovementComponent* CMC = Char->GetCharacterMovement())
+		{
+			CMC->StopMovementImmediately();
+			CMC->SetGravityDirection(GetGravityDirectionAt(Pawn->GetActorLocation()));
+			CMC->SetMovementMode(MOVE_Walking);
+		}
+	}
+
+	CachedViewerWorld = Pawn->GetActorLocation();
+	UpdateStreaming(CachedViewerWorld);
+	FlushMeshQueue(96);
+
+	UE_LOG(LogGXVoxel, Warning,
+		TEXT("GX-%s PlacePawnOnSurface r=%.1fm want=%.1fm loc=%s"),
+		GX_VERSION_STRING,
+		WorldToLocalMeters(Pawn->GetActorLocation()).Size(),
+		PlanetRadius,
+		*Pawn->GetActorLocation().ToCompactString());
+	return true;
 }
 
 FString AGXVoxelWorld::GetSavePath() const

@@ -1,14 +1,14 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-13** · On-disk build stamp: **GX 0.4.3**  
+Last updated: **2026-08-13** · On-disk build stamp: **GX 0.4.4**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
-- **GX 0.4.3** boot UI is a **Slate viewport overlay**. Hollow near-field chunks count as resolved so the load screen can finish (0.4.2 stuck at 16/64 21% while the world was already meshed).
-- Full-screen load overlay + progress + status, ≥2.5 s hold, then fade. Gold `GX 0.4.3` stamp stays top-left.
+- **GX 0.4.4** spawn/stream follow the pawn. 0.4.3 streamed the +X crust while ignoring a pawn inside `0.4*R`, so the player saw distant voxels, had no near collision, and no brush sphere (`bDrawDebugPreview` was off).
+- Full-screen load overlay + progress + status, ≥2.5 s hold, then fade. Gold `GX 0.4.4` stamp stays top-left. Orange/cyan brush sphere in front of the camera.
 - `GrokExodus/Saved/GX_RUNNING_VERSION.txt` is written when GXPresentation starts. Console: `gx.version`.
 - Terrain: vertex-color debug material (not black). Hardware RT off. Collision only ≤48 m. Hollow chunks not remeshed every frame.
 - Live Coding often blocks `Build.bat`. **Quit the editor** before compiling.
@@ -26,12 +26,12 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 
 Then Wave D (grids/industry) and Wave E (Earth→Moon).
 
-## Verify after 0.4.3
+## Verify after 0.4.4
 
-1. Close Unreal. Rebuild in VS. Reopen.
-2. PIE: gold `GX 0.4.3` top-left + dark load screen that **fades** after ≥2.5 s (must not stick at 16/64).
-3. Log: `ready=1 status=Ready` and `GX-0.4.3 perf tick=…`.
-4. `Saved/GX_RUNNING_VERSION.txt` says `GX 0.4.3`.
+1. Close Unreal. Rebuild Development Editor (`-NoUBA` if GXCore 4551 comes back). Reopen.
+2. PIE: gold `GX 0.4.4`. Standing **on** colored voxel crust, not looking at it from far away.
+3. WASD walks on the planet. Orange drill sphere in front of the camera; LMB digs.
+4. Log: `PlacePawnOnSurface r≈4000m` and `playerR≈4000`.
 
 If FPS still ~2 after that log exists, use the perf line (`tick` / `stream` / `meshApply` / `chunks`) to see if it is CPU meshing vs remaining Lumen/DF cost.
 
@@ -44,7 +44,8 @@ See `AGENTS.md`:
 
 ## Recent commits
 
-- (this) GX 0.4.3 load screen counts hollow chunks so it can reach Ready
+- (this) GX 0.4.4 stand on the crust, cook collision underfoot, show brush sphere
+- `f01fa82` GX 0.4.3 load screen counts hollow chunks so it can reach Ready
 - `e84e128` GX 0.4.2 fix LNK2019: VoxelHUD no longer links unexported GXLoadScreen
 - `745b5c4` GX 0.4.1 Slate viewport overlay — load screen + version without HUD
 - `3894e37` GX 0.4.0 loading overlay, build stamp, perf traces

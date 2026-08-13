@@ -40,6 +40,11 @@ bool AGXVoxelChunkProxy::HasRenderableMesh() const
 	return Mesh && Mesh->GetNumSections() > 0;
 }
 
+bool AGXVoxelChunkProxy::HasCollision() const
+{
+	return HasRenderableMesh() && Mesh && Mesh->GetCollisionEnabled() != ECollisionEnabled::NoCollision;
+}
+
 void AGXVoxelChunkProxy::ApplyMesh(
 	const FGXMeshBuffers& Buffers,
 	const FVector& ChunkOriginMeters,

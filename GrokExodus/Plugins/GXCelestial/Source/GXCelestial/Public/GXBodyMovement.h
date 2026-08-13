@@ -29,6 +29,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GX|Gravity")
 	bool bUnstickFromSolid = true;
 
+	/** If the pawn is airborne over the planet for this long, snap back to the crust. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GX|Gravity")
+	bool bSnapWhenAirborne = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GX|Gravity")
+	float AirborneSnapSeconds = 1.1f;
+
 	UFUNCTION(BlueprintCallable, Category = "GX|Gravity")
 	FVector GetGravityDir() const;
 
@@ -50,4 +57,6 @@ protected:
 	void UpdateGravity();
 	void AlignCapsule(float DeltaSeconds);
 	void UnstickIfBuried(float DeltaSeconds);
+
+	float AirborneSeconds = 0.0f;
 };

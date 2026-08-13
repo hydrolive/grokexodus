@@ -169,6 +169,24 @@ void UGXBodyMovement::TickComponent(float DeltaTime, ELevelTick TickType, FActor
 		AlignCapsule(DeltaTime);
 	}
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+
+	if (bSnapWhenAirborne && FieldActor)
+	{
+		const bool bAir = !CurrentFloor.IsWalkableFloor();
+		if (bAir)
+		{
+			AirborneSeconds += DeltaTime;
+			if (AirborneSeconds >= AirborneSnapSeconds)
+			{
+				SnapToSurface(true);
+				AirborneSeconds = 0.0f;
+			}
+		}
+		else
+		{
+			AirborneSeconds = 0.0f;
+		}
+	}
 }
 
 void UGXBodyMovement::AlignCapsule(float DeltaSeconds)

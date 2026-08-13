@@ -76,10 +76,13 @@ void AVoxelGameMode::BeginPlay()
 		}
 	}
 
+	PlacePlayerOnSurface();
 	FTimerHandle Handle;
-	GetWorldTimerManager().SetTimer(Handle, this, &AVoxelGameMode::PlacePlayerOnSurface, 0.2f, false);
+	GetWorldTimerManager().SetTimer(Handle, this, &AVoxelGameMode::PlacePlayerOnSurface, 0.25f, false);
 	FTimerHandle Handle2;
 	GetWorldTimerManager().SetTimer(Handle2, this, &AVoxelGameMode::PlacePlayerOnSurface, 1.2f, false);
+	FTimerHandle Handle3;
+	GetWorldTimerManager().SetTimer(Handle3, this, &AVoxelGameMode::PlacePlayerOnSurface, 2.4f, false);
 }
 
 void AVoxelGameMode::EnsureLighting()
@@ -148,36 +151,16 @@ void AVoxelGameMode::PlacePlayerOnSurface()
 		return;
 	}
 
-	const FVector Surface = WorldActor->FindSurfaceWorldLocation(FVector(1.0f, 0.0f, 0.0f));
-	const FVector Up = -WorldActor->GetGravityDirectionAt(Surface);
-	WorldActor->UpdateStreaming(Surface + Up * 200.0f);
-	WorldActor->FlushMeshQueue(256);
-
-	const FVector SpawnLoc = Surface + Up * 180.0f;
-	Pawn->SetActorLocation(SpawnLoc, false, nullptr, ETeleportType::TeleportPhysics);
-
-	FVector Forward = FVector::VectorPlaneProject(FVector(0, 1, 0), Up).GetSafeNormal();
-	if (Forward.IsNearlyZero())
-	{
-		Forward = FVector::VectorPlaneProject(FVector(0, 0, 1), Up).GetSafeNormal();
-	}
-	Pawn->SetActorRotation(FRotationMatrix::MakeFromXZ(Forward, Up).Rotator());
-
-	if (ACharacter* Char = Cast<ACharacter>(Pawn))
-	{
-		if (UCharacterMovementComponent* CMC = Char->GetCharacterMovement())
-		{
-			CMC->StopMovementImmediately();
-			CMC->SetGravityDirection(WorldActor->GetGravityDirectionAt(SpawnLoc));
-			CMC->SetMovementMode(MOVE_Walking);
-		}
-	}
+	WorldActor->PlacePawnOnSurface(Pawn, FVector(1.0f, 0.0f, 0.0f));
 	if (AGrokExodusSurvivor* S = Cast<AGrokExodusSurvivor>(Pawn))
 	{
+		const FVector Up = -WorldActor->GetGravityDirectionAt(Pawn->GetActorLocation());
+		FVector Forward = FVector::VectorPlaneProject(FVector(0, 1, 0), Up).GetSafeNormal();
+		if (Forward.IsNearlyZero())
+		{
+			Forward = FVector::VectorPlaneProject(FVector(0, 0, 1), Up).GetSafeNormal();
+		}
 		S->LookHoriz = Forward;
 		S->LookPitch = 0.f;
 	}
-
-	WorldActor->UpdateStreaming(Pawn->GetActorLocation());
-	WorldActor->FlushMeshQueue(96);
 }

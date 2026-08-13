@@ -15,6 +15,7 @@ class AGXVoxelChunkProxy;
 class UGXVoxelInvokerComponent;
 class UMaterialInterface;
 class UStaticMeshComponent;
+class APawn;
 
 USTRUCT(BlueprintType)
 struct FGXVoxelHit
@@ -101,7 +102,7 @@ public:
 
 	/** Collision cooked only inside this radius (meters). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	float CollisionRadius = 48.0f;
+	float CollisionRadius = 80.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
 	int32 MaxMeshBuildsPerFrame = 4;
@@ -165,6 +166,10 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "GX|Stream")
 	void FlushMeshQueue(int32 MaxBuilds = 64);
+
+	/** Teleport a pawn onto the crust, stream/collision-cook underfoot, and snap movement. */
+	UFUNCTION(BlueprintCallable, Category = "GX|Stream")
+	bool PlacePawnOnSurface(APawn* Pawn, FVector RadialHint = FVector(1, 0, 0));
 
 	UFUNCTION(BlueprintCallable, Category = "GX|Persist")
 	bool SaveWorld();

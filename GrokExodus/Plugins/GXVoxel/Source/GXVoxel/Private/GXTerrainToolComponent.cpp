@@ -2,9 +2,12 @@
 
 #include "GXTerrainToolComponent.h"
 #include "Camera/CameraComponent.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
 #include "EngineUtils.h"
 #include "DrawDebugHelpers.h"
 #include "GameFramework/Pawn.h"
+#include "Materials/MaterialInstanceDynamic.h"
 
 UGXTerrainToolComponent::UGXTerrainToolComponent()
 {
@@ -15,6 +18,39 @@ void UGXTerrainToolComponent::BeginPlay()
 {
 	Super::BeginPlay();
 	TryFindWorld();
+
+	if (AActor* Owner = GetOwner())
+	{
+		PreviewMesh = NewObject<UStaticMeshComponent>(Owner, TEXT("GXBrushPreview"));
+		PreviewMesh->SetupAttachment(Owner->GetRootComponent());
+		PreviewMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		PreviewMesh->SetCanEverAffectNavigation(false);
+		PreviewMesh->SetCastShadow(false);
+		PreviewMesh->SetAbsolute(true, true, true);
+		if (UStaticMesh* Sphere = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere")))
+		{
+			PreviewMesh->SetStaticMesh(Sphere);
+		}
+		if (UMaterialInterface* Base = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial")))
+		{
+			if (UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(Base, this))
+			{
+				MID->SetVectorParameterValue(TEXT("Color"), FLinearColor(1.f, 0.45f, 0.1f));
+				PreviewMesh->SetMaterial(0, MID);
+			}
+		}
+		PreviewMesh->RegisterComponent();
+	}
+}
+
+void UGXTerrainToolComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (PreviewMesh)
+	{
+		PreviewMesh->DestroyComponent();
+		PreviewMesh = nullptr;
+	}
+	Super::EndPlay(EndPlayReason);
 }
 
 void UGXTerrainToolComponent::TryFindWorld()
@@ -97,13 +133,35 @@ void UGXTerrainToolComponent::TickComponent(float DeltaTime, ELevelTick TickType
 		FireCooldown = 0.08f;
 	}
 
-	if (bDrawDebugPreview && World && GetWorld())
+	const FVector Start = GetTraceStart();
+	const FVector Dir = GetTraceDir();
+	FVector PreviewAt = Start + Dir * 250.0f;
+	bool bHit = false;
+	if (World)
 	{
-		const FGXVoxelHit Hit = World->RaycastVoxels(GetTraceStart(), GetTraceDir(), Reach);
+		const FGXVoxelHit Hit = World->RaycastVoxels(Start, Dir, Reach);
 		if (Hit.bHit)
 		{
-			DrawDebugSphere(GetWorld(), Hit.Location, BrushRadiusM * 100.0f, 8,
-				Mode == EGXToolMode::Drill ? FColor::Orange : FColor::Cyan, false, 0.f, 0, 1.5f);
+			PreviewAt = Hit.Location;
+			bHit = true;
+		}
+	}
+
+	const FColor Col = Mode == EGXToolMode::Drill ? FColor(255, 140, 20) : FColor(40, 200, 220);
+	if (bDrawDebugPreview && GetWorld())
+	{
+		DrawDebugSphere(GetWorld(), PreviewAt, BrushRadiusM * 100.0f, 16, Col, false, 0.f, 0, 2.0f);
+	}
+	if (PreviewMesh)
+	{
+		PreviewMesh->SetVisibility(true);
+		PreviewMesh->SetWorldLocation(PreviewAt);
+		const float Scale = (BrushRadiusM * 100.0f) / 50.0f;
+		PreviewMesh->SetWorldScale3D(FVector(Scale));
+		if (UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(PreviewMesh->GetMaterial(0)))
+		{
+			MID->SetVectorParameterValue(TEXT("Color"),
+				bHit ? FLinearColor(Col) : FLinearColor(0.7f, 0.7f, 0.7f));
 		}
 	}
 }

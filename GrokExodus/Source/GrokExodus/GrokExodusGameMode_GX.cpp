@@ -105,31 +105,13 @@ void AGXGameMode::PlacePlayerOnSurface()
 		return;
 	}
 
-	const FVector Surface = VoxelWorld->FindSurfaceWorldLocation(FVector(1, 0, 0));
-	const FVector Up = -VoxelWorld->GetGravityDirectionAt(Surface);
-	VoxelWorld->UpdateStreaming(Surface + Up * 200.0f);
-	VoxelWorld->FlushMeshQueue(256);
-
-	const FVector SpawnLoc = Surface + Up * 180.0f;
-	Pawn->SetActorLocation(SpawnLoc, false, nullptr, ETeleportType::TeleportPhysics);
-	FVector Forward = FVector::VectorPlaneProject(FVector(0, 1, 0), Up).GetSafeNormal();
-	if (Forward.IsNearlyZero()) Forward = FVector::VectorPlaneProject(FVector(0, 0, 1), Up).GetSafeNormal();
-	Pawn->SetActorRotation(FRotationMatrix::MakeFromXZ(Forward, Up).Rotator());
-
-	if (ACharacter* Char = Cast<ACharacter>(Pawn))
-	{
-		if (UGXBodyMovement* Move = Cast<UGXBodyMovement>(Char->GetCharacterMovement()))
-		{
-			Move->TryFindField();
-			Move->StopMovementImmediately();
-			Move->SnapToSurface(true);
-		}
-	}
+	VoxelWorld->PlacePawnOnSurface(Pawn, FVector(1, 0, 0));
 	if (AGrokExodusSurvivor* S = Cast<AGrokExodusSurvivor>(Pawn))
 	{
+		const FVector Up = -VoxelWorld->GetGravityDirectionAt(Pawn->GetActorLocation());
+		FVector Forward = FVector::VectorPlaneProject(FVector(0, 1, 0), Up).GetSafeNormal();
+		if (Forward.IsNearlyZero()) Forward = FVector::VectorPlaneProject(FVector(0, 0, 1), Up).GetSafeNormal();
 		S->LookHoriz = Forward;
 		S->LookPitch = 0.f;
 	}
-	VoxelWorld->UpdateStreaming(Pawn->GetActorLocation());
-	VoxelWorld->FlushMeshQueue(64);
 }
