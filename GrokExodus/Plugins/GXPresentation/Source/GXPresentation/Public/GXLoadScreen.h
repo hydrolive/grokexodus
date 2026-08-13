@@ -10,7 +10,7 @@ class AGXVoxelWorld;
 namespace GXLoadScreen
 {
 	/** Full-screen overlay + bar. Returns remaining overlay alpha. */
-	float Draw(
+	GXPRESENTATION_API float Draw(
 		AHUD* HUD,
 		UCanvas* Canvas,
 		float OverlayAlpha,
@@ -21,9 +21,9 @@ namespace GXLoadScreen
 		float DeltaSeconds,
 		AGXVoxelWorld* World);
 
-	void DrawVersionStrip(UCanvas* Canvas, const FString& Extra);
+	GXPRESENTATION_API void DrawVersionStrip(UCanvas* Canvas, const FString& Extra);
 
 	/** Slate viewport overlay owns the boot UI; HUD canvas becomes a no-op. */
-	bool IsSlateOverlayActive();
-	void SetSlateOverlayActive(bool bActive);
+	GXPRESENTATION_API bool IsSlateOverlayActive();
+	GXPRESENTATION_API void SetSlateOverlayActive(bool bActive);
 }
