@@ -94,10 +94,11 @@ void AGXVoxelWorld::BeginPlay()
 	{
 		TerrainMaterial = PBR;
 	}
-	else
+	else if (UMaterialInterface* VC = LoadObject<UMaterialInterface>(nullptr,
+		TEXT("/Game/Voxel/Materials/M_VoxelTerrain_VertexColor.M_VoxelTerrain_VertexColor")))
 	{
-		LoadObject<UMaterialInterface>(nullptr,
-			TEXT("/Engine/EngineDebugMaterials/VertexColorMaterial.VertexColorMaterial"));
+		TerrainMaterial = VC;
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXTerrainPBR missing — using vertex-color material"));
 	}
 
 	if (bAutoLoadOnBeginPlay)

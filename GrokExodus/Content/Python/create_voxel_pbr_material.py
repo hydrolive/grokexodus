@@ -1,73 +1,29 @@
 """
-Create /Game/Voxel/Materials/M_VoxelTerrain_PBR
-Lit triplanar-ish atlas blend. C++ binds AlbedoAtlas / RoughAtlas (4x2 of 512).
+Create / refresh /Game/Voxel/Materials/M_VoxelTerrain_PBR
+
+GRAPH ONLY. Do not add MaterialExpressionCustom.
+
+UE 5.8 never injects Custom-node input names (WorldNormal, MatId, AlbedoAtlas, …)
+into generated Material.ush. That produced the undeclared-identifier flood and
+forced the default gray material in PIE.
+
+C++ (FGXTerrainPBR) binds:
+  AlbedoAtlas / RoughAtlas   4x2 of 512px Imagine tiles (ids 0-7)
+  TileScale, SlopeStart, SlopeEnd
+
+UV0.x is the atlas slot. The mesher remaps ores/bedrock (8-12) into 0-7.
+
+In the editor Output Log:
+  py "E:/Github/grokexodus/GrokExodus/Content/Python/create_voxel_pbr_material.py"
+
+Close the material editor first. Success log:
+  [GXPBR] OK graph-only /Game/Voxel/Materials/M_VoxelTerrain_PBR custom=0
 """
 import unreal
 
 ASSET = "/Game/Voxel/Materials/M_VoxelTerrain_PBR"
 PACKAGE = "/Game/Voxel/Materials"
 NAME = "M_VoxelTerrain_PBR"
-
-ALBEDO_CODE = r"""
-int id = (int)round(MatId);
-if (id <= 0) id = 1;
-if (id == 8 || id == 9 || id == 12) id = 2;
-if (id == 10) id = 3;
-if (id == 11) id = 5;
-id = clamp(id, 0, 7);
-int rock = 2;
-float3 N = normalize(WorldNormal);
-float3 Radial = normalize(WorldPos);
-float slope = 1.0 - saturate(dot(N, Radial));
-float wRock = saturate((slope - SlopeStart) / max(SlopeEnd - SlopeStart, 0.001));
-float3 A = abs(N);
-A = A / max(A.x + A.y + A.z, 0.0001);
-float3 P = WorldPos * Tile;
-float2 t0 = float2(frac(P.y), frac(P.z));
-float2 t1 = float2(frac(P.x), frac(P.z));
-float2 t2 = float2(frac(P.x), frac(P.y));
-t0 = t0 * 0.96 + 0.02;
-t1 = t1 * 0.96 + 0.02;
-t2 = t2 * 0.96 + 0.02;
-float2 c0 = float2(fmod((float)id, 4.0), floor((float)id / 4.0));
-float2 c1 = float2(fmod((float)rock, 4.0), floor((float)rock / 4.0));
-float2 s = float2(0.25, 0.5);
-float3 a0 = Texture2DSample(AlbedoAtlas, AlbedoAtlasSampler, (c0 + t0) * s).rgb * A.x
-          + Texture2DSample(AlbedoAtlas, AlbedoAtlasSampler, (c0 + t1) * s).rgb * A.y
-          + Texture2DSample(AlbedoAtlas, AlbedoAtlasSampler, (c0 + t2) * s).rgb * A.z;
-float3 a1 = Texture2DSample(AlbedoAtlas, AlbedoAtlasSampler, (c1 + t0) * s).rgb * A.x
-          + Texture2DSample(AlbedoAtlas, AlbedoAtlasSampler, (c1 + t1) * s).rgb * A.y
-          + Texture2DSample(AlbedoAtlas, AlbedoAtlasSampler, (c1 + t2) * s).rgb * A.z;
-float h0 = Texture2DSample(RoughAtlas, RoughAtlasSampler, (c0 + t2) * s).r;
-float h1 = Texture2DSample(RoughAtlas, RoughAtlasSampler, (c1 + t2) * s).r;
-float hw = saturate((h1 - h0 + wRock) / max(HeightSharp, 0.05));
-return lerp(a0, a1, hw);
-"""
-
-ROUGH_CODE = r"""
-int id = (int)round(MatId);
-if (id <= 0) id = 1;
-if (id == 8 || id == 9 || id == 12) id = 2;
-if (id == 10) id = 3;
-if (id == 11) id = 5;
-id = clamp(id, 0, 7);
-float3 N = normalize(WorldNormal);
-float3 Radial = normalize(WorldPos);
-float slope = 1.0 - saturate(dot(N, Radial));
-float wRock = saturate((slope - SlopeStart) / max(SlopeEnd - SlopeStart, 0.001));
-float3 P = WorldPos * Tile;
-float2 t = float2(frac(P.x), frac(P.y)) * 0.96 + 0.02;
-float2 c0 = float2(fmod((float)id, 4.0), floor((float)id / 4.0));
-float2 c1 = float2(2.0, 0.0);
-float2 s = float2(0.25, 0.5);
-float r0 = Texture2DSample(RoughAtlas, RoughAtlasSampler, (c0 + t) * s).r;
-float r1 = Texture2DSample(RoughAtlas, RoughAtlasSampler, (c1 + t) * s).r;
-return lerp(r0, r1, wRock);
-"""
-
-NORMAL_CODE = r"""
-return normalize(WorldNormal);
-"""
 
 
 def _shading_lit():
@@ -77,124 +33,304 @@ def _shading_lit():
     return None
 
 
-def _cmot(*names):
-    enum = getattr(unreal, "CustomMaterialOutputType", None)
-    if not enum:
-        return None
-    for n in names:
-        if hasattr(enum, n):
-            return getattr(enum, n)
-    return None
+def _close_editors(asset):
+    if not asset:
+        return
+    try:
+        aes = unreal.get_editor_subsystem(unreal.AssetEditorSubsystem)
+        if aes:
+            aes.close_all_editors_for_asset(asset)
+            unreal.log("[GXPBR] closed open editors for the material")
+    except Exception as err:
+        unreal.log_warning("[GXPBR] close editors: %s" % err)
+
+
+def _set(obj, prop, value):
+    try:
+        obj.set_editor_property(prop, value)
+        return True
+    except Exception:
+        return False
+
+
+def _expressions(mat):
+    try:
+        exprs = mat.get_editor_property("expressions")
+        return list(exprs) if exprs else []
+    except Exception:
+        try:
+            return list(mat.expressions)
+        except Exception:
+            return []
+
+
+def _count_custom(mat):
+    n = 0
+    for expr in _expressions(mat):
+        if expr and type(expr).__name__ == "MaterialExpressionCustom":
+            n += 1
+    return n
 
 
 def main():
-    if unreal.EditorAssetLibrary.does_asset_exist(ASSET):
-        unreal.EditorAssetLibrary.delete_asset(ASSET)
-    if not unreal.EditorAssetLibrary.does_directory_exist(PACKAGE):
-        unreal.EditorAssetLibrary.make_directory(PACKAGE)
-
     tools = unreal.AssetToolsHelpers.get_asset_tools()
-    mat = tools.create_asset(NAME, PACKAGE, unreal.Material, unreal.MaterialFactoryNew())
+    mel = unreal.MaterialEditingLibrary
+
+    mat = None
+    if unreal.EditorAssetLibrary.does_asset_exist(ASSET):
+        mat = unreal.EditorAssetLibrary.load_asset(ASSET)
+        _close_editors(mat)
+    else:
+        if not unreal.EditorAssetLibrary.does_directory_exist(PACKAGE):
+            unreal.EditorAssetLibrary.make_directory(PACKAGE)
+        mat = tools.create_asset(NAME, PACKAGE, unreal.Material, unreal.MaterialFactoryNew())
+
     if not mat:
-        unreal.log_error("[GXPBR] create failed")
+        unreal.log_error("[GXPBR] could not load or create %s" % ASSET)
         return
 
-    mel = unreal.MaterialEditingLibrary
-    mel.delete_all_material_expressions(mat)
+    # Wipe the previous graph (including any Custom HLSL) in place so soft
+    # references and the content-browser object stay valid.
+    try:
+        mel.delete_all_material_expressions(mat)
+    except Exception as err:
+        unreal.log_error("[GXPBR] delete_all_material_expressions failed: %s" % err)
+        return
+
+    leftover = _count_custom(mat)
+    if leftover:
+        unreal.log_error("[GXPBR] %d Custom nodes survived the wipe — aborting" % leftover)
+        return
 
     lit = _shading_lit()
     if lit is not None:
-        mat.set_editor_property("shading_model", lit)
+        _set(mat, "shading_model", lit)
+
     for prop, val in (
+        ("blend_mode", unreal.BlendMode.BLEND_OPAQUE),
         ("two_sided", False),
         ("b_tangent_space_normal", False),
         ("tangent_space_normal", False),
         ("b_used_with_procedural_mesh", True),
         ("used_with_procedural_mesh", True),
+        ("b_used_with_static_lighting", True),
+        ("used_with_static_lighting", True),
+        ("automatically_set_usage_in_editor", True),
     ):
-        try:
-            mat.set_editor_property(prop, val)
-        except Exception:
-            pass
+        _set(mat, prop, val)
 
-    wp = mel.create_material_expression(mat, unreal.MaterialExpressionWorldPosition, -1400, 0)
-    vn = mel.create_material_expression(mat, unreal.MaterialExpressionVertexNormalWS, -1400, 140)
-    uv = mel.create_material_expression(mat, unreal.MaterialExpressionTextureCoordinate, -1400, 280)
+    x0 = -2000
 
-    def scalar(name, default, y):
-        n = mel.create_material_expression(mat, unreal.MaterialExpressionScalarParameter, -1400, y)
-        n.set_editor_property("parameter_name", name)
-        n.set_editor_property("default_value", default)
+    def node(cls, px, py, desc=""):
+        n = mel.create_material_expression(mat, cls, px, py)
+        if desc:
+            _set(n, "desc", desc)
         return n
 
-    tile = scalar("TileScale", 0.0045, 420)
-    ss = scalar("SlopeStart", 0.32, 540)
-    se = scalar("SlopeEnd", 0.72, 660)
-    hs = scalar("HeightSharpness", 0.28, 780)
+    def const(value, px, py, desc=""):
+        n = node(unreal.MaterialExpressionConstant, px, py, desc)
+        _set(n, "r", float(value))
+        return n
 
-    alb = mel.create_material_expression(mat, unreal.MaterialExpressionTextureObjectParameter, -1400, -220)
-    alb.set_editor_property("parameter_name", "AlbedoAtlas")
-    rgh = mel.create_material_expression(mat, unreal.MaterialExpressionTextureObjectParameter, -1100, -220)
-    rgh.set_editor_property("parameter_name", "RoughAtlas")
+    def scalar(name, value, px, py):
+        n = node(unreal.MaterialExpressionScalarParameter, px, py, name)
+        _set(n, "parameter_name", name)
+        _set(n, "default_value", float(value))
+        _set(n, "group", "Terrain")
+        return n
 
-    mask = mel.create_material_expression(mat, unreal.MaterialExpressionComponentMask, -1100, 280)
-    mask.set_editor_property("r", True)
-    mask.set_editor_property("g", False)
-    mask.set_editor_property("b", False)
-    mask.set_editor_property("a", False)
-    mel.connect_material_expressions(uv, "", mask, "")
-
-    def make_custom(code, y, out_type, desc):
-        c = mel.create_material_expression(mat, unreal.MaterialExpressionCustom, -500, y)
-        c.set_editor_property("code", code)
-        c.set_editor_property("description", desc)
-        if out_type is not None:
-            try:
-                c.set_editor_property("output_type", out_type)
-            except Exception:
-                pass
-        inputs = []
-        for n in ("WorldPos", "WorldNormal", "MatId", "Tile", "SlopeStart", "SlopeEnd", "HeightSharp", "AlbedoAtlas", "RoughAtlas"):
-            ci = unreal.CustomInput()
-            ci.set_editor_property("input_name", n)
-            inputs.append(ci)
+    def connect(src, src_out, dst, dst_in):
         try:
-            c.set_editor_property("additional_inputs", inputs)
-        except Exception as e:
-            unreal.log_warning("[GXPBR] additional_inputs %s" % e)
-        return c
+            mel.connect_material_expressions(src, src_out, dst, dst_in)
+            return True
+        except Exception as err:
+            unreal.log_warning("[GXPBR] connect %s -> %s.%s : %s" % (src_out, type(dst).__name__, dst_in, err))
+            return False
 
-    c_alb = make_custom(ALBEDO_CODE, 0, _cmot("CMOT_FLOAT3", "FLOAT3"), "GXAlbedo")
-    c_rgh = make_custom(ROUGH_CODE, 260, _cmot("CMOT_FLOAT1", "FLOAT1"), "GXRough")
-    c_nrm = make_custom(NORMAL_CODE, 500, _cmot("CMOT_FLOAT3", "FLOAT3"), "GXNrm")
+    def mul(a, ao, b, bo, px, py, desc=""):
+        n = node(unreal.MaterialExpressionMultiply, px, py, desc)
+        connect(a, ao, n, "A")
+        connect(b, bo, n, "B")
+        return n
 
-    def wire(c):
-        mel.connect_material_expressions(wp, "", c, "WorldPos")
-        mel.connect_material_expressions(vn, "", c, "WorldNormal")
-        mel.connect_material_expressions(mask, "", c, "MatId")
-        mel.connect_material_expressions(tile, "", c, "Tile")
-        mel.connect_material_expressions(ss, "", c, "SlopeStart")
-        mel.connect_material_expressions(se, "", c, "SlopeEnd")
-        mel.connect_material_expressions(hs, "", c, "HeightSharp")
-        mel.connect_material_expressions(alb, "", c, "AlbedoAtlas")
-        mel.connect_material_expressions(rgh, "", c, "RoughAtlas")
+    def add(a, ao, b, bo, px, py, desc=""):
+        n = node(unreal.MaterialExpressionAdd, px, py, desc)
+        connect(a, ao, n, "A")
+        connect(b, bo, n, "B")
+        return n
 
-    wire(c_alb)
-    wire(c_rgh)
-    wire(c_nrm)
+    def sub(a, ao, b, bo, px, py, desc=""):
+        n = node(unreal.MaterialExpressionSubtract, px, py, desc)
+        connect(a, ao, n, "A")
+        connect(b, bo, n, "B")
+        return n
 
-    mel.connect_material_property(c_alb, "", unreal.MaterialProperty.MP_BASE_COLOR)
-    mel.connect_material_property(c_rgh, "", unreal.MaterialProperty.MP_ROUGHNESS)
-    mel.connect_material_property(c_nrm, "", unreal.MaterialProperty.MP_NORMAL)
+    def div(a, ao, b, bo, px, py, desc=""):
+        n = node(unreal.MaterialExpressionDivide, px, py, desc)
+        connect(a, ao, n, "A")
+        connect(b, bo, n, "B")
+        return n
 
-    metal = mel.create_material_expression(mat, unreal.MaterialExpressionConstant, -500, 680)
-    metal.set_editor_property("r", 0.02)
-    mel.connect_material_property(metal, "", unreal.MaterialProperty.MP_METALLIC)
+    def sat(a, ao, px, py, desc=""):
+        n = node(unreal.MaterialExpressionSaturate, px, py, desc)
+        connect(a, ao, n, "")
+        return n
 
-    mel.layout_material_expressions(mat)
+    def frac(a, ao, px, py, desc=""):
+        n = node(unreal.MaterialExpressionFrac, px, py, desc)
+        connect(a, ao, n, "")
+        return n
+
+    def floor(a, ao, px, py, desc=""):
+        n = node(unreal.MaterialExpressionFloor, px, py, desc)
+        connect(a, ao, n, "")
+        return n
+
+    def append(a, ao, b, bo, px, py, desc=""):
+        n = node(unreal.MaterialExpressionAppendVector, px, py, desc)
+        connect(a, ao, n, "A")
+        connect(b, bo, n, "B")
+        return n
+
+    def mask(a, ao, use_r, use_g, use_b, px, py, desc=""):
+        n = node(unreal.MaterialExpressionComponentMask, px, py, desc)
+        _set(n, "r", bool(use_r))
+        _set(n, "g", bool(use_g))
+        _set(n, "b", bool(use_b))
+        _set(n, "a", False)
+        connect(a, ao, n, "")
+        return n
+
+    def tex(param, uv_node, px, py, linear=False):
+        n = node(unreal.MaterialExpressionTextureSampleParameter2D, px, py, param)
+        _set(n, "parameter_name", param)
+        _set(n, "group", "Terrain")
+        sampler = None
+        if linear:
+            sampler = getattr(unreal.MaterialSamplerType, "SAMPLERTYPE_LINEAR_COLOR", None)
+        else:
+            sampler = getattr(unreal.MaterialSamplerType, "SAMPLERTYPE_COLOR", None)
+        if sampler is not None:
+            _set(n, "sampler_type", sampler)
+        if not connect(uv_node, "", n, "UVs"):
+            connect(uv_node, "", n, "Coordinates")
+        return n
+
+    # --- inputs -----------------------------------------------------------
+    wp = node(unreal.MaterialExpressionWorldPosition, x0, 0, "WorldPos")
+    vn = node(unreal.MaterialExpressionVertexNormalWS, x0, 160, "VertexN")
+    tc = node(unreal.MaterialExpressionTextureCoordinate, x0, 320, "UV0")
+    _set(tc, "coordinate_index", 0)
+    vc = node(unreal.MaterialExpressionVertexColor, x0, 460, "VColor")
+    tile = scalar("TileScale", 0.0045, x0, 600)
+    slope_a = scalar("SlopeStart", 0.32, x0, 720)
+    slope_b = scalar("SlopeEnd", 0.72, x0, 840)
+
+    # tiled world XY (spawn is +Z pole — XY is the tangent plane there)
+    p = mul(wp, "", tile, "", x0 + 280, 0, "World*Tile")
+    p_x = mask(p, "", True, False, False, x0 + 540, -40, "Px")
+    p_y = mask(p, "", False, True, False, x0 + 540, 40, "Py")
+    lu = frac(p_x, "", x0 + 800, -40, "fracX")
+    lv = frac(p_y, "", x0 + 800, 40, "fracY")
+
+    c_096 = const(0.96, x0 + 800, 140, "0.96")
+    c_002 = const(0.02, x0 + 800, 200, "0.02")
+    pu = add(mul(lu, "", c_096, "", x0 + 1060, -40), "", c_002, "", x0 + 1320, -40, "padU")
+    pv = add(mul(lv, "", c_096, "", x0 + 1060, 40), "", c_002, "", x0 + 1320, 40, "padV")
+
+    # atlas cell from UV0.x  (4 columns x 2 rows)
+    mat_id = mask(tc, "", True, False, False, x0 + 280, 320, "MatId")
+    c_0 = const(0.0, x0 + 280, 400, "0")
+    c_7 = const(7.0, x0 + 280, 460, "7")
+    id_clamped = node(unreal.MaterialExpressionClamp, x0 + 540, 320, "Id01_7")
+    connect(mat_id, "", id_clamped, "")
+    connect(c_0, "", id_clamped, "Min")
+    connect(c_7, "", id_clamped, "Max")
+
+    c_4 = const(4.0, x0 + 540, 420, "4")
+    c_025 = const(0.25, x0 + 540, 480, "0.25")
+    c_05 = const(0.5, x0 + 540, 540, "0.5")
+    row = floor(mul(id_clamped, "", c_025, "", x0 + 800, 320), "", x0 + 1060, 320, "row")
+    col = sub(id_clamped, "", mul(row, "", c_4, "", x0 + 1060, 400), "", x0 + 1320, 320, "col")
+
+    atlas_u = mul(add(col, "", pu, "", x0 + 1580, -40), "", c_025, "", x0 + 1840, -40, "atlasU")
+    atlas_v = mul(add(row, "", pv, "", x0 + 1580, 40), "", c_05, "", x0 + 1840, 40, "atlasV")
+    atlas_uv = append(atlas_u, "", atlas_v, "", x0 + 2100, 0, "atlasUV")
+
+    # rock cell (2, 0) = T_RockyCliff
+    c_2 = const(2.0, x0 + 1320, 520, "2")
+    rock_u = mul(add(c_2, "", pu, "", x0 + 1580, 500), "", c_025, "", x0 + 1840, 500, "rockU")
+    rock_v = mul(add(c_0, "", pv, "", x0 + 1580, 560), "", c_05, "", x0 + 1840, 560, "rockV")
+    rock_uv = append(rock_u, "", rock_v, "", x0 + 2100, 520, "rockUV")
+
+    alb_b = tex("AlbedoAtlas", atlas_uv, x0 + 2360, 0, linear=False)
+    alb_r = tex("AlbedoAtlas", rock_uv, x0 + 2360, 220, linear=False)
+    rgh_b = tex("RoughAtlas", atlas_uv, x0 + 2360, 440, linear=True)
+    rgh_r = tex("RoughAtlas", rock_uv, x0 + 2360, 660, linear=True)
+
+    # wRock = saturate((1 - N·radial - SlopeStart) / (SlopeEnd - SlopeStart))
+    radial = node(unreal.MaterialExpressionNormalize, x0 + 280, 720, "radial")
+    connect(wp, "", radial, "")
+    ndot = node(unreal.MaterialExpressionDotProduct, x0 + 540, 720, "NdotUp")
+    connect(vn, "", ndot, "A")
+    connect(radial, "", ndot, "B")
+    up = sat(ndot, "", x0 + 800, 720, "up")
+    one = const(1.0, x0 + 800, 800, "1")
+    slope = sub(one, "", up, "", x0 + 1060, 720, "slope")
+    numer = sub(slope, "", slope_a, "", x0 + 1320, 720)
+    denom = sub(slope_b, "", slope_a, "", x0 + 1320, 800)
+    w_rock = sat(div(numer, "", denom, "", x0 + 1580, 720), "", x0 + 1840, 720, "wRock")
+
+    lerp_a = node(unreal.MaterialExpressionLinearInterpolate, x0 + 2700, 80, "AlbedoLerp")
+    connect(alb_b, "RGB", lerp_a, "A")
+    connect(alb_r, "RGB", lerp_a, "B")
+    connect(w_rock, "", lerp_a, "Alpha")
+
+    # keep biome tint visible if the atlas is still the default white
+    tint_amt = const(0.45, x0 + 2700, 280, "tintAmt")
+    tint_base = const(0.55, x0 + 2700, 340, "tintBase")
+    tint = add(mul(vc, "RGB", tint_amt, "", x0 + 2960, 280), "", tint_base, "", x0 + 3220, 280, "tint")
+    albedo = mul(lerp_a, "", tint, "", x0 + 3480, 80, "Albedo*Tint")
+
+    lerp_r = node(unreal.MaterialExpressionLinearInterpolate, x0 + 2700, 500, "RoughLerp")
+    connect(rgh_b, "R", lerp_r, "A")
+    connect(rgh_r, "R", lerp_r, "B")
+    connect(w_rock, "", lerp_r, "Alpha")
+
+    def plug(src, src_out, prop):
+        try:
+            mel.connect_material_property(src, src_out, prop)
+        except Exception as err:
+            unreal.log_warning("[GXPBR] property %s: %s" % (prop, err))
+
+    plug(albedo, "", unreal.MaterialProperty.MP_BASE_COLOR)
+    plug(lerp_r, "", unreal.MaterialProperty.MP_ROUGHNESS)
+    plug(vn, "", unreal.MaterialProperty.MP_NORMAL)
+
+    metal = const(0.02, x0 + 3480, 500, "metal")
+    plug(metal, "", unreal.MaterialProperty.MP_METALLIC)
+    spec = const(0.35, x0 + 3480, 580, "spec")
+    try:
+        plug(spec, "", unreal.MaterialProperty.MP_SPECULAR)
+    except Exception:
+        pass
+
+    try:
+        mel.layout_material_expressions(mat)
+    except Exception:
+        pass
+
+    customs = _count_custom(mat)
+    if customs:
+        unreal.log_error("[GXPBR] ABORT: graph still has %d Custom nodes" % customs)
+        return
+
     mel.recompile_material(mat)
     unreal.EditorAssetLibrary.save_asset(ASSET)
-    unreal.log("[GXPBR] Created " + ASSET)
+    unreal.log(
+        "[GXPBR] OK graph-only %s custom=%d exprs=%d"
+        % (ASSET, customs, len(_expressions(mat)))
+    )
 
 
 if __name__ == "__main__":

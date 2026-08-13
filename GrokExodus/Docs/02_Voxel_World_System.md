@@ -210,7 +210,7 @@ Moon SMA (authored) ≈ 280 km. Sidereal day (authored) 24 min so ground tracks 
 | 12 | Concrete | placeable |
 
 Imagine source JPGs live at `Content/Voxel/Textures/Source/T_<Material>_{A,N,R}.jpg`.  
-Runtime: `FGXTerrainPBR` packs them into Texture2DArrays and binds `/Game/Voxel/Materials/M_VoxelTerrain_PBR` (triplanar + slope/height blend to rock). Recreate the material with `Content/Python/create_voxel_pbr_material.py`.
+Runtime: `FGXTerrainPBR` packs them into a 4×2 atlas (`AlbedoAtlas` / `RoughAtlas`) and binds `/Game/Voxel/Materials/M_VoxelTerrain_PBR`. The material is **graph-only** (WorldPosition tiling + UV0.x atlas cell + slope lerp to rock). Do **not** put Custom HLSL on this asset — UE 5.8 does not declare Custom input names, so the shader fails and the default gray material is used. Recreate with `Content/Python/create_voxel_pbr_material.py` and confirm the log line `[GXPBR] OK graph-only … custom=0`.
 
 ---
 
@@ -264,7 +264,7 @@ Automation (editor): `Automation RunTests GX`
 ## Known limitations
 
 - Mesher is CPU MC; transvoxel skirts and Dual Contouring are still upgrade paths.
-- PBR is vertex color (plus optional project material), not texture arrays yet.
+- PBR is a 4×2 atlas sampled by a native material graph (no Custom HLSL). Vertex color still tints if the atlas is unbound.
 - Sky is still the old `AVoxelSunSetup` directional. Ephemeris is not driving the lamp.
 - 60 km surface is 6×10⁶ UU from origin — LWC is on; Chaos is acceptable at that range but not at Earth–Moon span (hence body frames).
 - Single-player only.

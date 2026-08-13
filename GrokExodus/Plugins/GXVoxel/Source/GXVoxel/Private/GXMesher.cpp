@@ -119,11 +119,17 @@ FGXMeshBuffers FGXMesher::MeshChunk(
 		const FVector World = Origin + Local * VoxelSize;
 		const int32 SolidMat = (Da >= Settings.IsoLevel) ? Ma : Mb;
 		const int32 MatId = SolidMat != 0 ? SolidMat : ((Ma != 0) ? Ma : (Mb != 0 ? Mb : 1));
+		int32 AtlasId = MatId;
+		if (AtlasId <= 0) AtlasId = 1;
+		if (AtlasId == 8 || AtlasId == 9 || AtlasId == 12) AtlasId = 2;
+		if (AtlasId == 10) AtlasId = 3;
+		if (AtlasId == 11) AtlasId = 5;
+		AtlasId = FMath::Clamp(AtlasId, 0, 7);
 
 		const int32 VI = Mesh.Positions.Num();
 		Mesh.Positions.Add(World);
 		Mesh.Normals.Add(FVector::UpVector);
-		Mesh.UV0.Add(FVector2D(float(MatId), float(Settings.LOD)));
+		Mesh.UV0.Add(FVector2D(static_cast<float>(AtlasId), static_cast<float>(Settings.LOD)));
 		FLinearColor Col = GXMaterialDebugColor(MatId);
 		Col.R = FMath::Clamp(Col.R * 1.3f + 0.08f, 0.f, 1.f);
 		Col.G = FMath::Clamp(Col.G * 1.3f + 0.08f, 0.f, 1.f);

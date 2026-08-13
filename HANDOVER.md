@@ -1,15 +1,16 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-13** · On-disk build stamp: **GX 0.5.2**  
+Last updated: **2026-08-13** · On-disk build stamp: **GX 0.5.3**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.5.3** `M_VoxelTerrain_PBR` is graph-only. Custom HLSL (`WorldNormal` / `MatId` / `AlbedoAtlas` …) never gets declared in `Material.ush` and compiles to the default gray material. Close the material editor, re-run `create_voxel_pbr_material.py`, look for `[GXPBR] OK graph-only … custom=0`. Mesher remaps mat ids 8–12 into atlas slots 0–7.
 - **GX 0.5.2** consistent MC winding (caps had hole walls); brush remesh is LOD0 + face neighbors only (one dig no longer stair-steps the hill); preview hidden off-camera; PBR uses 2D atlases.
 - **GX 0.5.1** PBR load no longer OOB-crashes on the 1024 Imagine JPGs.
-- **GX 0.5.0** PBR from existing Imagine sets. Triplanar arrays + slope/height blend. `M_VoxelTerrain_PBR` via the Python script.
+- **GX 0.5.0** PBR from existing Imagine sets. `M_VoxelTerrain_PBR` via the Python script.
 - **GX 0.4.7** no bounce in dug holes. Brush hidden unless the ray hits. Hardware RT on near chunks.
 - **GX 0.4.6** brush writes the same voxel corners the mesher samples. Distant sphere hidden. Place works without inventory.
 - **GX 0.4.5** crust winding is clockwise (UE/D3D front faces).
@@ -31,6 +32,13 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 5. Time warp (refuse in atmo / thrusting).
 
 Then Wave D (grids/industry) and Wave E (Earth→Moon).
+
+## Verify after 0.5.3
+
+1. **Close the `M_VoxelTerrain_PBR` editor tab** (a stale Transient preview keeps the old Custom HLSL).
+2. Output Log: `py "E:/Github/grokexodus/GrokExodus/Content/Python/create_voxel_pbr_material.py"`
+3. Must log `[GXPBR] OK graph-only /Game/Voxel/Materials/M_VoxelTerrain_PBR custom=0`. Re-open the material — **no** `undeclared identifier` errors.
+4. PIE: gold `GX 0.5.3`. Grass/dirt/rock/sand/snow tiled, not default gray. Cliffs lean rock.
 
 ## Verify after 0.5.0
 
@@ -56,7 +64,11 @@ See `AGENTS.md`:
 
 ## Recent commits
 
-- (this) GX 0.4.7 hole standing, hide miss brush, hardware RT on near chunks
+- (this) GX 0.5.3 graph-only PBR material (Custom HLSL never compiles)
+- `9006942` GX 0.5.2: place walls, hill stair-steps, black flicker, PBR atlases
+- `1cff121` Add M_VoxelTerrain_PBR created by the Imagine PBR script
+- `42bedda` GX 0.5.1: stop the PBR texture loader from crashing PIE
+- `21add16` GX 0.4.7 hole standing, hide miss brush, hardware RT on near chunks
 - `037bc13` GX 0.4.6 brush samples match mesher; place without stock; lit shadows
 - `fe8d59f` GX 0.4.5 flip crust winding so surface faces are visible
 - `976ab84` GX 0.4.4 stand on the crust, cook collision underfoot, show brush sphere

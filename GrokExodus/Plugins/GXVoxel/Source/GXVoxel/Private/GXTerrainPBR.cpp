@@ -86,6 +86,12 @@ void FGXTerrainPBR::Initialize(UObject* Outer)
 
 	UMaterialInterface* Parent = LoadObject<UMaterialInterface>(nullptr,
 		TEXT("/Game/Voxel/Materials/M_VoxelTerrain_PBR.M_VoxelTerrain_PBR"));
+	if (!Parent)
+	{
+		Parent = LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Game/Voxel/Materials/M_VoxelTerrain_VertexColor.M_VoxelTerrain_VertexColor"));
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXTerrainPBR: PBR parent missing — using vertex-color material"));
+	}
 	if (Parent && Outer)
 	{
 		Mid = UMaterialInstanceDynamic::Create(Parent, Outer);
