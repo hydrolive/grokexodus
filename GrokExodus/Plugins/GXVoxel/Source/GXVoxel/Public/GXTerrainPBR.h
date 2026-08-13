@@ -30,6 +30,7 @@ private:
 	TObjectPtr<UTexture2D> NormalAtlas;
 	TObjectPtr<UTexture2D> RoughAtlas;
 	TObjectPtr<UMaterialInstanceDynamic> Mid;
+	TObjectPtr<UMaterialInterface> Applied;
 	TArray<TObjectPtr<UObject>> Roots;
 
 	bool LoadJpg(const FString& Path, TArray<uint8>& OutBGRA, int32& OutW, int32& OutH);

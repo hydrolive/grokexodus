@@ -9,6 +9,7 @@
 #include "Components/ExponentialHeightFogComponent.h"
 #include "Components/SkyAtmosphereComponent.h" // declares ASkyAtmosphere
 #include "EngineUtils.h"
+#include "GXVoxelWorld.h"
 
 AVoxelSunSetup::AVoxelSunSetup()
 {
@@ -45,7 +46,16 @@ void AVoxelSunSetup::ConfigureSun(ADirectionalLight* Light) const
 		return;
 	}
 
-	Light->SetActorRotation(FRotator(SunPitchDegrees, SunYawDegrees, 0.0f));
+	if (bAimAtPlusXSpawn)
+	{
+		// Incoming from above the +X spawn (up=+X). Travel is the opposite.
+		const FVector Incoming = FVector(0.78f, 0.22f, 0.58f).GetSafeNormal();
+		Light->SetActorRotation((-Incoming).Rotation());
+	}
+	else
+	{
+		Light->SetActorRotation(FRotator(SunPitchDegrees, SunYawDegrees, 0.0f));
+	}
 
 	if (UDirectionalLightComponent* C = Light->GetComponent())
 	{
@@ -140,15 +150,26 @@ void AVoxelSunSetup::EnsurePlanetLighting()
 			if (SkyLightActor)
 			{
 				SkyLightActor->SetActorLabel(TEXT("SkyLight_Planet"));
-				if (USkyLightComponent* SC = SkyLightActor->GetLightComponent())
-				{
-					SC->SetMobility(EComponentMobility::Movable);
-					SC->bRealTimeCapture = true;
-					SC->SetIntensity(1.0f);
-					SC->bLowerHemisphereIsBlack = false;
-					SC->MarkRenderStateDirty();
-				}
 			}
+		}
+	}
+	if (SkyLightActor)
+	{
+		float RadiusCm = 400000.f;
+		for (TActorIterator<AGXVoxelWorld> It(World); It; ++It)
+		{
+			RadiusCm = It->PlanetRadius * 100.f;
+			break;
+		}
+		// Capture from the spawn crust, not the planet core (that sees dirt/black).
+		SkyLightActor->SetActorLocation(FVector(RadiusCm + 300.f, 0.f, 0.f));
+		if (USkyLightComponent* SC = SkyLightActor->GetLightComponent())
+		{
+			SC->SetMobility(EComponentMobility::Movable);
+			SC->bRealTimeCapture = true;
+			SC->SetIntensity(1.4f);
+			SC->bLowerHemisphereIsBlack = false;
+			SC->MarkRenderStateDirty();
 		}
 	}
 
@@ -181,6 +202,9 @@ void AVoxelSunSetup::EnsurePlanetLighting()
 		}
 	}
 
-	UE_LOG(LogTemp, Log, TEXT("VoxelSunSetup: Sun intensity=%.1f temp=%.0fK pitch=%.1f yaw=%.1f shadows=%.0fcm"),
-		SunIntensity, SunTemperature, SunPitchDegrees, SunYawDegrees, ShadowDistanceCm);
+	const FVector Incoming = bAimAtPlusXSpawn
+		? FVector(0.78f, 0.22f, 0.58f).GetSafeNormal()
+		: -FRotator(SunPitchDegrees, SunYawDegrees, 0.f).Vector();
+	UE_LOG(LogTemp, Warning, TEXT("VoxelSunSetup: intensity=%.1f +X NdotL=%.2f skylight=%s"),
+		SunIntensity, Incoming.X, SkyLightActor ? *SkyLightActor->GetActorLocation().ToCompactString() : TEXT("none"));
 }

@@ -31,13 +31,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sun")
 	float SunTemperature = 5800.0f;
 
-	/** Pitch degrees (negative = high sun). -48 ≈ afternoon elevation. */
+	/** Pitch degrees. Ignored when bAimAtPlusXSpawn is true. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sun")
-	float SunPitchDegrees = -48.0f;
+	float SunPitchDegrees = 40.0f;
 
-	/** Yaw degrees — azimuth around world Z. */
+	/** Yaw degrees. Ignored when bAimAtPlusXSpawn is true. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sun")
-	float SunYawDegrees = 35.0f;
+	float SunYawDegrees = 180.0f;
+
+	/** Player spawns on the +X crust. Aim the sun there so lit PBR is not a black night side. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sun")
+	bool bAimAtPlusXSpawn = true;
 
 	/** Soft sun angular diameter (degrees). Real Sun ≈ 0.53°. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Sun")

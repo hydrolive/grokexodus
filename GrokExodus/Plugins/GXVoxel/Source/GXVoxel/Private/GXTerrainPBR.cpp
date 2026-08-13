@@ -8,6 +8,7 @@
 #include "Engine/TextureDefines.h"
 #include "IImageWrapper.h"
 #include "IImageWrapperModule.h"
+#include "Materials/Material.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/FileHelper.h"
@@ -110,28 +111,38 @@ void FGXTerrainPBR::Initialize(UObject* Outer)
 			TEXT("/Game/Voxel/Materials/M_VoxelTerrain_VertexColor.M_VoxelTerrain_VertexColor"));
 		UE_LOG(LogGXVoxel, Warning, TEXT("GXTerrainPBR: PBR parent missing — using vertex-color material"));
 	}
-	if (Parent && Outer)
+	if (UMaterial* Base = Parent ? Parent->GetMaterial() : nullptr)
+	{
+		Base->CheckMaterialUsage(MATUSAGE_ProceduralMesh);
+	}
+
+	// The authored parent already has T_VoxelAlbedoAtlas. A MID that binds a
+	// transient runtime atlas (or a cube leftover) turns the crust black while
+	// the material editor still looks fine.
+	const bool bImportedAlbedo = AlbedoAtlas && AlbedoAtlas->GetPathName().Contains(TEXT("T_VoxelAlbedoAtlas"));
+	if (Parent && bImportedAlbedo)
+	{
+		Applied = Parent;
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXTerrainPBR: using authored parent %s (no MID)"), *GetNameSafe(Parent));
+	}
+	else if (Parent && Outer)
 	{
 		Mid = UMaterialInstanceDynamic::Create(Parent, Outer);
 		if (Mid)
 		{
-			if (AlbedoArray) Mid->SetTextureParameterValue(TEXT("AlbedoArray"), AlbedoArray);
-			if (NormalArray) Mid->SetTextureParameterValue(TEXT("NormalArray"), NormalArray);
-			if (RoughArray) Mid->SetTextureParameterValue(TEXT("RoughArray"), RoughArray);
 			if (AlbedoAtlas) Mid->SetTextureParameterValue(TEXT("AlbedoAtlas"), AlbedoAtlas);
-			if (NormalAtlas) Mid->SetTextureParameterValue(TEXT("NormalAtlas"), NormalAtlas);
 			if (RoughAtlas) Mid->SetTextureParameterValue(TEXT("RoughAtlas"), RoughAtlas);
 			Mid->SetScalarParameterValue(TEXT("TileScale"), 0.0045f);
 			Mid->SetScalarParameterValue(TEXT("SlopeStart"), 0.32f);
 			Mid->SetScalarParameterValue(TEXT("SlopeEnd"), 0.72f);
-			Mid->SetScalarParameterValue(TEXT("HeightSharpness"), 0.28f);
 			Roots.Add(Mid);
+			Applied = Mid;
 		}
 	}
 
 	bReady = true;
-	UE_LOG(LogGXVoxel, Warning, TEXT("GXTerrainPBR: loaded %d/%d albedo sets, material=%s"),
-		Loaded, GArraySlices, *GetNameSafe(Mid ? Mid : Parent));
+	UE_LOG(LogGXVoxel, Warning, TEXT("GXTerrainPBR: loaded %d/%d albedo sets, material=%s atlas=%s"),
+		Loaded, GArraySlices, *GetNameSafe(Applied), *GetNameSafe(AlbedoAtlas));
 }
 
 void FGXTerrainPBR::Shutdown()
@@ -151,12 +162,13 @@ void FGXTerrainPBR::Shutdown()
 	NormalAtlas = nullptr;
 	RoughAtlas = nullptr;
 	Mid = nullptr;
+	Applied = nullptr;
 	bReady = false;
 }
 
 UMaterialInterface* FGXTerrainPBR::GetMaterial() const
 {
-	return Mid;
+	return Applied;
 }
 
 bool FGXTerrainPBR::LoadJpg(const FString& Path, TArray<uint8>& OutBGRA, int32& OutW, int32& OutH)

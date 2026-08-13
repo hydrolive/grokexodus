@@ -93,6 +93,8 @@ void AGXVoxelWorld::BeginPlay()
 	if (UMaterialInterface* PBR = TerrainPBR->GetMaterial())
 	{
 		TerrainMaterial = PBR;
+		UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s terrain material=%s"),
+			GX_VERSION_STRING, *GetNameSafe(TerrainMaterial));
 	}
 	else if (UMaterialInterface* VC = LoadObject<UMaterialInterface>(nullptr,
 		TEXT("/Game/Voxel/Materials/M_VoxelTerrain_VertexColor.M_VoxelTerrain_VertexColor")))
