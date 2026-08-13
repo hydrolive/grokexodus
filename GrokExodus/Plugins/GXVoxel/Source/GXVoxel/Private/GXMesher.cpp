@@ -47,7 +47,10 @@ FGXMeshBuffers FGXMesher::MeshChunk(
 					static_cast<double>(BaseMinZ + Z * Stride) * BaseVoxel);
 				const FGXVoxelPacked Packed = Snapshot.Sample(Corner);
 				const int32 Idx = GridIndex(X, Y, Z, Samples, Samples);
-				Densities[Idx] = Packed.ToDensityMeters();
+				// Prefer full-precision stamp density so the ±32 m packed clamp
+				// cannot flatten an entire unedited crust cell to one sign.
+				const bool bEdited = (Packed.Flags & (EGXVoxelFlags::Deformed | EGXVoxelFlags::PlayerPlaced)) != 0;
+				Densities[Idx] = bEdited ? Packed.ToDensityMeters() : Stamp.SampleDensity(Corner);
 				Materials[Idx] = Packed.Material != 0 ? Packed.Material : (Densities[Idx] > 0.0f ? 1 : 0);
 			}
 		}

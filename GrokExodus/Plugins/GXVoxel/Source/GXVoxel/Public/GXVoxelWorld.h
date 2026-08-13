@@ -74,8 +74,9 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
+	/** Playable radius in meters. 4 km is the walkable default; 60 km is the flight-scale target. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
-	float PlanetRadius = 60000.0f;
+	float PlanetRadius = 4000.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
 	float MaxRelief = 420.0f;
@@ -109,6 +110,10 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
 	bool bAsyncMeshing = true;
+
+	/** No LOD cracks. Turn off later when transvoxel skirts land. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
+	bool bForceLOD0 = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rendering")
 	TObjectPtr<UMaterialInterface> TerrainMaterial;

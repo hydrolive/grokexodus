@@ -7,7 +7,7 @@ import unreal
 
 
 LEVEL_PATH = "/Game/Voxel/Maps/Lvl_VoxelPlanet"
-GAME_MODE = "/Script/GrokExodus.VoxelGameMode"
+GAME_MODE = "/Script/GrokExodus.GXGameMode"
 
 
 def log(msg: str) -> None:

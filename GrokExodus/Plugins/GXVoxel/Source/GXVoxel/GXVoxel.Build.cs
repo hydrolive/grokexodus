@@ -13,9 +13,7 @@ public class GXVoxel : ModuleRules
 			"Engine",
 			"GXCore",
 			"GXCelestial",
-			"GeometryCore",
-			"GeometryFramework",
-			"DynamicMesh"
+			"ProceduralMeshComponent"
 		});
 	}
 }

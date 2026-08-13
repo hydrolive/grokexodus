@@ -38,7 +38,10 @@ AGrokExodusSurvivor::AGrokExodusSurvivor(const FObjectInitializer& ObjectInitial
 	{
 		Cam->SetupAttachment(GetCapsuleComponent());
 		Cam->SetRelativeLocation(FVector(0.f, 0.f, 64.f));
+		Cam->SetRelativeRotation(FRotator::ZeroRotator);
 		Cam->bUsePawnControlRotation = false;
+		Cam->bEnableFirstPersonFieldOfView = false;
+		Cam->bEnableFirstPersonScale = false;
 		Cam->FieldOfView = 90.0f;
 	}
 	if (USkeletalMeshComponent* FPMesh = GetFirstPersonMesh())
@@ -58,7 +61,11 @@ void AGrokExodusSurvivor::ConfigureCamera()
 			Cam->AttachToComponent(GetCapsuleComponent(), FAttachmentTransformRules::SnapToTargetNotIncludingScale);
 		}
 		Cam->SetRelativeLocation(FVector(0.f, 0.f, 64.f));
+		Cam->SetRelativeRotation(FRotator::ZeroRotator);
 		Cam->bUsePawnControlRotation = false;
+		Cam->bEnableFirstPersonFieldOfView = false;
+		Cam->bEnableFirstPersonScale = false;
+		Cam->SetFieldOfView(90.0f);
 	}
 }
 
@@ -149,15 +156,24 @@ void AGrokExodusSurvivor::ApplyLookAndBody()
 	const FVector Up = GetPlanetUp().GetSafeNormal();
 	LookHoriz = FVector::VectorPlaneProject(LookHoriz, Up).GetSafeNormal();
 	if (LookHoriz.IsNearlyZero()) return;
+	if (Cam->GetAttachParent() != GetCapsuleComponent())
+	{
+		Cam->AttachToComponent(GetCapsuleComponent(), FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+		Cam->bEnableFirstPersonFieldOfView = false;
+		Cam->bEnableFirstPersonScale = false;
+		Cam->bUsePawnControlRotation = false;
+	}
+
 	const FVector LookRight = FVector::CrossProduct(Up, LookHoriz).GetSafeNormal();
 	if (LookRight.IsNearlyZero()) return;
-	const FQuat PitchQ(LookRight, FMath::DegreesToRadians(FMath::Clamp(LookPitch, -89.f, 89.f)));
+	// Negative angle: +LookPitch pitches toward planet up (sky).
+	const FQuat PitchQ(LookRight, FMath::DegreesToRadians(-FMath::Clamp(LookPitch, -89.f, 89.f)));
 	const FVector LookFwd = PitchQ.RotateVector(LookHoriz).GetSafeNormal();
 	const FRotator BodyRot = FRotationMatrix::MakeFromXZ(LookHoriz, Up).Rotator();
 	SetActorRotation(BodyRot);
-	const FQuat RelQ = BodyRot.Quaternion().Inverse() * FRotationMatrix::MakeFromXZ(LookFwd, Up).ToQuat();
 	Cam->SetRelativeLocation(FVector(0.f, 0.f, 64.f));
-	Cam->SetRelativeRotation(RelQ.Rotator());
+	// World rotation — never inherit the template head-socket (0, 90, -90).
+	Cam->SetWorldRotation(FRotationMatrix::MakeFromXZ(LookFwd, Up).Rotator());
 }
 
 void AGrokExodusSurvivor::DoAim(float Yaw, float Pitch)

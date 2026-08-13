@@ -17,8 +17,9 @@ public:
 
 	virtual void BeginPlay() override;
 
+	/** Playable crust radius (meters). 4 km matches the working prototype scale. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GX")
-	float PlanetRadius = 60000.0f;
+	float PlanetRadius = 4000.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GX")
 	float StreamRadius = 180.0f;

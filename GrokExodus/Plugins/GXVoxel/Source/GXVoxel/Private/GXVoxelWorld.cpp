@@ -304,7 +304,10 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 
 int32 AGXVoxelWorld::SelectLOD(float DistanceM) const
 {
-	if (DistanceM < NearFieldRadius) return 0;
+	if (bForceLOD0 || WarmupTimeRemaining > 0.0f || DistanceM < NearFieldRadius)
+	{
+		return 0;
+	}
 	if (DistanceM < StreamRadius * 0.65f) return 1;
 	return 2;
 }
@@ -358,7 +361,9 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 					continue;
 				}
 				Desired.Add(CC);
-				if (!ChunkActors.Contains(CC))
+				const TWeakObjectPtr<AGXVoxelChunkProxy>* Existing = ChunkActors.Find(CC);
+				const bool bNeedMesh = !Existing || !Existing->IsValid() || !Existing->Get()->HasRenderableMesh();
+				if (bNeedMesh)
 				{
 					EnqueueRemesh(CC);
 				}
@@ -444,6 +449,10 @@ void AGXVoxelWorld::EnqueueChunkMeshAsync(const FGXChunkKey& Coord)
 	}
 	AsyncInFlight.Add(Coord);
 	TSharedRef<FGXVoxelSnapshot, ESPMode::ThreadSafe> Snap = Volume->PublishSnapshot();
+	if (Jobs)
+	{
+		Snap->Stamp = Jobs->GetStamp();
+	}
 	const FGXGenerationStamp Stamp = Snap->Stamp;
 	const FVector Local = WorldToLocalMeters(GetPrimaryInvokerLocation());
 	const float ChunkM = VoxelSize * FGXVoxelConstants::ChunkSize;
@@ -490,6 +499,22 @@ void AGXVoxelWorld::DrainPendingMeshes(int32 Budget)
 
 void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshBuffers&& MeshData)
 {
+	if (MeshData.IsEmpty())
+	{
+		if (AGXVoxelChunkProxy* Empty = ChunkActors.FindRef(Coord).Get())
+		{
+			if (!Empty->HasRenderableMesh())
+			{
+				Empty->Destroy();
+				ChunkActors.Remove(Coord);
+			}
+		}
+		return;
+	}
+
+	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
+	const FVector OriginM(Coord.X * ChunkM, Coord.Y * ChunkM, Coord.Z * ChunkM);
+
 	TWeakObjectPtr<AGXVoxelChunkProxy>& Slot = ChunkActors.FindOrAdd(Coord);
 	AGXVoxelChunkProxy* Proxy = Slot.Get();
 	if (!Proxy)
@@ -497,7 +522,8 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 		FActorSpawnParameters SP;
 		SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 		SP.Owner = this;
-		Proxy = GetWorld()->SpawnActor<AGXVoxelChunkProxy>(GetActorLocation(), GetActorRotation(), SP);
+		Proxy = GetWorld()->SpawnActor<AGXVoxelChunkProxy>(
+			LocalMetersToWorld(OriginM), GetActorRotation(), SP);
 		if (!Proxy)
 		{
 			return;
@@ -506,7 +532,12 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 		Proxy->InitializeChunk(Coord, LOD);
 		Slot = Proxy;
 	}
-	Proxy->ApplyMesh(MeshData, GMetersToUU, TerrainMaterial, LOD == 0);
+	else
+	{
+		Proxy->SetActorLocation(LocalMetersToWorld(OriginM));
+	}
+	Proxy->LOD = LOD;
+	Proxy->ApplyMesh(MeshData, OriginM, GMetersToUU, TerrainMaterial, LOD == 0);
 }
 
 FString AGXVoxelWorld::GetSavePath() const

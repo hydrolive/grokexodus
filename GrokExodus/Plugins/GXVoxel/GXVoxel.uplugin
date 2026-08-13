@@ -13,7 +13,7 @@
 	"Plugins": [
 		{ "Name": "GXCore", "Enabled": true },
 		{ "Name": "GXCelestial", "Enabled": true },
-		{ "Name": "GeometryProcessing", "Enabled": true }
+		{ "Name": "ProceduralMeshComponent", "Enabled": true }
 	],
 	"Modules": [
 		{

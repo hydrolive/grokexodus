@@ -267,14 +267,12 @@ void AVoxelExodusCharacter::ApplyLookAndBody()
 	}
 
 	const float PitchClamped = FMath::Clamp(LookPitch, -89.0f, 89.0f);
-	const FQuat PitchQ(LookRight, FMath::DegreesToRadians(PitchClamped));
+	const FQuat PitchQ(LookRight, FMath::DegreesToRadians(-PitchClamped));
 	const FVector LookFwd = PitchQ.RotateVector(LookHoriz).GetSafeNormal();
 
-	// Capsule: feet on planet, face horizon look (no pitch on body)
 	const FRotator BodyRot = FRotationMatrix::MakeFromXZ(LookHoriz, Up).Rotator();
 	SetActorRotation(BodyRot);
 
-	// Camera: full look in WORLD space so it never inherits a broken relative frame
 	if (Cam->GetAttachParent() != GetCapsuleComponent())
 	{
 		Cam->AttachToComponent(
@@ -282,11 +280,10 @@ void AVoxelExodusCharacter::ApplyLookAndBody()
 			FAttachmentTransformRules::SnapToTargetNotIncludingScale);
 	}
 	Cam->SetRelativeLocation(FVector(0.f, 0.f, 64.f));
-	// Convert world look into parent-relative rotation
-	const FQuat BodyQ = BodyRot.Quaternion();
-	const FQuat WorldLookQ = FRotationMatrix::MakeFromXZ(LookFwd, Up).ToQuat();
-	const FQuat RelQ = BodyQ.Inverse() * WorldLookQ;
-	Cam->SetRelativeRotation(RelQ.Rotator());
+	Cam->bEnableFirstPersonFieldOfView = false;
+	Cam->bEnableFirstPersonScale = false;
+	Cam->bUsePawnControlRotation = false;
+	Cam->SetWorldRotation(FRotationMatrix::MakeFromXZ(LookFwd, Up).ToQuat().Rotator());
 }
 
 void AVoxelExodusCharacter::DoAim(float Yaw, float Pitch)

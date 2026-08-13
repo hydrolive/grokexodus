@@ -6,7 +6,7 @@
 #include "GXVoxelTypes.h"
 #include "GXVoxelChunkProxy.generated.h"
 
-class UDynamicMeshComponent;
+class UProceduralMeshComponent;
 class UMaterialInterface;
 struct FGXMeshBuffers;
 
@@ -19,12 +19,13 @@ public:
 	AGXVoxelChunkProxy();
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GX")
-	TObjectPtr<UDynamicMeshComponent> Mesh;
+	TObjectPtr<UProceduralMeshComponent> Mesh;
 
 	FGXChunkKey ChunkCoord;
 	int32 LOD = 0;
 
 	void InitializeChunk(const FGXChunkKey& InCoord, int32 InLOD);
-	void ApplyMesh(const FGXMeshBuffers& Buffers, float MetersToCm, UMaterialInterface* Material, bool bCollision);
+	void ApplyMesh(const FGXMeshBuffers& Buffers, const FVector& ChunkOriginMeters, float MetersToCm, UMaterialInterface* Material, bool bCollision);
 	void ClearMesh();
+	bool HasRenderableMesh() const;
 };

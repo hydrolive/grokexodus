@@ -24,10 +24,11 @@ void AGXGameMode::BeginPlay()
 	Super::BeginPlay();
 	EnsureLighting();
 	EnsureWorld();
+	PlacePlayerOnSurface();
 
 	FTimerHandle H1, H2;
-	GetWorldTimerManager().SetTimer(H1, this, &AGXGameMode::PlacePlayerOnSurface, 0.25f, false);
-	GetWorldTimerManager().SetTimer(H2, this, &AGXGameMode::PlacePlayerOnSurface, 1.2f, false);
+	GetWorldTimerManager().SetTimer(H1, this, &AGXGameMode::PlacePlayerOnSurface, 0.35f, false);
+	GetWorldTimerManager().SetTimer(H2, this, &AGXGameMode::PlacePlayerOnSurface, 1.4f, false);
 }
 
 void AGXGameMode::EnsureLighting()
@@ -64,12 +65,13 @@ void AGXGameMode::EnsureWorld()
 		VoxelWorld->PlanetRadius = PlanetRadius;
 		VoxelWorld->StreamRadius = StreamRadius;
 		VoxelWorld->UnloadRadius = StreamRadius + 70.0f;
-		VoxelWorld->NearFieldRadius = 80.0f;
-		VoxelWorld->MaxRelief = FMath::Clamp(PlanetRadius * 0.007f, 180.0f, 480.0f);
-		VoxelWorld->bAsyncMeshing = true;
-		VoxelWorld->WarmupSeconds = 2.5f;
-		VoxelWorld->WarmupMeshBuildsPerFrame = 128;
-		VoxelWorld->bAutoLoadOnBeginPlay = true;
+		VoxelWorld->NearFieldRadius = 96.0f;
+		VoxelWorld->MaxRelief = FMath::Clamp(PlanetRadius * 0.045f, 80.0f, 220.0f);
+		VoxelWorld->bForceLOD0 = true;
+		VoxelWorld->bAsyncMeshing = false;
+		VoxelWorld->WarmupSeconds = 4.0f;
+		VoxelWorld->WarmupMeshBuildsPerFrame = 160;
+		VoxelWorld->bAutoLoadOnBeginPlay = false;
 	}
 }
 
