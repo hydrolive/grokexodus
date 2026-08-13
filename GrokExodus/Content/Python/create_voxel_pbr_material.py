@@ -98,15 +98,16 @@ def main():
     mel = unreal.MaterialEditingLibrary
     mel.delete_all_material_expressions(mat)
 
-    mat.set_editor_property("shading_model", unreal.MaterialShadingModel.UNLIT)
-    # force lit
-    try:
-        mat.set_editor_property("shading_model", unreal.MaterialShadingModel.MSM_DEFAULT_LIT)
-    except Exception:
-        try:
-            mat.set_editor_property("shading_model", unreal.MaterialShadingModel.DEFAULT_LIT)
-        except Exception as e:
-            unreal.log_warning(f"[GXPBR] shading {e}")
+    shading = None
+    for name in ("MSM_DEFAULT_LIT", "DEFAULT_LIT", "MSM_UNLIT"):
+        if hasattr(unreal.MaterialShadingModel, name):
+            shading = getattr(unreal.MaterialShadingModel, name)
+            break
+    if shading is not None:
+        mat.set_editor_property("shading_model", shading)
+        unreal.log(f"[GXPBR] shading_model={shading}")
+    else:
+        unreal.log_warning("[GXPBR] no MaterialShadingModel enum found; leaving default")
 
     try:
         mat.set_editor_property("two_sided", False)
@@ -170,10 +171,11 @@ def main():
         c = mel.create_material_expression(mat, unreal.MaterialExpressionCustom, -500, y)
         c.set_editor_property("code", code)
         c.set_editor_property("description", desc)
-        try:
-            c.set_editor_property("output_type", out_type)
-        except Exception:
-            pass
+        if out_type is not None:
+            try:
+                c.set_editor_property("output_type", out_type)
+            except Exception:
+                pass
         names = [
             "WorldPos", "WorldNormal", "MatId", "Tile", "SlopeStart", "SlopeEnd",
             "HeightSharp", "AlbedoArr", "RoughArr",
@@ -189,9 +191,18 @@ def main():
             unreal.log_warning(f"[GXPBR] additional_inputs {e}")
         return c
 
-    c_alb = make_custom(ALBEDO_CODE, 0, unreal.CustomMaterialOutputType.CMOT_FLOAT3, "GXAlbedoBlend")
-    c_rgh = make_custom(ROUGH_CODE, 280, unreal.CustomMaterialOutputType.CMOT_FLOAT1, "GXRoughBlend")
-    c_nrm = make_custom(NORMAL_CODE, 520, unreal.CustomMaterialOutputType.CMOT_FLOAT3, "GXWorldN")
+    def _cmot(*names):
+        enum = getattr(unreal, "CustomMaterialOutputType", None)
+        if enum is None:
+            return None
+        for n in names:
+            if hasattr(enum, n):
+                return getattr(enum, n)
+        return None
+
+    c_alb = make_custom(ALBEDO_CODE, 0, _cmot("CMOT_FLOAT3", "FLOAT3"), "GXAlbedoBlend")
+    c_rgh = make_custom(ROUGH_CODE, 280, _cmot("CMOT_FLOAT1", "FLOAT1"), "GXRoughBlend")
+    c_nrm = make_custom(NORMAL_CODE, 520, _cmot("CMOT_FLOAT3", "FLOAT3"), "GXWorldN")
 
     def wire(custom):
         mel.connect_material_expressions(wp, "", custom, "WorldPos")
