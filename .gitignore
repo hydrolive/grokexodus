@@ -1,0 +1,23 @@
+# Unreal generated
+**/Binaries/
+**/Intermediate/
+**/DerivedDataCache/
+**/Saved/
+**/Build/
+
+# IDE / VS
+.vs/
+*.vcxproj
+*.vcxproj.user
+*.vcxproj.filters
+*.sln
+*.slnx
+*.opensdf
+*.sdf
+*.suo
+
+# Local
+*.log
+.idea/
+*.VC.db
+*.VC.opendb

@@ -360,31 +360,23 @@ FVoxelMeshData FVoxelMesher::MeshChunk(
 					BaseMinX + X * Stride,
 					BaseMinY + Y * Stride,
 					BaseMinZ + Z * Stride);
-				// Sample at the exact corner position (not cell-center floor snap).
-				// Continuous procedural density keeps neighbor chunks watertight.
-				// Dirty/edited chunks still win so digs/place appear in the mesh.
+				// Corner sample: fast continuous density (neighbor-seamless). Dirty cells override.
 				const FVector CornerWorld = Map.VoxelToWorldMin(VC);
 				const FVoxelChunkCoord CC = FVoxelSphereMapping::VoxelToChunk(VC);
 				const FVoxelChunk* Chunk = Volume.FindChunk(CC);
-				float D = Map.SampleDensity(CornerWorld);
-				int32 MatId = 0;
+				float D = Map.SampleDensityFast(CornerWorld);
+				int32 MatId = 1;
 				if (Chunk && Chunk->bDirty)
 				{
 					const FVoxelLocalCoord LC = FVoxelSphereMapping::VoxelToLocal(VC);
 					const FVoxelCell& Cell = Chunk->At(LC.X, LC.Y, LC.Z);
 					D = Cell.Density;
-					MatId = Cell.MaterialId;
+					MatId = Cell.MaterialId != 0 ? Cell.MaterialId : 1;
 				}
-				else
+				else if (D > 0.0f)
 				{
-					const FVoxelCell Cell = Map.SampleCell(CornerWorld);
-					MatId = Cell.IsSolid() ? Cell.MaterialId : Map.SampleCell(CornerWorld + FVector(VoxelSize * 0.5f)).MaterialId;
-				}
-				if (MatId == 0)
-				{
-					// Air sample: take material from slightly inward (toward planet center)
-					const FVector Inward = CornerWorld.GetSafeNormal() * -VoxelSize;
-					MatId = Map.SampleCell(CornerWorld + Inward).MaterialId;
+					// Full material path so ores / biomes / scars show in mesh colors
+					MatId = Map.SampleMaterial(CornerWorld, D);
 					if (MatId == 0) MatId = 1;
 				}
 				const int32 Idx = VoxelMC::GridIndex(X, Y, Z, Samples, Samples);

@@ -15,16 +15,20 @@ UVoxelSphericalMovement::UVoxelSphericalMovement()
 	SetPlaneConstraintEnabled(false);
 
 	BrakingDecelerationFalling = 500.0f;
-	AirControl = 0.25f;
+	BrakingDecelerationWalking = 2048.0f;
+	AirControl = 0.35f;
 	FallingLateralFriction = 1.0f;
-	GroundFriction = 10.0f;
+	GroundFriction = 8.0f;
 	MaxWalkSpeed = 600.0f;
+	MaxAcceleration = 2048.0f;
 	JumpZVelocity = 420.0f;
-	MaxStepHeight = 45.0f;
-	SetWalkableFloorAngle(55.0f);
+	MaxStepHeight = 50.0f;
+	SetWalkableFloorAngle(60.0f);
 	// Stay stuck to voxel mesh
 	PerchRadiusThreshold = 10.0f;
 	bUseFlatBaseForFloorChecks = true;
+	// Custom gravity: do not freeze when floor missing briefly during mesh cook
+	bMaintainHorizontalGroundVelocity = true;
 }
 
 void UVoxelSphericalMovement::BeginPlay()
@@ -200,11 +204,13 @@ void UVoxelSphericalMovement::AlignCapsuleToGravity(float DeltaSeconds)
 	}
 
 	const FVector CurrentUp = UpdatedComponent->GetUpVector();
-	if (FVector::DotProduct(CurrentUp, DesiredUp) > 0.9995f)
+	// Already feet-down enough — leave yaw alone (character look owns facing)
+	if (FVector::DotProduct(CurrentUp, DesiredUp) > 0.999f)
 	{
 		return;
 	}
 
+	// Preserve current facing on the new horizon plane (do not snap yaw to a world axis)
 	FVector Forward = FVector::VectorPlaneProject(UpdatedComponent->GetForwardVector(), DesiredUp);
 	if (Forward.SizeSquared() < 1e-4f)
 	{
@@ -214,11 +220,19 @@ void UVoxelSphericalMovement::AlignCapsuleToGravity(float DeltaSeconds)
 	{
 		Forward = FVector::VectorPlaneProject(FVector::ForwardVector, DesiredUp);
 	}
+	if (Forward.SizeSquared() < 1e-4f)
+	{
+		Forward = FVector::VectorPlaneProject(FVector::UpVector, DesiredUp);
+	}
 	Forward.Normalize();
 
 	const FQuat TargetQuat = FRotationMatrix::MakeFromXZ(Forward, DesiredUp).ToQuat();
 	const FQuat CurrentQuat = UpdatedComponent->GetComponentQuat();
-	const float Alpha = FMath::Clamp(DeltaSeconds * AlignSpeed, 0.0f, 1.0f);
+	// Snap hard when very misaligned (spawn); otherwise gentle slerp
+	const float Dot = FVector::DotProduct(CurrentUp, DesiredUp);
+	const float Alpha = (Dot < 0.5f)
+		? 1.0f
+		: FMath::Clamp(DeltaSeconds * AlignSpeed, 0.0f, 1.0f);
 	const FQuat Blended = FQuat::Slerp(CurrentQuat, TargetQuat, Alpha).GetNormalized();
 
 	UpdatedComponent->SetWorldRotation(Blended, false, nullptr, ETeleportType::TeleportPhysics);

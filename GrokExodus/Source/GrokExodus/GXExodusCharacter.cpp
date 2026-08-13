@@ -1,0 +1,225 @@
+// Copyright Grok Exodus. All Rights Reserved.
+
+#include "GXExodusCharacter.h"
+#include "GXTerrainToolComponent.h"
+#include "GXVoxelInvokerComponent.h"
+#include "GXBodyMovement.h"
+#include "GXVoxelWorld.h"
+#include "Camera/CameraComponent.h"
+#include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "EngineUtils.h"
+#include "UObject/ConstructorHelpers.h"
+#include "InputAction.h"
+
+AGrokExodusSurvivor::AGrokExodusSurvivor(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer.SetDefaultSubobjectClass<UGXBodyMovement>(ACharacter::CharacterMovementComponentName))
+{
+	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.TickGroup = TG_PostUpdateWork;
+
+	TerrainTool = CreateDefaultSubobject<UGXTerrainToolComponent>(TEXT("TerrainTool"));
+	VoxelInvoker = CreateDefaultSubobject<UGXVoxelInvokerComponent>(TEXT("VoxelInvoker"));
+
+	static ConstructorHelpers::FObjectFinder<UInputAction> IAMove(TEXT("/Game/Input/Actions/IA_Move.IA_Move"));
+	static ConstructorHelpers::FObjectFinder<UInputAction> IAJump(TEXT("/Game/Input/Actions/IA_Jump.IA_Jump"));
+	static ConstructorHelpers::FObjectFinder<UInputAction> IALook(TEXT("/Game/Input/Actions/IA_Look.IA_Look"));
+	static ConstructorHelpers::FObjectFinder<UInputAction> IAMouseLook(TEXT("/Game/Input/Actions/IA_MouseLook.IA_MouseLook"));
+	if (IAMove.Succeeded()) MoveAction = IAMove.Object;
+	if (IAJump.Succeeded()) JumpAction = IAJump.Object;
+	if (IALook.Succeeded()) LookAction = IALook.Object;
+	if (IAMouseLook.Succeeded()) MouseLookAction = IAMouseLook.Object;
+
+	bUseControllerRotationPitch = false;
+	bUseControllerRotationYaw = false;
+	bUseControllerRotationRoll = false;
+
+	if (UCameraComponent* Cam = GetFirstPersonCameraComponent())
+	{
+		Cam->SetupAttachment(GetCapsuleComponent());
+		Cam->SetRelativeLocation(FVector(0.f, 0.f, 64.f));
+		Cam->bUsePawnControlRotation = false;
+		Cam->FieldOfView = 90.0f;
+	}
+	if (USkeletalMeshComponent* FPMesh = GetFirstPersonMesh())
+	{
+		FPMesh->SetVisibility(false);
+		FPMesh->SetHiddenInGame(true);
+		FPMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	}
+}
+
+void AGrokExodusSurvivor::ConfigureCamera()
+{
+	if (UCameraComponent* Cam = GetFirstPersonCameraComponent())
+	{
+		if (Cam->GetAttachParent() != GetCapsuleComponent())
+		{
+			Cam->AttachToComponent(GetCapsuleComponent(), FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+		}
+		Cam->SetRelativeLocation(FVector(0.f, 0.f, 64.f));
+		Cam->bUsePawnControlRotation = false;
+	}
+}
+
+void AGrokExodusSurvivor::BeginPlay()
+{
+	Super::BeginPlay();
+	bUseControllerRotationPitch = false;
+	bUseControllerRotationYaw = false;
+	bUseControllerRotationRoll = false;
+	ConfigureCamera();
+	if (UGXBodyMovement* Move = GetBodyMove())
+	{
+		Move->bAlignCapsuleToGravity = false;
+		Move->bOrientRotationToMovement = false;
+		Move->MaxWalkSpeed = 700.0f;
+		Move->TryFindField();
+	}
+	EnsureLookBasis();
+	ApplyLookAndBody();
+}
+
+void AGrokExodusSurvivor::Tick(float DeltaSeconds)
+{
+	if (const APlayerController* PC = Cast<APlayerController>(Controller))
+	{
+		float F = 0.f, R = 0.f;
+		if (PC->IsInputKeyDown(EKeys::W)) F += 1.f;
+		if (PC->IsInputKeyDown(EKeys::S)) F -= 1.f;
+		if (PC->IsInputKeyDown(EKeys::D)) R += 1.f;
+		if (PC->IsInputKeyDown(EKeys::A)) R -= 1.f;
+		if (!FMath::IsNearlyZero(F) || !FMath::IsNearlyZero(R))
+		{
+			DoMove(R, F);
+		}
+	}
+	Super::Tick(DeltaSeconds);
+	EnsureLookBasis();
+	ApplyLookAndBody();
+}
+
+UGXBodyMovement* AGrokExodusSurvivor::GetBodyMove() const
+{
+	return Cast<UGXBodyMovement>(GetCharacterMovement());
+}
+
+FVector AGrokExodusSurvivor::GetPlanetUp() const
+{
+	if (const UGXBodyMovement* Move = GetBodyMove())
+	{
+		const FVector Up = Move->GetUpDir();
+		if (!Up.IsNearlyZero())
+		{
+			return Up;
+		}
+	}
+	const FVector Loc = GetActorLocation();
+	return Loc.IsNearlyZero() ? FVector::UpVector : Loc.GetSafeNormal();
+}
+
+void AGrokExodusSurvivor::EnsureLookBasis()
+{
+	const FVector Up = GetPlanetUp().GetSafeNormal();
+	if (Up.IsNearlyZero())
+	{
+		return;
+	}
+	if (!bLookBasisValid || LookHoriz.IsNearlyZero())
+	{
+		FVector Seed = FVector::VectorPlaneProject(GetActorForwardVector(), Up).GetSafeNormal();
+		if (Seed.IsNearlyZero()) Seed = FVector::VectorPlaneProject(FVector::ForwardVector, Up).GetSafeNormal();
+		LookHoriz = Seed;
+		bLookBasisValid = !LookHoriz.IsNearlyZero();
+		return;
+	}
+	FVector Transported = FVector::VectorPlaneProject(LookHoriz, Up);
+	if (Transported.SizeSquared() < 1e-6f)
+	{
+		Transported = FVector::VectorPlaneProject(FVector::RightVector, Up);
+	}
+	LookHoriz = Transported.GetSafeNormal();
+	bLookBasisValid = true;
+}
+
+void AGrokExodusSurvivor::ApplyLookAndBody()
+{
+	UCameraComponent* Cam = GetFirstPersonCameraComponent();
+	if (!Cam || !bLookBasisValid) return;
+	const FVector Up = GetPlanetUp().GetSafeNormal();
+	LookHoriz = FVector::VectorPlaneProject(LookHoriz, Up).GetSafeNormal();
+	if (LookHoriz.IsNearlyZero()) return;
+	const FVector LookRight = FVector::CrossProduct(Up, LookHoriz).GetSafeNormal();
+	if (LookRight.IsNearlyZero()) return;
+	const FQuat PitchQ(LookRight, FMath::DegreesToRadians(FMath::Clamp(LookPitch, -89.f, 89.f)));
+	const FVector LookFwd = PitchQ.RotateVector(LookHoriz).GetSafeNormal();
+	const FRotator BodyRot = FRotationMatrix::MakeFromXZ(LookHoriz, Up).Rotator();
+	SetActorRotation(BodyRot);
+	const FQuat RelQ = BodyRot.Quaternion().Inverse() * FRotationMatrix::MakeFromXZ(LookFwd, Up).ToQuat();
+	Cam->SetRelativeLocation(FVector(0.f, 0.f, 64.f));
+	Cam->SetRelativeRotation(RelQ.Rotator());
+}
+
+void AGrokExodusSurvivor::DoAim(float Yaw, float Pitch)
+{
+	const FVector Up = GetPlanetUp().GetSafeNormal();
+	EnsureLookBasis();
+	if (!FMath::IsNearlyZero(Yaw))
+	{
+		LookHoriz = FQuat(Up, FMath::DegreesToRadians(Yaw * LookSensitivity)).RotateVector(LookHoriz);
+		LookHoriz = FVector::VectorPlaneProject(LookHoriz, Up).GetSafeNormal();
+	}
+	LookPitch = FMath::Clamp(LookPitch + (bInvertLookPitch ? -Pitch : Pitch) * LookSensitivity, -89.f, 89.f);
+}
+
+void AGrokExodusSurvivor::DoMove(float Right, float Forward)
+{
+	if (!Controller) return;
+	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
+	if (MoveComp && MoveComp->MovementMode == MOVE_None)
+	{
+		MoveComp->SetMovementMode(MOVE_Walking);
+	}
+	const FVector Up = GetPlanetUp().GetSafeNormal();
+	EnsureLookBasis();
+	const FVector ForwardDir = FVector::VectorPlaneProject(LookHoriz, Up).GetSafeNormal();
+	const FVector RightDir = FVector::CrossProduct(Up, ForwardDir).GetSafeNormal();
+	AddMovementInput(ForwardDir, Forward);
+	AddMovementInput(RightDir, Right);
+}
+
+void AGrokExodusSurvivor::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
+{
+	Super::SetupPlayerInputComponent(PlayerInputComponent);
+	PlayerInputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AGrokExodusSurvivor::OnDrillStarted);
+	PlayerInputComponent->BindKey(EKeys::LeftMouseButton, IE_Released, this, &AGrokExodusSurvivor::OnDrillCompleted);
+	PlayerInputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AGrokExodusSurvivor::OnToolMode);
+	PlayerInputComponent->BindKey(EKeys::R, IE_Pressed, this, &AGrokExodusSurvivor::OnCycleMaterial);
+	PlayerInputComponent->BindKey(EKeys::F5, IE_Pressed, this, &AGrokExodusSurvivor::OnSaveWorld);
+	PlayerInputComponent->BindKey(EKeys::T, IE_Pressed, this, &AGrokExodusSurvivor::OnCycleQuality);
+	PlayerInputComponent->BindKey(EKeys::G, IE_Pressed, this, &AGrokExodusSurvivor::OnToolMode);
+}
+
+void AGrokExodusSurvivor::OnDrillStarted() { if (TerrainTool) TerrainTool->PrimaryFire(true); }
+void AGrokExodusSurvivor::OnDrillCompleted() { if (TerrainTool) TerrainTool->PrimaryFire(false); }
+void AGrokExodusSurvivor::OnToolMode() { if (TerrainTool) TerrainTool->CycleMode(); }
+void AGrokExodusSurvivor::OnCycleMaterial() { if (TerrainTool) TerrainTool->CyclePlaceMaterial(1); }
+void AGrokExodusSurvivor::OnCycleQuality()
+{
+	if (!TerrainTool) return;
+	TerrainTool->DigSpeedMul = (TerrainTool->DigSpeedMul < 1.5f) ? 2.0f : 1.0f;
+	TerrainTool->WearMul = 1.0f / TerrainTool->DigSpeedMul;
+}
+
+void AGrokExodusSurvivor::OnSaveWorld()
+{
+	for (TActorIterator<AGXVoxelWorld> It(GetWorld()); It; ++It)
+	{
+		It->SaveWorld();
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Green, TEXT("World saved."));
+		}
+		break;
+	}
+}

@@ -1,0 +1,23 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "GX Celestial",
+	"Description": "Kepler ephemeris, inverse-square gravity, atmosphere, and body frames for Grok Exodus.",
+	"Category": "GrokExodus",
+	"CreatedBy": "Grok Exodus",
+	"EnabledByDefault": true,
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"Installed": false,
+	"Plugins": [
+		{ "Name": "GXCore", "Enabled": true }
+	],
+	"Modules": [
+		{
+			"Name": "GXCelestial",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}

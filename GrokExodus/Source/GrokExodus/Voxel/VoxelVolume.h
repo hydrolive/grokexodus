@@ -98,6 +98,9 @@ public:
 		const FVoxelToolModifiers& Tool,
 		float Strength = 1.0f);
 
+	/** Count bunker-protected solid cells in a local-meters AABB (diagnostics). */
+	int32 CountBunkerCells(const FBox& PlanetLocalBounds) const;
+
 	// ---- Bunker hooks ----
 
 	/** Mark all chunks overlapping AABB as bunker-resident (permanent safe anchor). */

@@ -78,17 +78,23 @@ void AVoxelChunkActor::ApplyMeshData(
 		return;
 	}
 
-	Mesh->ClearAllMeshSections();
 	Mesh->SetCastShadow(bCastShadows);
 	Mesh->bCastDynamicShadow = bCastShadows;
 	// Collision-critical chunks cook synchronously so the player can stand immediately
 	Mesh->bUseAsyncCooking = !bCreateCollision;
 
+	// Never wipe an existing good mesh with an empty rebuild (was causing "fills then vanishes")
 	if (Positions.Num() == 0 || Indices.Num() == 0)
 	{
-		Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		if (Mesh->GetNumSections() == 0)
+		{
+			Mesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		}
 		return;
 	}
+
+	// Only clear once we have valid replacement geometry
+	Mesh->ClearAllMeshSections();
 
 	const int32 VertCount = Positions.Num();
 
@@ -128,14 +134,19 @@ void AVoxelChunkActor::ApplyMeshData(
 		}
 		switch (MatId)
 		{
-		case 2: return FLinearColor(0.62f, 0.58f, 0.52f);
-		case 3: return FLinearColor(0.68f, 0.48f, 0.28f);
-		case 4: return FLinearColor(0.88f, 0.78f, 0.52f);
-		case 5: return FLinearColor(0.95f, 0.97f, 1.0f);
-		case 6: return FLinearColor(0.42f, 0.34f, 0.22f);
-		case 7: return FLinearColor(0.38f, 0.30f, 0.26f);
-		case 8: return FLinearColor(0.42f, 0.42f, 0.46f);
-		default: return FLinearColor(0.38f, 0.62f, 0.28f);
+		case 2: return FLinearColor(0.62f, 0.58f, 0.52f); // RockyCliff
+		case 3: return FLinearColor(0.68f, 0.48f, 0.28f); // DryDirt
+		case 4: return FLinearColor(0.88f, 0.78f, 0.52f); // Sand
+		case 5: return FLinearColor(0.95f, 0.97f, 1.0f); // Snow
+		case 6: return FLinearColor(0.42f, 0.34f, 0.22f); // Mud
+		case 7: return FLinearColor(0.38f, 0.30f, 0.26f); // Volcanic
+		case 8: return FLinearColor(0.42f, 0.42f, 0.46f); // Bedrock
+		case 9: return FLinearColor(0.55f, 0.42f, 0.38f); // OreIron
+		case 10: return FLinearColor(0.72f, 0.45f, 0.22f); // OreCopper
+		case 11: return FLinearColor(0.45f, 0.75f, 0.95f); // OreCrystal
+		case 12: return FLinearColor(0.55f, 0.55f, 0.52f); // Concrete
+		case 13: return FLinearColor(0.35f, 0.40f, 0.38f); // BunkerLiner
+		default: return FLinearColor(0.38f, 0.62f, 0.28f); // Grass
 		}
 	};
 
@@ -270,7 +281,10 @@ void AVoxelChunkActor::ApplyMeshData(
 	Mesh->SetCollisionEnabled(bCreateCollision ? ECollisionEnabled::QueryAndPhysics : ECollisionEnabled::NoCollision);
 	Mesh->SetCollisionResponseToAllChannels(ECR_Block);
 	Mesh->SetCollisionObjectType(ECC_WorldStatic);
+	// Large planet-local verts: force bounds so near-field is not frustum-culled incorrectly
+	Mesh->UpdateBounds();
 	Mesh->MarkRenderStateDirty();
+	Mesh->MarkRenderTransformDirty();
 }
 
 void AVoxelChunkActor::ClearMesh()

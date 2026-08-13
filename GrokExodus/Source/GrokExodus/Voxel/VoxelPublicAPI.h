@@ -1,5 +1,5 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
-// Phase 6 – clean extension API surface for craftsmanship, bunkers, walkers.
+// LEGACY (frozen). New work goes in Plugins/GX*. Do not add bunker/walker features.
 
 #pragma once
 
@@ -32,6 +32,12 @@ namespace VoxelAPI
 		{
 			Planet->RegisterBunkerVolumeWorld(WorldCenter, HalfExtentsCm);
 		}
+	}
+
+	/** Claim + protect + optional save. Returns protected cell count. */
+	inline int32 ClaimPrivateBunker(AVoxelPlanetActor* Planet, const FVector& WorldCenter, const FVector& HalfExtentsCm, bool bAutoSave = true)
+	{
+		return Planet ? Planet->ClaimBunkerWorld(WorldCenter, HalfExtentsCm, bAutoSave) : 0;
 	}
 
 	/** Walker / vehicle collision probe: true if solid density at world position. */

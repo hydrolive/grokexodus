@@ -8,12 +8,14 @@
 #include "VoxelExodusCharacter.generated.h"
 
 class UVoxelTerrainToolComponent;
+class UVoxelCraftsmanshipComponent;
 class UVoxelSphericalMovement;
 class UInputAction;
 
 /**
- * Extends the template FP character with voxel tools and spherical gravity movement.
- * Camera: capsule-attached, actor yaw + relative pitch (standard FPS, not inverted).
+ * Spherical FPS survivor (Phase 4 + 7).
+ * Look: world horizon vector + pitch with parallel transport.
+ * Phase 7: bunker claim, craftsmanship stock, summon temporary walker.
  */
 UCLASS()
 class AVoxelExodusCharacter : public AGrokExodusCharacter
@@ -27,35 +29,37 @@ public:
 	virtual void BeginPlay() override;
 	virtual void Tick(float DeltaSeconds) override;
 
-	// Gravity-relative aim + move
 	virtual void DoAim(float Yaw, float Pitch) override;
 	virtual void DoMove(float Right, float Forward) override;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Voxel")
 	TObjectPtr<UVoxelTerrainToolComponent> TerrainTool;
 
-	UPROPERTY(EditAnywhere, Category = "Input|Voxel")
-	TObjectPtr<UInputAction> DrillAction;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Voxel")
+	TObjectPtr<UVoxelCraftsmanshipComponent> Craftsmanship;
 
-	UPROPERTY(EditAnywhere, Category = "Input|Voxel")
-	TObjectPtr<UInputAction> ToolModeAction;
+	/** Horizon look direction (world, unit, perpendicular to planet up). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
+	FVector LookHoriz = FVector::ForwardVector;
 
-	UPROPERTY(EditAnywhere, Category = "Input|Voxel")
-	TObjectPtr<UInputAction> CycleMaterialAction;
-
-	UPROPERTY(EditAnywhere, Category = "Input|Voxel")
-	TObjectPtr<UInputAction> SavePlanetAction;
-
-	/** Pitch relative to horizon (degrees). + = look up (sky / away from planet). */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
 	float LookPitch = 0.0f;
 
-	/**
-	 * If true, mouse Y is inverted from the raw input sign.
-	 * Enhanced Input typically already sends +Y when mouse moves up.
-	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
-	bool bInvertLookPitch = false;
+	bool bInvertLookPitch = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Camera")
+	float LookSensitivity = 1.0f;
+
+	/** Bunker half-extents in cm when claiming (default ~8×8×5 m). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Bunker")
+	FVector BunkerHalfExtentsCm = FVector(800.f, 800.f, 500.f);
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
+	FVector2D DebugMoveInput = FVector2D::ZeroVector;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Camera")
+	FVector2D DebugLookInput = FVector2D::ZeroVector;
 
 protected:
 	void OnDrillStarted();
@@ -63,9 +67,19 @@ protected:
 	void OnToolMode();
 	void OnCycleMaterial();
 	void OnSavePlanet();
+	void OnClaimBunker();
+	void OnSummonWalker();
+	void OnCycleToolQuality();
+	void OnRepairTool();
 
 	UVoxelSphericalMovement* GetSphericalMovement() const;
 	FVector GetPlanetUp() const;
 	void ConfigureFirstPersonCamera();
-	void UpdateGravityRelativeCamera();
+	void EnsureLookBasis();
+	void ApplyLookAndBody();
+	void SyncToolModifiers();
+
+	float PendingMoveForward = 0.f;
+	float PendingMoveRight = 0.f;
+	bool bLookBasisValid = false;
 };

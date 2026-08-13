@@ -42,6 +42,20 @@ struct FVoxelPlanetParams
 
 	/** Sea level offset relative to Radius (negative = more ocean later). */
 	float SeaLevelBias = 0.0f;
+
+	// ---- Phase 8 world layers ----
+	/** Moisture noise frequency on unit sphere (biomes). */
+	float MoistureFreq = 3.5f;
+	/** Ore vein frequency (higher = smaller pockets). */
+	float OreFreq = 18.0f;
+	/** AI-war scar frequency. */
+	float ScarFreq = 9.0f;
+	/** Max crater depth carved by scars (meters). */
+	float ScarMaxDepth = 28.0f;
+	/** Threshold [0,1] for scar activation (higher = rarer). */
+	float ScarThreshold = 0.78f;
+	/** Ore density threshold (higher = rarer veins). */
+	float OreThreshold = 0.72f;
 };
 
 /**
@@ -119,9 +133,50 @@ public:
 		return Relief * Params.MaxRelief + Params.SeaLevelBias;
 	}
 
+	/** AI-war scar strength [0,1] on unit direction. */
+	float SampleScarStrength(const FVector& UnitDir) const
+	{
+		const float N = FVoxelNoise::FBm(
+			UnitDir.X * Params.ScarFreq,
+			UnitDir.Y * Params.ScarFreq,
+			UnitDir.Z * Params.ScarFreq,
+			Params.Seed + 99u, 4);
+		const float T = (N - Params.ScarThreshold) / FMath::Max(1.0f - Params.ScarThreshold, 0.05f);
+		return FMath::Clamp(T, 0.0f, 1.0f);
+	}
+
+	/** Meters carved from surface by scars / impact craters. */
+	float SampleScarCarveMeters(const FVector& UnitDir) const
+	{
+		const float S = SampleScarStrength(UnitDir);
+		if (S <= 0.0f)
+		{
+			return 0.0f;
+		}
+		// Ridged center for bowl-shaped craters
+		const float Bowl = FVoxelNoise::Ridged(
+			UnitDir.X * Params.ScarFreq * 1.7f,
+			UnitDir.Y * Params.ScarFreq * 1.7f,
+			UnitDir.Z * Params.ScarFreq * 1.7f,
+			Params.Seed + 140u, 2);
+		return S * Params.ScarMaxDepth * (0.45f + 0.55f * Bowl);
+	}
+
+	/** Moisture [0,1] for biome selection. */
+	float SampleMoisture(const FVector& UnitDir) const
+	{
+		const float M = FVoxelNoise::FBm(
+			UnitDir.X * Params.MoistureFreq,
+			UnitDir.Y * Params.MoistureFreq,
+			UnitDir.Z * Params.MoistureFreq,
+			Params.Seed + 33u, 4);
+		return FMath::Clamp(M * 0.5f + 0.5f, 0.0f, 1.0f);
+	}
+
 	/**
 	 * Signed density at planet-local position (meters).
 	 * Positive inside solid crust / mantle sample.
+	 * Phase 8: scar craters lower the surface (carve into crust).
 	 */
 	float SampleDensity(const FVector& PlanetLocalPos) const
 	{
@@ -132,7 +187,6 @@ public:
 
 		if (R < 1e-6)
 		{
-			// Planet core: solid
 			return Params.Radius;
 		}
 
@@ -141,13 +195,47 @@ public:
 			static_cast<float>(Y / R),
 			static_cast<float>(Z / R));
 
-		const float SurfaceR = Params.Radius + SampleHeightDisplacement(UnitDir);
-		// Density = distance inside surface (positive below surface)
+		const float SurfaceR = Params.Radius + SampleHeightDisplacement(UnitDir) - SampleScarCarveMeters(UnitDir);
 		return static_cast<float>(SurfaceR - R);
 	}
 
 	/**
-	 * Material for a solid sample based on depth below surface and latitude.
+	 * Faster density for meshing (fewer noise octaves). Includes scar carve.
+	 */
+	float SampleDensityFast(const FVector& PlanetLocalPos) const
+	{
+		const double X = PlanetLocalPos.X;
+		const double Y = PlanetLocalPos.Y;
+		const double Z = PlanetLocalPos.Z;
+		const double R = FMath::Sqrt(X * X + Y * Y + Z * Z);
+		if (R < 1e-6)
+		{
+			return Params.Radius;
+		}
+		const float Ux = static_cast<float>(X / R);
+		const float Uy = static_cast<float>(Y / R);
+		const float Uz = static_cast<float>(Z / R);
+		const FVector UnitDir(Ux, Uy, Uz);
+
+		const float Continents = FVoxelNoise::FBm(
+			Ux * Params.ContinentFreq, Uy * Params.ContinentFreq, Uz * Params.ContinentFreq,
+			Params.Seed, 3, 2.0f, 0.5f);
+		const float Mountains = FVoxelNoise::Ridged(
+			Ux * Params.MountainFreq, Uy * Params.MountainFreq, Uz * Params.MountainFreq,
+			Params.Seed + 7u, 2);
+		const float Detail = FVoxelNoise::FBm(
+			Ux * Params.DetailFreq, Uy * Params.DetailFreq, Uz * Params.DetailFreq,
+			Params.Seed + 19u, 2, 2.0f, 0.5f);
+
+		const float LandMask = FMath::Clamp((Continents + 0.15f) * 1.4f, 0.0f, 1.0f);
+		const float Relief = LandMask * (0.55f + 0.45f * Mountains) + Detail * 0.08f * LandMask;
+		const float SurfaceR = Params.Radius + Relief * Params.MaxRelief + Params.SeaLevelBias
+			- SampleScarCarveMeters(UnitDir);
+		return static_cast<float>(SurfaceR - R);
+	}
+
+	/**
+	 * Material for a solid sample: biomes + depth + ores + scars (Phase 8).
 	 */
 	int32 SampleMaterial(const FVector& PlanetLocalPos, float Density) const
 	{
@@ -170,44 +258,67 @@ public:
 			static_cast<float>(Y / R),
 			static_cast<float>(Z / R));
 
-		const float SurfaceR = Params.Radius + SampleHeightDisplacement(UnitDir);
-		const float Depth = SurfaceR - static_cast<float>(R); // == Density for pure procedural
-		const float Latitude = FMath::Abs(UnitDir.Z); // 0 equator, 1 pole (Z-up planet)
+		const float BaseDisp = SampleHeightDisplacement(UnitDir);
+		const float ScarCarve = SampleScarCarveMeters(UnitDir);
+		const float SurfaceR = Params.Radius + BaseDisp - ScarCarve;
+		const float Depth = SurfaceR - static_cast<float>(R);
+		const float Latitude = FMath::Abs(UnitDir.Z);
+		const float Moisture = SampleMoisture(UnitDir);
+		const float HeightAboveBase = BaseDisp - ScarCarve;
 
 		// Deep interior
-		if (Depth > Params.CrustDepth * 3.0f)
+		if (Depth > Params.CrustDepth * 3.5f)
 		{
 			return static_cast<int32>(EVoxelMaterialId::BedrockDeep);
 		}
+
+		// Ore veins in mid-crust (Phase 8)
+		if (Depth > Params.CrustDepth * 0.35f && Depth < Params.CrustDepth * 2.8f)
+		{
+			const float OreN = FVoxelNoise::FBm(
+				UnitDir.X * Params.OreFreq + Depth * 0.15f,
+				UnitDir.Y * Params.OreFreq,
+				UnitDir.Z * Params.OreFreq + static_cast<float>(R) * 0.02f,
+				Params.Seed + 201u, 4);
+			if (OreN > Params.OreThreshold)
+			{
+				// Type by latitude / moisture
+				if (Latitude > 0.55f || Moisture < 0.35f)
+				{
+					return static_cast<int32>(EVoxelMaterialId::OreIron);
+				}
+				if (Moisture > 0.65f)
+				{
+					return static_cast<int32>(EVoxelMaterialId::OreCrystal);
+				}
+				return static_cast<int32>(EVoxelMaterialId::OreCopper);
+			}
+		}
+
 		if (Depth > Params.CrustDepth)
 		{
 			return static_cast<int32>(EVoxelMaterialId::RockyCliff);
 		}
 
-		// Surface materials
-		const float HeightAboveBase = SurfaceR - Params.Radius;
+		// Scar surface — scorched / glass
+		if (ScarCarve > 2.0f)
+		{
+			return static_cast<int32>(EVoxelMaterialId::VolcanicScorched);
+		}
 
+		// Biomes by latitude + moisture + elevation
 		if (Latitude > 0.78f || HeightAboveBase > Params.MaxRelief * 0.72f)
 		{
 			return static_cast<int32>(EVoxelMaterialId::SnowIce);
 		}
 
-		// Subtle scar noise for future AI-war integration (sparse volcanic patches)
-		const float Scar = FVoxelNoise::FBm(UnitDir.X * 12.0f, UnitDir.Y * 12.0f, UnitDir.Z * 12.0f, Params.Seed + 99u, 3);
-		if (Scar > 0.82f && HeightAboveBase < Params.MaxRelief * 0.2f)
-		{
-			return static_cast<int32>(EVoxelMaterialId::VolcanicScorched);
-		}
-
 		if (HeightAboveBase < Params.MaxRelief * 0.05f)
 		{
-			// Lowlands: mud / sand bands
-			const float Coast = FVoxelNoise::ValueNoise3D(UnitDir.X * 20.0f, UnitDir.Y * 20.0f, UnitDir.Z * 20.0f, Params.Seed + 3u);
-			if (Coast > 0.25f)
+			if (Moisture > 0.55f)
 			{
-				return static_cast<int32>(EVoxelMaterialId::SandCoastal);
+				return static_cast<int32>(EVoxelMaterialId::WetMud);
 			}
-			return static_cast<int32>(EVoxelMaterialId::WetMud);
+			return static_cast<int32>(EVoxelMaterialId::SandCoastal);
 		}
 
 		if (HeightAboveBase > Params.MaxRelief * 0.35f)
@@ -215,16 +326,15 @@ public:
 			return static_cast<int32>(EVoxelMaterialId::RockyCliff);
 		}
 
-		// Mid elevations: grass vs dry dirt
-		const float Dry = FVoxelNoise::ValueNoise3D(UnitDir.X * 15.0f, UnitDir.Y * 15.0f, UnitDir.Z * 15.0f, Params.Seed + 11u);
-		if (Dry > 0.35f)
+		// Mid elevations: wet → grass, dry → dirt
+		if (Moisture < 0.40f)
 		{
 			return static_cast<int32>(EVoxelMaterialId::DryDirt);
 		}
 		return static_cast<int32>(EVoxelMaterialId::TemperateGrass);
 	}
 
-	/** Full procedural cell at planet-local position. */
+	/** Full procedural cell: density + material + ore/scar flags. */
 	FVoxelCell SampleCell(const FVector& PlanetLocalPos) const
 	{
 		const float D = SampleDensity(PlanetLocalPos);
@@ -232,7 +342,31 @@ public:
 		{
 			return FVoxelCell::Air();
 		}
-		return FVoxelCell::Solid(SampleMaterial(PlanetLocalPos, D), D);
+		FVoxelCell Cell = FVoxelCell::Solid(SampleMaterial(PlanetLocalPos, D), D);
+
+		const double R = FMath::Sqrt(
+			static_cast<double>(PlanetLocalPos.X) * PlanetLocalPos.X
+			+ static_cast<double>(PlanetLocalPos.Y) * PlanetLocalPos.Y
+			+ static_cast<double>(PlanetLocalPos.Z) * PlanetLocalPos.Z);
+		if (R > 1e-6)
+		{
+			const FVector UnitDir(
+				static_cast<float>(PlanetLocalPos.X / R),
+				static_cast<float>(PlanetLocalPos.Y / R),
+				static_cast<float>(PlanetLocalPos.Z / R));
+			if (SampleScarCarveMeters(UnitDir) > 1.0f)
+			{
+				Cell.Flags |= static_cast<int32>(EVoxelFlags::Scarred);
+			}
+			const int32 Mat = Cell.MaterialId;
+			if (Mat == static_cast<int32>(EVoxelMaterialId::OreIron)
+				|| Mat == static_cast<int32>(EVoxelMaterialId::OreCopper)
+				|| Mat == static_cast<int32>(EVoxelMaterialId::OreCrystal))
+			{
+				Cell.Flags |= static_cast<int32>(EVoxelFlags::OreVein);
+			}
+		}
+		return Cell;
 	}
 
 	// ---- Coordinate conversion (global voxel indices ↔ planet-local meters) ----

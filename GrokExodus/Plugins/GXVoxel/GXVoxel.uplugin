@@ -1,0 +1,25 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "GX Voxel",
+	"Description": "Sparse page-directory voxel volume, stamps, and (later) meshing for Grok Exodus.",
+	"Category": "GrokExodus",
+	"CreatedBy": "Grok Exodus",
+	"EnabledByDefault": true,
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"Installed": false,
+	"Plugins": [
+		{ "Name": "GXCore", "Enabled": true },
+		{ "Name": "GXCelestial", "Enabled": true },
+		{ "Name": "GeometryProcessing", "Enabled": true }
+	],
+	"Modules": [
+		{
+			"Name": "GXVoxel",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}

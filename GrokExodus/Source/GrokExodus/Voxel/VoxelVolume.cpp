@@ -221,6 +221,13 @@ FVoxelVolume::FBrushResult FVoxelVolume::ApplySphereBrush(
 						continue;
 					}
 
+					// Phase 7: permanent bunker voxels cannot be dug by normal tools
+					if ((Cell.Flags & static_cast<int32>(EVoxelFlags::BunkerProtected)) != 0
+						&& !Tool.bBypassBunkerProtection)
+					{
+						continue;
+					}
+
 					const float Hardness = Materials.GetHardness(Cell.MaterialId);
 					const float DigRate = FVoxelMaterialTable::ComputeDigRate(Hardness, Tool);
 					const float DeltaDensity = Amount * DigRate * 2.0f; // scale: ~full carve at center with rate 1
@@ -334,4 +341,26 @@ void FVoxelVolume::ClearBunkerFlags()
 			Cell.Flags &= ~static_cast<int32>(EVoxelFlags::BunkerProtected);
 		}
 	}
+}
+
+int32 FVoxelVolume::CountBunkerCells(const FBox& PlanetLocalBounds) const
+{
+	int32 Count = 0;
+	const FIntVector MinV = Mapping.WorldToVoxel(PlanetLocalBounds.Min);
+	const FIntVector MaxV = Mapping.WorldToVoxel(PlanetLocalBounds.Max);
+	for (int32 Z = MinV.Z; Z <= MaxV.Z; ++Z)
+	{
+		for (int32 Y = MinV.Y; Y <= MaxV.Y; ++Y)
+		{
+			for (int32 X = MinV.X; X <= MaxV.X; ++X)
+			{
+				const FVoxelCell Cell = SampleVoxel(FIntVector(X, Y, Z));
+				if ((Cell.Flags & static_cast<int32>(EVoxelFlags::BunkerProtected)) != 0)
+				{
+					++Count;
+				}
+			}
+		}
+	}
+	return Count;
 }

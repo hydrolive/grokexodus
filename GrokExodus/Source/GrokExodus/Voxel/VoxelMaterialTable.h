@@ -20,7 +20,12 @@ enum class EVoxelMaterialId : uint8
 	WetMud           = 6,
 	VolcanicScorched = 7,
 	BedrockDeep      = 8,
-	// Reserve 9–255 for ores, concrete, bunker liners, etc.
+	// Phase 8 — ores & built materials
+	OreIron          = 9,
+	OreCopper        = 10,
+	OreCrystal       = 11,
+	Concrete         = 12,
+	BunkerLiner      = 13,
 	Count            UMETA(Hidden)
 };
 

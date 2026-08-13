@@ -70,20 +70,31 @@ public:
 	 * Increase as LOD/async harden; this is the working set, not the world bound.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	float StreamRadius = 256.0f;
+	float StreamRadius = 160.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	float UnloadRadius = 320.0f;
+	float UnloadRadius = 220.0f;
+
+	/**
+	 * Chunks inside this radius are meshed before anything else (guaranteed underfoot fill).
+	 * Units: meters.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
+	float NearFieldRadius = 72.0f;
+
+	/** Mesh builds spent on near field first each frame. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
+	int32 NearMeshBuildsPerFrame = 48;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	int32 MaxMeshBuildsPerFrame = 4;
+	int32 MaxMeshBuildsPerFrame = 16;
 
 	/** Burst mesh builds on spawn so collision exists before the player lands. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	int32 WarmupMeshBuildsPerFrame = 32;
+	int32 WarmupMeshBuildsPerFrame = 128;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	float WarmupSeconds = 4.0f;
+	float WarmupSeconds = 3.0f;
 
 	/**
 	 * If true, all streamed chunks mesh at full res (no LOD cracks, higher cost).
@@ -169,6 +180,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Voxel|Bunker")
 	void RegisterBunkerVolumeWorld(FVector WorldCenter, FVector HalfExtents);
 
+	/**
+	 * Claim a permanent private bunker around a world position (cm).
+	 * Marks chunks resident + BunkerProtected flags, remeshes, optional auto-save.
+	 * Returns protected cell count.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Voxel|Bunker")
+	int32 ClaimBunkerWorld(FVector WorldCenter, FVector HalfExtentsCm, bool bAutoSave = true);
+
+	UFUNCTION(BlueprintCallable, Category = "Voxel|Bunker")
+	int32 CountBunkerCellsWorld(FVector WorldCenter, FVector HalfExtentsCm) const;
+
 	UFUNCTION(BlueprintCallable, Category = "Voxel|Persistence")
 	bool SavePlanet();
 
@@ -178,6 +200,13 @@ public:
 	/** Force stream around a world position (e.g. player). */
 	UFUNCTION(BlueprintCallable, Category = "Voxel|Streaming")
 	void UpdateStreaming(FVector WorldViewerLocation);
+
+	/**
+	 * Best focus for streaming/meshing: player if they are near the crust,
+	 * otherwise the +X surface. Avoids meshing at world-origin before surface place.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Voxel|Streaming")
+	FVector GetStreamFocusWorldLocation() const;
 
 	/** Process pending meshes immediately (spawn / surface place). */
 	UFUNCTION(BlueprintCallable, Category = "Voxel|Streaming")
@@ -209,16 +238,21 @@ protected:
 	/** Non-UPROPERTY: custom struct keys are awkward for UHT reflection. */
 	TMap<FVoxelChunkCoord, TWeakObjectPtr<AVoxelChunkActor>> ChunkActors;
 
+	/** Far / general mesh queue. */
 	TArray<FVoxelChunkCoord> MeshBuildQueue;
+	/** Near-field priority queue (under / around player) — drained first. */
+	TArray<FVoxelChunkCoord> NearMeshQueue;
 	TSet<FVoxelChunkCoord> MeshBuildQueued;
+	TSet<FVoxelChunkCoord> NearMeshQueued;
 
 	float LastMeshBuildMs = 0.0f;
 	double AccumMeshBuildMs = 0.0;
 	int32 MeshBuildCount = 0;
 
 	void RebuildPlanetParams();
-	void EnqueueRemesh(const FVoxelChunkCoord& Coord);
+	void EnqueueRemesh(const FVoxelChunkCoord& Coord, bool bNearPriority = false);
 	void ProcessMeshQueue(int32 Budget);
+	void ProcessOneMeshQueue(TArray<FVoxelChunkCoord>& Queue, TSet<FVoxelChunkCoord>& QueuedSet, int32& Built, int32 Budget);
 	void BuildChunkMesh(const FVoxelChunkCoord& Coord);
 	void ApplyBuiltMesh(const FVoxelChunkCoord& Coord, int32 LOD, struct FVoxelMeshData&& MeshData, float BuildMs);
 	void BakeTriplanarColors(struct FVoxelMeshData& MeshData) const;
@@ -237,4 +271,7 @@ protected:
 
 	/** Chunks currently meshing async — avoid double queue. */
 	TSet<FVoxelChunkCoord> AsyncInFlight;
+
+	/** Last trusted stream focus (meters, planet-local). */
+	FVector LastFocusLocalM = FVector::ZeroVector;
 };

@@ -1,0 +1,26 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "GX Presentation",
+	"Description": "HUD, build UI, map, and VFX hooks for Grok Exodus.",
+	"Category": "GrokExodus",
+	"CreatedBy": "Grok Exodus",
+	"EnabledByDefault": true,
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"Installed": false,
+	"Plugins": [
+		{ "Name": "GXCore", "Enabled": true },
+		{ "Name": "GXVoxel", "Enabled": true },
+		{ "Name": "GXCelestial", "Enabled": true },
+		{ "Name": "GXConstruct", "Enabled": true }
+	],
+	"Modules": [
+		{
+			"Name": "GXPresentation",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}

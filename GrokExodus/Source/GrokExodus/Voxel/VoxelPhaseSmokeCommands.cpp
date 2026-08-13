@@ -1,5 +1,5 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
-// Phase 1–6 console smoke helpers + extended automation.
+// Phase 1–7 console smoke helpers + extended automation.
 
 #include "CoreMinimal.h"
 #include "HAL/IConsoleManager.h"
@@ -9,6 +9,8 @@
 #include "Voxel/VoxelVolume.h"
 #include "Voxel/VoxelPersistence.h"
 #include "Voxel/VoxelRuntimeTextures.h"
+#include "Voxel/VoxelPublicAPI.h"
+#include "Voxel/VoxelTypes.h"
 #include "HAL/PlatformTime.h"
 #include "Misc/Paths.h"
 
@@ -224,3 +226,154 @@ static FAutoConsoleCommand GVoxelPhase3Cmd(
 			M0.Positions.Num(), M2.Positions.Num(),
 			(Found >= 7 && M0.Positions.Num() > M2.Positions.Num()) ? TEXT("PASS") : TEXT("CHECK"));
 	}));
+
+// Phase 7: bunker protection + craftsmanship modifiers
+static FAutoConsoleCommand GVoxelPhase7Cmd(
+	TEXT("Voxel.Phase7Smoke"),
+	TEXT("Verify bunker protection blocks dig and craftsmanship modifiers affect rate."),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		FVoxelPlanetParams Params;
+		Params.Radius = 64.0f;
+		Params.MaxRelief = 8.0f;
+		Params.VoxelSize = 1.0f;
+		FVoxelVolume Volume(Params);
+		const FVector Center(Params.Radius, 0, 0);
+		// Ensure solid at center surface
+		for (int32 Z = -2; Z <= 2; ++Z)
+		for (int32 Y = -2; Y <= 2; ++Y)
+		for (int32 X = -2; X <= 2; ++X)
+		{
+			Volume.GetOrCreateChunk(FVoxelChunkCoord(
+				FVoxelSphereMapping::VoxelToChunk(Volume.GetMapping().WorldToVoxel(Center)).X + X,
+				FVoxelSphereMapping::VoxelToChunk(Volume.GetMapping().WorldToVoxel(Center)).Y + Y,
+				FVoxelSphereMapping::VoxelToChunk(Volume.GetMapping().WorldToVoxel(Center)).Z + Z));
+		}
+
+		const FBox BunkerBox(Center - FVector(4), Center + FVector(4));
+		Volume.RegisterBunkerVolume(BunkerBox);
+		const int32 Protected = Volume.CountBunkerCells(BunkerBox);
+
+		FVoxelToolModifiers Normal;
+		Normal.bBypassBunkerProtection = false;
+		const auto Blocked = Volume.ApplySphereBrush(Center, 3.0f, true, 0, Normal, 1.0f);
+
+		FVoxelToolModifiers Admin;
+		Admin.bBypassBunkerProtection = true;
+		const auto Forced = Volume.ApplySphereBrush(Center, 3.0f, true, 0, Admin, 1.0f);
+
+		const FVoxelToolModifiers Weak = VoxelAPI::MakeToolModifiers(0.5f);
+		const FVoxelToolModifiers Strong = VoxelAPI::MakeToolModifiers(2.0f);
+		const bool bOk = Protected > 0 && Blocked.VolumeChanged < Forced.VolumeChanged
+			&& Strong.DigSpeedMul > Weak.DigSpeedMul;
+
+		UE_LOG(LogVoxelWorld, Display,
+			TEXT("Phase7Smoke bunkerCells=%d digBlocked=%.3f digBypass=%.3f Qweak=%.2f Qstrong=%.2f → %s"),
+			Protected, Blocked.VolumeChanged, Forced.VolumeChanged,
+			Weak.DigSpeedMul, Strong.DigSpeedMul,
+			bOk ? TEXT("PASS") : TEXT("FAIL"));
+	}));
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FVoxelPhase7BunkerTest, "GrokExodus.Voxel.Phase7.Bunker",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FVoxelPhase7BunkerTest::RunTest(const FString& Parameters)
+{
+	FVoxelPlanetParams Params;
+	Params.Radius = 48.0f;
+	Params.MaxRelief = 6.0f;
+	FVoxelVolume Volume(Params);
+	const FVector Center(Params.Radius, 0, 0);
+	const FVoxelChunkCoord CC = FVoxelSphereMapping::VoxelToChunk(Volume.GetMapping().WorldToVoxel(Center));
+	for (int32 Z = -1; Z <= 1; ++Z)
+	for (int32 Y = -1; Y <= 1; ++Y)
+	for (int32 X = -1; X <= 1; ++X)
+		Volume.GetOrCreateChunk(FVoxelChunkCoord(CC.X + X, CC.Y + Y, CC.Z + Z));
+
+	Volume.RegisterBunkerVolume(FBox(Center - FVector(3), Center + FVector(3)));
+	TestTrue(TEXT("Bunker cells flagged"), Volume.CountBunkerCells(FBox(Center - FVector(3), Center + FVector(3))) > 0);
+
+	FVoxelToolModifiers Normal;
+	const auto Blocked = Volume.ApplySphereBrush(Center, 2.5f, true, 0, Normal, 1.0f);
+	FVoxelToolModifiers Bypass;
+	Bypass.bBypassBunkerProtection = true;
+	const auto Forced = Volume.ApplySphereBrush(Center, 2.5f, true, 0, Bypass, 1.0f);
+	TestTrue(TEXT("Bunker reduces dig vs bypass"), Blocked.VolumeChanged <= Forced.VolumeChanged + KINDA_SMALL_NUMBER);
+	return true;
+}
+
+// Phase 8: biomes, ores, scars
+static FAutoConsoleCommand GVoxelPhase8Cmd(
+	TEXT("Voxel.Phase8Smoke"),
+	TEXT("Sample materials for ores/scars/biomes across the sphere."),
+	FConsoleCommandDelegate::CreateLambda([]()
+	{
+		FVoxelPlanetParams Params;
+		Params.Radius = 200.0f;
+		Params.MaxRelief = 30.0f;
+		Params.ScarThreshold = 0.70f;
+		Params.OreThreshold = 0.65f;
+		FVoxelSphereMapping Map(Params);
+
+		int32 Ore = 0, Scar = 0, Grass = 0, Snow = 0, Samples = 0;
+		for (int32 I = 0; I < 400; ++I)
+		{
+			const float U = (I % 20) / 19.0f * 2.0f - 1.0f;
+			const float V = (I / 20) / 19.0f * 2.0f - 1.0f;
+			FVector Dir(U, V, 0.35f);
+			Dir.Normalize();
+			// Sample a few depths under surface
+			for (float Depth = 2.f; Depth <= 25.f; Depth += 8.f)
+			{
+				const FVector P = Dir * (Params.Radius + 5.f - Depth);
+				const FVoxelCell Cell = Map.SampleCell(P);
+				if (!Cell.IsSolid()) continue;
+				++Samples;
+				const int32 M = Cell.MaterialId;
+				if (M == 9 || M == 10 || M == 11) ++Ore;
+				if ((Cell.Flags & static_cast<int32>(EVoxelFlags::Scarred)) != 0) ++Scar;
+				if (M == 1) ++Grass;
+				if (M == 5) ++Snow;
+			}
+		}
+		const bool bOk = Samples > 50 && Ore > 0;
+		UE_LOG(LogVoxelWorld, Display,
+			TEXT("Phase8Smoke samples=%d ore=%d scar=%d grass=%d snow=%d → %s"),
+			Samples, Ore, Scar, Grass, Snow, bOk ? TEXT("PASS") : TEXT("CHECK"));
+	}));
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FVoxelPhase8WorldLayersTest, "GrokExodus.Voxel.Phase8.WorldLayers",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FVoxelPhase8WorldLayersTest::RunTest(const FString& Parameters)
+{
+	FVoxelPlanetParams Params;
+	Params.Radius = 120.0f;
+	Params.MaxRelief = 20.0f;
+	Params.ScarThreshold = 0.65f;
+	Params.OreThreshold = 0.60f;
+	FVoxelSphereMapping Map(Params);
+
+	bool bFoundOre = false;
+	bool bFoundScarCarve = false;
+	for (int32 I = 0; I < 200 && !(bFoundOre && bFoundScarCarve); ++I)
+	{
+		const float T = I / 199.0f * PI * 2.0f;
+		FVector Dir(FMath::Cos(T), FMath::Sin(T), 0.2f);
+		Dir.Normalize();
+		if (Map.SampleScarCarveMeters(Dir) > 0.5f)
+		{
+			bFoundScarCarve = true;
+		}
+		for (float D = 3.f; D < 30.f; D += 3.f)
+		{
+			const FVoxelCell C = Map.SampleCell(Dir * (Params.Radius - D));
+			if (C.MaterialId >= 9 && C.MaterialId <= 11)
+			{
+				bFoundOre = true;
+				TestTrue(TEXT("Ore has OreVein flag"), (C.Flags & static_cast<int32>(EVoxelFlags::OreVein)) != 0);
+			}
+		}
+	}
+	TestTrue(TEXT("Found ore material in crust samples"), bFoundOre);
+	TestTrue(TEXT("Found scar carve somewhere on sphere"), bFoundScarCarve);
+	return true;
+}

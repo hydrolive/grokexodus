@@ -205,6 +205,13 @@ struct FVoxelToolModifiers
 	/** Tool wear applied externally; this is informational feedback. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Craftsmanship")
 	float WearMul = 1.0f;
+
+	/**
+	 * When false (default), dig skips BunkerProtected voxels (permanent anchor).
+	 * Set true only for admin / deliberate dismantle tools.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Craftsmanship")
+	bool bBypassBunkerProtection = false;
 };
 
 /** Result of a dig operation (feeds inventory / tool wear systems). */

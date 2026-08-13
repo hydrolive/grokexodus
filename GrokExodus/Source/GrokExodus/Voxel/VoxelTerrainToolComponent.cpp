@@ -3,6 +3,7 @@
 #include "Voxel/VoxelTerrainToolComponent.h"
 #include "Voxel/VoxelPlanetActor.h"
 #include "Voxel/VoxelMaterialTable.h"
+#include "Voxel/VoxelCraftsmanshipComponent.h"
 #include "GameFramework/Character.h"
 #include "Camera/CameraComponent.h"
 #include "EngineUtils.h"
@@ -68,32 +69,44 @@ void UVoxelTerrainToolComponent::TickComponent(float DeltaTime, ELevelTick TickT
 
 FVector UVoxelTerrainToolComponent::GetTraceStart() const
 {
-	if (const APawn* Pawn = Cast<APawn>(GetOwner()))
+	// Prefer first-person camera (custom spherical look does not always update ControlRotation)
+	if (const AActor* Owner = GetOwner())
 	{
-		if (const APlayerController* PC = Cast<APlayerController>(Pawn->GetController()))
+		TArray<UCameraComponent*> Cams;
+		Owner->GetComponents<UCameraComponent>(Cams);
+		for (UCameraComponent* Cam : Cams)
 		{
-			FVector Loc;
-			FRotator Rot;
-			PC->GetPlayerViewPoint(Loc, Rot);
-			return Loc;
+			if (Cam && Cam->IsActive())
+			{
+				return Cam->GetComponentLocation();
+			}
 		}
-		return Pawn->GetActorLocation() + FVector(0, 0, 64);
+		if (const APawn* Pawn = Cast<APawn>(Owner))
+		{
+			return Pawn->GetActorLocation() + Pawn->GetActorUpVector() * 64.f;
+		}
+		return Owner->GetActorLocation();
 	}
-	return GetOwner() ? GetOwner()->GetActorLocation() : FVector::ZeroVector;
+	return FVector::ZeroVector;
 }
 
 FVector UVoxelTerrainToolComponent::GetTraceDir() const
 {
-	if (const APawn* Pawn = Cast<APawn>(GetOwner()))
+	if (const AActor* Owner = GetOwner())
 	{
-		if (const APlayerController* PC = Cast<APlayerController>(Pawn->GetController()))
+		TArray<UCameraComponent*> Cams;
+		Owner->GetComponents<UCameraComponent>(Cams);
+		for (UCameraComponent* Cam : Cams)
 		{
-			FVector Loc;
-			FRotator Rot;
-			PC->GetPlayerViewPoint(Loc, Rot);
-			return Rot.Vector();
+			if (Cam && Cam->IsActive())
+			{
+				return Cam->GetForwardVector();
+			}
 		}
-		return Pawn->GetActorForwardVector();
+		if (const APawn* Pawn = Cast<APawn>(Owner))
+		{
+			return Pawn->GetActorForwardVector();
+		}
 	}
 	return FVector::ForwardVector;
 }
@@ -131,6 +144,13 @@ void UVoxelTerrainToolComponent::ApplyTool(float DeltaTime)
 		const FVoxelDigResult Dig = Planet->DigSphere(Center, RadiusM, ToolModifiers, DigStrength);
 		if (Dig.bSuccess)
 		{
+			if (AActor* Owner = GetOwner())
+			{
+				if (UVoxelCraftsmanshipComponent* Craft = Owner->FindComponentByClass<UVoxelCraftsmanshipComponent>())
+				{
+					Craft->ApplyDigResult(Dig);
+				}
+			}
 			UE_LOG(LogVoxelWorld, Verbose, TEXT("Drill: vol=%.2f yield=%.2f wear=%.2f mat=%d chunks=%d"),
 				Dig.VolumeRemoved, Dig.YieldAmount, Dig.ToolWear, Dig.MaterialId, Dig.DirtyChunks.Num());
 		}
@@ -171,9 +191,20 @@ void UVoxelTerrainToolComponent::CycleMode()
 
 void UVoxelTerrainToolComponent::CyclePlaceMaterial(int32 Direction)
 {
-	// Cycle 1..7 landscape materials
-	PlaceMaterialId += Direction;
-	if (PlaceMaterialId < 1) PlaceMaterialId = 7;
-	if (PlaceMaterialId > 7) PlaceMaterialId = 1;
+	// Cycle placeable materials: landscape 1–8 + concrete/liner 12–13 (skip pure ores as place default)
+	static const int32 Cycle[] = { 1, 2, 3, 4, 5, 6, 7, 8, 12, 13 };
+	constexpr int32 N = 10;
+	int32 Idx = 0;
+	for (int32 I = 0; I < N; ++I)
+	{
+		if (Cycle[I] == PlaceMaterialId)
+		{
+			Idx = I;
+			break;
+		}
+	}
+	Idx = (Idx + Direction) % N;
+	if (Idx < 0) Idx += N;
+	PlaceMaterialId = Cycle[Idx];
 	UE_LOG(LogVoxelWorld, Log, TEXT("Place material id: %d"), PlaceMaterialId);
 }

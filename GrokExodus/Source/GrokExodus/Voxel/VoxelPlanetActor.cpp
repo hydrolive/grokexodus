@@ -144,11 +144,29 @@ void AVoxelPlanetActor::BeginPlay()
 		TrackedPawn = PC->GetPawn();
 	}
 
-	// Seed stream at +X surface — convert meters → cm (was missing ×100, wrong place)
-	const FVector SurfaceWorld = FindSurfaceWorldLocation(FVector(1, 0, 0));
-	const FVector SeedViewer = TrackedPawn ? TrackedPawn->GetActorLocation() : (SurfaceWorld + FVector(0, 0, 200));
+	// ALWAYS seed at crust surface — never at world origin (pawn often still sits there pre-place).
+	// Origin-centered streaming wastes the mesh budget on empty deep-solid chunks.
+	const FVector SeedViewer = GetStreamFocusWorldLocation();
 	UpdateStreaming(SeedViewer);
 	FlushMeshQueue(WarmupMeshBuildsPerFrame);
+}
+
+FVector AVoxelPlanetActor::GetStreamFocusWorldLocation() const
+{
+	const FVector Surface = FindSurfaceWorldLocation(FVector(1.0f, 0.0f, 0.0f));
+	const FVector SurfaceUp = -GetGravityDirectionAt(Surface);
+
+	if (TrackedPawn)
+	{
+		const FVector P = TrackedPawn->GetActorLocation();
+		const float DistFromCenterM = WorldToPlanetLocalMeters(P).Size();
+		// Trust the pawn only once it is near the crust (not default spawn / origin)
+		if (DistFromCenterM > PlanetRadius * 0.5f)
+		{
+			return P;
+		}
+	}
+	return Surface + SurfaceUp * 200.0f;
 }
 
 FVector AVoxelPlanetActor::FindSurfaceWorldLocation(FVector RadialDirection) const
@@ -217,14 +235,14 @@ void AVoxelPlanetActor::Tick(float DeltaSeconds)
 		}
 	}
 
-	if (TrackedPawn)
-	{
-		const FVector ViewerLoc = TrackedPawn->GetActorLocation();
-		UpdateStreaming(ViewerLoc);
-		UpdateDistantSphereVisual(ViewerLoc);
-	}
+	const FVector Focus = GetStreamFocusWorldLocation();
+	UpdateStreaming(Focus);
+	UpdateDistantSphereVisual(Focus);
 
-	const int32 Budget = (WarmupTimeRemaining > 0.0f) ? WarmupMeshBuildsPerFrame : MaxMeshBuildsPerFrame;
+	// During warmup, spend almost everything on near field so ground appears under the player first
+	const int32 Budget = (WarmupTimeRemaining > 0.0f)
+		? WarmupMeshBuildsPerFrame
+		: (MaxMeshBuildsPerFrame + NearMeshBuildsPerFrame);
 	ProcessMeshQueue(Budget);
 }
 
@@ -374,6 +392,54 @@ void AVoxelPlanetActor::RegisterBunkerVolumeWorld(FVector WorldCenter, FVector H
 	Volume->RegisterBunkerVolume(Box);
 }
 
+int32 AVoxelPlanetActor::ClaimBunkerWorld(FVector WorldCenter, FVector HalfExtentsCm, bool bAutoSave)
+{
+	if (!Volume)
+	{
+		return 0;
+	}
+	RegisterBunkerVolumeWorld(WorldCenter, HalfExtentsCm);
+
+	// Remesh overlapping chunks so bunker state is authoritative on disk/load
+	const FVector Local = WorldToPlanetLocalMeters(WorldCenter);
+	const FVector HalfM = HalfExtentsCm * GVoxelUUToMeters;
+	const FBox Box(Local - HalfM, Local + HalfM);
+	const FIntVector MinV = Volume->GetMapping().WorldToVoxel(Box.Min);
+	const FIntVector MaxV = Volume->GetMapping().WorldToVoxel(Box.Max);
+	const FVoxelChunkCoord MinC = FVoxelSphereMapping::VoxelToChunk(MinV);
+	const FVoxelChunkCoord MaxC = FVoxelSphereMapping::VoxelToChunk(MaxV);
+	for (int32 Z = MinC.Z; Z <= MaxC.Z; ++Z)
+	{
+		for (int32 Y = MinC.Y; Y <= MaxC.Y; ++Y)
+		{
+			for (int32 X = MinC.X; X <= MaxC.X; ++X)
+			{
+				EnqueueRemesh(FVoxelChunkCoord(X, Y, Z), true);
+			}
+		}
+	}
+
+	const int32 Protected = Volume->CountBunkerCells(Box);
+	if (bAutoSave)
+	{
+		SavePlanet();
+	}
+	UE_LOG(LogVoxelWorld, Log, TEXT("Claimed bunker at %s half=%s cells=%d saved=%s"),
+		*WorldCenter.ToString(), *HalfExtentsCm.ToString(), Protected, bAutoSave ? TEXT("yes") : TEXT("no"));
+	return Protected;
+}
+
+int32 AVoxelPlanetActor::CountBunkerCellsWorld(FVector WorldCenter, FVector HalfExtentsCm) const
+{
+	if (!Volume)
+	{
+		return 0;
+	}
+	const FVector Local = WorldToPlanetLocalMeters(WorldCenter);
+	const FVector HalfM = HalfExtentsCm * GVoxelUUToMeters;
+	return Volume->CountBunkerCells(FBox(Local - HalfM, Local + HalfM));
+}
+
 FString AVoxelPlanetActor::GetSavePath() const
 {
 	return FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("VoxelWorld"), SaveFileName);
@@ -447,9 +513,17 @@ void AVoxelPlanetActor::UpdateStreaming(FVector WorldViewerLocation)
 	const FVector LocalViewerM = WorldToPlanetLocalMeters(WorldViewerLocation);
 	const float ChunkWorldM = Volume->GetMapping().ChunkWorldSize(0);
 	const int32 ChunkRadius = FMath::CeilToInt(StreamRadius / ChunkWorldM) + 1;
+	const float ChunkHalfDiag = ChunkWorldM * 0.8660254f; // ~sqrt(3)/2 * edge
+
+	// Only mesh the crust shell (surface ± relief). Pure deep-solid / pure air waste the mesh budget
+	// and leave the player with empty near-field while distant sphere still draws.
+	const float ShellInner = PlanetRadius - MaxRelief - 24.0f;
+	const float ShellOuter = PlanetRadius + MaxRelief + 16.0f;
 
 	const FVoxelChunkCoord CenterChunk = FVoxelSphereMapping::VoxelToChunk(
 		Volume->GetMapping().WorldToVoxel(LocalViewerM));
+
+	const float NearR = FMath::Clamp(NearFieldRadius, 32.0f, StreamRadius);
 
 	TSet<FVoxelChunkCoord> Desired;
 	for (int32 Z = -ChunkRadius; Z <= ChunkRadius; ++Z)
@@ -459,20 +533,27 @@ void AVoxelPlanetActor::UpdateStreaming(FVector WorldViewerLocation)
 			for (int32 X = -ChunkRadius; X <= ChunkRadius; ++X)
 			{
 				const FVoxelChunkCoord CC(CenterChunk.X + X, CenterChunk.Y + Y, CenterChunk.Z + Z);
-				const FVector ChunkCenterM = Volume->GetMapping().ChunkOriginWorld(CC)
-					+ FVector(ChunkWorldM * 0.5f);
+				const FVector ChunkOriginM = Volume->GetMapping().ChunkOriginWorld(CC);
+				const FVector ChunkCenterM = ChunkOriginM + FVector(ChunkWorldM * 0.5f);
 				const float Dist = FVector::Dist(ChunkCenterM, LocalViewerM);
 				if (Dist > StreamRadius)
 				{
 					continue;
 				}
 
-				// Near-surface prioritization: skip deep interior far from surface shell
 				const float R = ChunkCenterM.Size();
-				const float CoreSkip = PlanetRadius - MaxRelief - StreamRadius * 0.5f;
-				if (R < CoreSkip && Dist > ChunkWorldM * 2.0f)
+				const float RMin = FMath::Max(0.0f, R - ChunkHalfDiag);
+				const float RMax = R + ChunkHalfDiag;
+
+				const bool bNearPlayer = Dist <= NearR;
+				const bool bIntersectsShell = (RMax >= ShellInner) && (RMin <= ShellOuter);
+				if (!bIntersectsShell && !bNearPlayer)
 				{
-					continue; // deep cheap skip
+					continue;
+				}
+				if (RMax < ShellInner && Dist > ChunkWorldM * 1.25f)
+				{
+					continue;
 				}
 
 				Desired.Add(CC);
@@ -480,7 +561,6 @@ void AVoxelPlanetActor::UpdateStreaming(FVector WorldViewerLocation)
 				const int32 WantLOD = SelectLOD(Dist);
 				if (!ChunkActors.Contains(CC))
 				{
-					// Ensure data + actor
 					Volume->GetOrCreateChunk(CC);
 					FActorSpawnParameters SP;
 					SP.Owner = this;
@@ -496,18 +576,21 @@ void AVoxelPlanetActor::UpdateStreaming(FVector WorldViewerLocation)
 						ChunkActor->SetActorRelativeLocation(FVector::ZeroVector);
 						ChunkActor->InitializeChunk(CC, WantLOD);
 						ChunkActors.Add(CC, ChunkActor);
-						EnqueueRemesh(CC);
+						EnqueueRemesh(CC, bNearPlayer);
 					}
 				}
 				else if (TWeakObjectPtr<AVoxelChunkActor>* Existing = ChunkActors.Find(CC))
 				{
-					// Remesh when LOD band changes (Phase 5)
 					if (AVoxelChunkActor* CA = Existing->Get())
 					{
-						if (CA->LOD != WantLOD && !AsyncInFlight.Contains(CC))
+						if (CA->LOD != WantLOD && !AsyncInFlight.Contains(CC)
+							&& !MeshBuildQueued.Contains(CC) && !NearMeshQueued.Contains(CC))
 						{
-							CA->LOD = WantLOD;
-							EnqueueRemesh(CC);
+							if (WantLOD < CA->LOD || Dist > NearR + 16.0f)
+							{
+								CA->LOD = WantLOD;
+								EnqueueRemesh(CC, bNearPlayer);
+							}
 						}
 					}
 				}
@@ -515,7 +598,6 @@ void AVoxelPlanetActor::UpdateStreaming(FVector WorldViewerLocation)
 		}
 	}
 
-	// Unload far non-dirty (volume may keep dirty)
 	TArray<FVoxelChunkCoord> ToUnload;
 	for (const auto& Pair : ChunkActors)
 	{
@@ -538,48 +620,101 @@ void AVoxelPlanetActor::UpdateStreaming(FVector WorldViewerLocation)
 		}
 		ChunkActors.Remove(CC);
 		MeshBuildQueued.Remove(CC);
+		NearMeshQueued.Remove(CC);
+	}
+	if (ToUnload.Num() > 0)
+	{
+		MeshBuildQueue.RemoveAll([&](const FVoxelChunkCoord& C) { return ToUnload.Contains(C); });
+		NearMeshQueue.RemoveAll([&](const FVoxelChunkCoord& C) { return ToUnload.Contains(C); });
 	}
 
 	Volume->UnloadUnusedChunks(Desired);
 }
 
-void AVoxelPlanetActor::EnqueueRemesh(const FVoxelChunkCoord& Coord)
+void AVoxelPlanetActor::EnqueueRemesh(const FVoxelChunkCoord& Coord, bool bNearPriority)
 {
-	if (MeshBuildQueued.Contains(Coord))
+	if (MeshBuildQueued.Contains(Coord) || NearMeshQueued.Contains(Coord))
 	{
+		// Promote to near queue if requested
+		if (bNearPriority && MeshBuildQueued.Contains(Coord) && !NearMeshQueued.Contains(Coord))
+		{
+			MeshBuildQueue.Remove(Coord);
+			MeshBuildQueued.Remove(Coord);
+			NearMeshQueued.Add(Coord);
+			NearMeshQueue.Add(Coord);
+		}
 		return;
 	}
-	MeshBuildQueued.Add(Coord);
-	MeshBuildQueue.Add(Coord);
+
+	if (bNearPriority)
+	{
+		NearMeshQueued.Add(Coord);
+		NearMeshQueue.Add(Coord);
+	}
+	else
+	{
+		MeshBuildQueued.Add(Coord);
+		MeshBuildQueue.Add(Coord);
+	}
 }
 
-void AVoxelPlanetActor::ProcessMeshQueue(int32 Budget)
+void AVoxelPlanetActor::ProcessOneMeshQueue(
+	TArray<FVoxelChunkCoord>& Queue,
+	TSet<FVoxelChunkCoord>& QueuedSet,
+	int32& Built,
+	int32 Budget)
 {
-	// Prioritize chunks closest to the viewer so the ground underfoot fills first
-	if (MeshBuildQueue.Num() > 1 && TrackedPawn && Volume)
+	while (Built < Budget && Queue.Num() > 0)
 	{
-		const FVector ViewerM = WorldToPlanetLocalMeters(TrackedPawn->GetActorLocation());
-		const float ChunkWorldM = Volume->GetMapping().ChunkWorldSize(0);
-		MeshBuildQueue.Sort([&](const FVoxelChunkCoord& A, const FVoxelChunkCoord& B)
-		{
-			const FVector CA = Volume->GetMapping().ChunkOriginWorld(A) + FVector(ChunkWorldM * 0.5f);
-			const FVector CB = Volume->GetMapping().ChunkOriginWorld(B) + FVector(ChunkWorldM * 0.5f);
-			return FVector::DistSquared(CA, ViewerM) < FVector::DistSquared(CB, ViewerM);
-		});
-	}
-
-	int32 Built = 0;
-	while (Built < Budget && MeshBuildQueue.Num() > 0)
-	{
-		const FVoxelChunkCoord Coord = MeshBuildQueue[0];
-		MeshBuildQueue.RemoveAt(0, 1, EAllowShrinking::No);
-		MeshBuildQueued.Remove(Coord);
+		const FVoxelChunkCoord Coord = Queue[0];
+		Queue.RemoveAt(0, 1, EAllowShrinking::No);
+		QueuedSet.Remove(Coord);
 		if (ChunkActors.Contains(Coord) && !AsyncInFlight.Contains(Coord))
 		{
 			BuildChunkMesh(Coord);
 			++Built;
 		}
 	}
+}
+
+void AVoxelPlanetActor::ProcessMeshQueue(int32 Budget)
+{
+	int32 Built = 0;
+
+	// 1) Always drain near-field first (underfoot / around player)
+	const int32 NearBudget = FMath::Max(NearMeshBuildsPerFrame, Budget);
+	ProcessOneMeshQueue(NearMeshQueue, NearMeshQueued, Built, NearBudget);
+
+	// 2) Remaining budget (or full far budget) for outer stream
+	const int32 FarBudget = Budget + FMath::Max(0, NearBudget - Built);
+	if (Built < FarBudget && MeshBuildQueue.Num() > 0 && Volume)
+	{
+		// Light partial sort of far queue head toward viewer
+		const FVector ViewerM = WorldToPlanetLocalMeters(GetStreamFocusWorldLocation());
+		const float ChunkWorldM = Volume->GetMapping().ChunkWorldSize(0);
+		const int32 SortN = FMath::Min(MeshBuildQueue.Num(), 24);
+		for (int32 I = 0; I < SortN; ++I)
+		{
+			int32 Best = I;
+			float BestD = TNumericLimits<float>::Max();
+			for (int32 J = I; J < MeshBuildQueue.Num(); ++J)
+			{
+				const FVector C = Volume->GetMapping().ChunkOriginWorld(MeshBuildQueue[J])
+					+ FVector(ChunkWorldM * 0.5f);
+				const float D = FVector::DistSquared(C, ViewerM);
+				if (D < BestD)
+				{
+					BestD = D;
+					Best = J;
+				}
+			}
+			if (Best != I)
+			{
+				MeshBuildQueue.Swap(I, Best);
+			}
+		}
+	}
+	ProcessOneMeshQueue(MeshBuildQueue, MeshBuildQueued, Built, FarBudget);
 }
 
 UMaterialInterface* AVoxelPlanetActor::ResolveTerrainMaterial() const

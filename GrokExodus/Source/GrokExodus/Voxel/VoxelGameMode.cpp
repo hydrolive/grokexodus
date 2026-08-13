@@ -6,6 +6,7 @@
 #include "Voxel/VoxelPlayerController.h"
 #include "Voxel/VoxelSphericalMovement.h"
 #include "Voxel/VoxelSunSetup.h"
+#include "Voxel/VoxelHUD.h"
 #include "Engine/DirectionalLight.h"
 #include "EngineUtils.h"
 #include "Kismet/GameplayStatics.h"
@@ -17,6 +18,7 @@ AVoxelGameMode::AVoxelGameMode()
 {
 	DefaultPawnClass = AVoxelExodusCharacter::StaticClass();
 	PlayerControllerClass = AVoxelPlayerController::StaticClass();
+	HUDClass = AVoxelHUD::StaticClass();
 }
 
 void AVoxelGameMode::InitGame(const FString& MapName, const FString& Options, FString& ErrorMessage)
@@ -30,15 +32,12 @@ void AVoxelGameMode::BeginPlay()
 	EnsureLighting();
 	EnsurePlanet();
 
-	// Stream + mesh first, then place. Repeat after collision cook settles.
+	// One place after a short delay so first crust meshes exist; one retry if still falling
 	FTimerHandle Handle;
-	GetWorldTimerManager().SetTimer(Handle, this, &AVoxelGameMode::PlacePlayerOnSurface, 0.35f, false);
+	GetWorldTimerManager().SetTimer(Handle, this, &AVoxelGameMode::PlacePlayerOnSurface, 0.2f, false);
 
 	FTimerHandle Handle2;
-	GetWorldTimerManager().SetTimer(Handle2, this, &AVoxelGameMode::PlacePlayerOnSurface, 1.5f, false);
-
-	FTimerHandle Handle3;
-	GetWorldTimerManager().SetTimer(Handle3, this, &AVoxelGameMode::PlacePlayerOnSurface, 3.0f, false);
+	GetWorldTimerManager().SetTimer(Handle2, this, &AVoxelGameMode::PlacePlayerOnSurface, 1.0f, false);
 }
 
 void AVoxelGameMode::EnsureLighting()
@@ -48,7 +47,6 @@ void AVoxelGameMode::EnsureLighting()
 		return;
 	}
 
-	// Prefer existing setup actor
 	for (TActorIterator<AVoxelSunSetup> It(GetWorld()); It; ++It)
 	{
 		SunSetup = *It;
@@ -56,7 +54,6 @@ void AVoxelGameMode::EnsureLighting()
 		return;
 	}
 
-	// Or existing directional light only — still spawn setup to wire atmosphere
 	bool bHasSun = false;
 	for (TActorIterator<ADirectionalLight> It(GetWorld()); It; ++It)
 	{
@@ -71,12 +68,11 @@ void AVoxelGameMode::EnsureLighting()
 	if (SunSetup)
 	{
 		SunSetup->SetActorLabel(TEXT("VoxelSunSetup"));
-		// Afternoon sun, outdoor intensity
 		SunSetup->SunIntensity = 12.0f;
 		SunSetup->SunTemperature = 5800.0f;
 		SunSetup->SunPitchDegrees = -48.0f;
 		SunSetup->SunYawDegrees = 35.0f;
-		SunSetup->ShadowDistanceCm = 12000.0f; // shorter cascades = better FPS
+		SunSetup->ShadowDistanceCm = 12000.0f;
 		SunSetup->EnsurePlanetLighting();
 		UE_LOG(LogVoxelWorld, Log, TEXT("VoxelGameMode: ensured sun lighting (hadDirectional=%s)"),
 			bHasSun ? TEXT("true") : TEXT("false"));
@@ -102,29 +98,23 @@ void AVoxelGameMode::EnsurePlanet()
 			SP);
 		if (Planet)
 		{
-			// Planetary scale: fine voxels + large radius. Cost controlled by stream + LOD.
 			Planet->PlanetRadius = PlanetRadius;
-			Planet->StreamRadius = StreamRadius;
-			Planet->UnloadRadius = StreamRadius + 80.0f;
+			// Working set: smaller stream + aggressive near field = solid underfoot fast
+			Planet->StreamRadius = FMath::Min(StreamRadius, 160.0f);
+			Planet->UnloadRadius = Planet->StreamRadius + 64.0f;
+			Planet->NearFieldRadius = 80.0f;
+			Planet->NearMeshBuildsPerFrame = 64;
 			Planet->MaxRelief = FMath::Clamp(PlanetRadius * 0.045f, 80.0f, 220.0f);
-			Planet->VoxelSize = 1.0f; // fine dig resolution (do not coarsen for FPS)
+			Planet->VoxelSize = 1.0f;
 			Planet->Seed = 1337;
 			Planet->bShowDistantSphere = true;
 			Planet->bTerrainCastShadows = false;
-			// LOD0 in a wide near ring eliminates LOD crack-holes under the player
-			Planet->bForceLOD0 = false;
-			Planet->bAsyncMeshing = false; // sync mesh = no empty collision windows
-			Planet->MaxMeshBuildsPerFrame = 12;
-			Planet->WarmupMeshBuildsPerFrame = 96;
-			Planet->WarmupSeconds = 8.0f;
-			// Near-player full res (collision), mild LOD farther out
-			Planet->LODBands = {
-				{ 140.0f, 0 },
-				{ 200.0f, 1 },
-				{ 280.0f, 2 },
-				{ 400.0f, 3 }
-			};
-			// Fresh procedural crust — avoid stale holey saves from earlier mesher bugs
+			Planet->bForceLOD0 = true;
+			Planet->bAsyncMeshing = false;
+			Planet->MaxMeshBuildsPerFrame = 24;
+			Planet->WarmupMeshBuildsPerFrame = 160;
+			Planet->WarmupSeconds = 2.5f;
+			Planet->LODBands = { { 400.0f, 0 } };
 			Planet->bAutoLoadOnBeginPlay = false;
 		}
 		UE_LOG(LogVoxelWorld, Log, TEXT("Spawned VoxelPlanet radius=%.0fm voxel=1m stream=%.0fm"), PlanetRadius, StreamRadius);
@@ -148,19 +138,20 @@ void AVoxelGameMode::PlacePlayerOnSurface()
 		return;
 	}
 
-	// Build surface chunks (sync cook) before placing the pawn
+	// Surface along +X; stream and mesh a dense near ring BEFORE placing
 	const FVector Surface = Planet->FindSurfaceWorldLocation(FVector(1.0f, 0.0f, 0.0f));
 	const FVector Up = -Planet->GetGravityDirectionAt(Surface);
+	const FVector StreamAt = Surface + Up * 200.0f;
 
-	Planet->UpdateStreaming(Surface + Up * 200.0f);
-	Planet->FlushMeshQueue(64); // ensure collision meshes exist
+	Planet->UpdateStreaming(StreamAt);
+	// Drain near-field queue completely (underfoot), then some outer
+	Planet->FlushMeshQueue(256);
 
 	const float CapsuleHalf = 96.0f;
-	const FVector SpawnLoc = Surface + Up * (CapsuleHalf + 50.0f);
+	const FVector SpawnLoc = Surface + Up * (CapsuleHalf + 80.0f);
 
 	Pawn->SetActorLocation(SpawnLoc, false, nullptr, ETeleportType::TeleportPhysics);
 
-	// Feet down = toward planet center, forward along world +Y projected on horizon
 	FVector Forward = FVector::VectorPlaneProject(FVector(0, 1, 0), Up).GetSafeNormal();
 	if (Forward.IsNearlyZero())
 	{
@@ -174,7 +165,10 @@ void AVoxelGameMode::PlacePlayerOnSurface()
 		if (UVoxelSphericalMovement* Move = Cast<UVoxelSphericalMovement>(Char->GetCharacterMovement()))
 		{
 			Move->Planet = Planet;
+			Move->StopMovementImmediately();
+			Move->SetGravityDirection(Planet->GetGravityDirectionAt(SpawnLoc));
 			Move->SnapToPlanetSurface(true);
+			Move->SetMovementMode(MOVE_Walking);
 		}
 		else if (UCharacterMovementComponent* CMC = Char->GetCharacterMovement())
 		{
@@ -184,14 +178,26 @@ void AVoxelGameMode::PlacePlayerOnSurface()
 		}
 	}
 
-	// Control rot: yaw/pitch relative to gravity (0,0 = look along horizon forward)
-	if (APlayerController* PC = UGameplayStatics::GetPlayerController(this, 0))
+	if (AVoxelExodusCharacter* VC = Cast<AVoxelExodusCharacter>(Pawn))
 	{
-		PC->SetControlRotation(FRotator(0.f, 0.f, 0.f));
+		// Seed spherical look basis from spawn facing (parallel-transport model)
+		VC->LookHoriz = Forward.GetSafeNormal();
+		VC->LookPitch = 0.f;
 	}
 
 	Planet->UpdateStreaming(Pawn->GetActorLocation());
-	Planet->FlushMeshQueue(32);
+	Planet->FlushMeshQueue(64);
 
-	UE_LOG(LogVoxelWorld, Log, TEXT("Player placed on surface at %s (up=%s)"), *Pawn->GetActorLocation().ToString(), *Up.ToString());
+	// Re-snap after collision cook so we stand on mesh, not fall through empty air
+	if (ACharacter* Char = Cast<ACharacter>(Pawn))
+	{
+		if (UVoxelSphericalMovement* Move = Cast<UVoxelSphericalMovement>(Char->GetCharacterMovement()))
+		{
+			Move->SnapToPlanetSurface(true);
+			Move->SetMovementMode(MOVE_Walking);
+		}
+	}
+
+	UE_LOG(LogVoxelWorld, Log, TEXT("Player placed on surface at %s (up=%s)"),
+		*Pawn->GetActorLocation().ToString(), *Up.ToString());
 }

@@ -85,6 +85,32 @@ void FVoxelMaterialTable::ResetToDefaults()
 		BindPBR(D, TEXT("T_RockyCliff")); // reuse cliff set for deep bedrock
 		Register(D);
 	}
+	// Phase 8 ores — high yield, high wear
+	{
+		FVoxelMaterialDef D = Make(static_cast<int32>(EVoxelMaterialId::OreIron), TEXT("OreIron"), 2.6f, 1.35f, 1.6f, FLinearColor(0.55f, 0.42f, 0.38f));
+		BindPBR(D, TEXT("T_RockyCliff"));
+		Register(D);
+	}
+	{
+		FVoxelMaterialDef D = Make(static_cast<int32>(EVoxelMaterialId::OreCopper), TEXT("OreCopper"), 2.0f, 1.45f, 1.3f, FLinearColor(0.72f, 0.45f, 0.22f));
+		BindPBR(D, TEXT("T_DryDirt"));
+		Register(D);
+	}
+	{
+		FVoxelMaterialDef D = Make(static_cast<int32>(EVoxelMaterialId::OreCrystal), TEXT("OreCrystal"), 3.2f, 1.80f, 2.0f, FLinearColor(0.45f, 0.75f, 0.95f));
+		BindPBR(D, TEXT("T_SnowIce"));
+		Register(D);
+	}
+	{
+		FVoxelMaterialDef D = Make(static_cast<int32>(EVoxelMaterialId::Concrete), TEXT("Concrete"), 2.4f, 0.30f, 1.2f, FLinearColor(0.55f, 0.55f, 0.52f));
+		BindPBR(D, TEXT("T_RockyCliff"));
+		Register(D);
+	}
+	{
+		FVoxelMaterialDef D = Make(static_cast<int32>(EVoxelMaterialId::BunkerLiner), TEXT("BunkerLiner"), 3.5f, 0.15f, 1.8f, FLinearColor(0.35f, 0.40f, 0.38f));
+		BindPBR(D, TEXT("T_RockyCliff"));
+		Register(D);
+	}
 }
 
 const FVoxelMaterialDef* FVoxelMaterialTable::Find(int32 MaterialId) const

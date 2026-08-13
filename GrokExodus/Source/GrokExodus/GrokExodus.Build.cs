@@ -22,7 +22,12 @@ public class GrokExodus : ModuleRules
 			"RHI",
 			"RenderCore",
 			"ProceduralMeshComponent",
-			"ImageWrapper"
+			"ImageWrapper",
+			"GXCore",
+			"GXVoxel",
+			"GXCelestial",
+			"GXConstruct",
+			"GXPresentation"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });

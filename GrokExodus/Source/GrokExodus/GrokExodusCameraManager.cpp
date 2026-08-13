@@ -5,7 +5,7 @@
 
 AGrokExodusCameraManager::AGrokExodusCameraManager()
 {
-	// set the min/max pitch
-	ViewPitchMin = -70.0f;
-	ViewPitchMax = 80.0f;
+	// Full FPS pitch range (voxel character owns look; manager clamps still apply to some paths)
+	ViewPitchMin = -89.0f;
+	ViewPitchMax = 89.0f;
 }

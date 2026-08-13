@@ -30,7 +30,7 @@ public:
 
 	/** Viewer stream radius (meters). Tune for FPS; planet stays large. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel")
-	float StreamRadius = 256.0f;
+	float StreamRadius = 160.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel")
 	bool bSpawnPlanetIfMissing = true;

@@ -1,0 +1,24 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "GX Construct",
+	"Description": "Block grids, inventories, conveyors, and industry for Grok Exodus.",
+	"Category": "GrokExodus",
+	"CreatedBy": "Grok Exodus",
+	"EnabledByDefault": true,
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"Installed": false,
+	"Plugins": [
+		{ "Name": "GXCore", "Enabled": true },
+		{ "Name": "GXCelestial", "Enabled": true }
+	],
+	"Modules": [
+		{
+			"Name": "GXConstruct",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}
