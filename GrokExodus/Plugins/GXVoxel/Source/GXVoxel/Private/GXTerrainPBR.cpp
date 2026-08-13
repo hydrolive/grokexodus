@@ -80,6 +80,9 @@ void FGXTerrainPBR::Initialize(UObject* Outer)
 	AlbedoArray = BuildArray(AlbedoSlices, AlbedoSizes, false, TEXT("GXAlbedoArray"));
 	NormalArray = BuildArray(NormalSlices, NormalSizes, true, TEXT("GXNormalArray"));
 	RoughArray = BuildArray(RoughSlices, RoughSizes, false, TEXT("GXRoughArray"));
+	AlbedoAtlas = BuildAtlas(AlbedoSlices, AlbedoSizes, false, TEXT("GXAlbedoAtlas"));
+	NormalAtlas = BuildAtlas(NormalSlices, NormalSizes, true, TEXT("GXNormalAtlas"));
+	RoughAtlas = BuildAtlas(RoughSlices, RoughSizes, false, TEXT("GXRoughAtlas"));
 
 	UMaterialInterface* Parent = LoadObject<UMaterialInterface>(nullptr,
 		TEXT("/Game/Voxel/Materials/M_VoxelTerrain_PBR.M_VoxelTerrain_PBR"));
@@ -91,6 +94,9 @@ void FGXTerrainPBR::Initialize(UObject* Outer)
 			if (AlbedoArray) Mid->SetTextureParameterValue(TEXT("AlbedoArray"), AlbedoArray);
 			if (NormalArray) Mid->SetTextureParameterValue(TEXT("NormalArray"), NormalArray);
 			if (RoughArray) Mid->SetTextureParameterValue(TEXT("RoughArray"), RoughArray);
+			if (AlbedoAtlas) Mid->SetTextureParameterValue(TEXT("AlbedoAtlas"), AlbedoAtlas);
+			if (NormalAtlas) Mid->SetTextureParameterValue(TEXT("NormalAtlas"), NormalAtlas);
+			if (RoughAtlas) Mid->SetTextureParameterValue(TEXT("RoughAtlas"), RoughAtlas);
 			Mid->SetScalarParameterValue(TEXT("TileScale"), 0.0045f);
 			Mid->SetScalarParameterValue(TEXT("SlopeStart"), 0.32f);
 			Mid->SetScalarParameterValue(TEXT("SlopeEnd"), 0.72f);
@@ -117,6 +123,9 @@ void FGXTerrainPBR::Shutdown()
 	AlbedoArray = nullptr;
 	NormalArray = nullptr;
 	RoughArray = nullptr;
+	AlbedoAtlas = nullptr;
+	NormalAtlas = nullptr;
+	RoughAtlas = nullptr;
 	Mid = nullptr;
 	bReady = false;
 }
@@ -249,4 +258,63 @@ UTexture2DArray* FGXTerrainPBR::BuildArray(const TArray<TArray<uint8>>& Slices, 
 	PD->Mips[0].BulkData.Unlock();
 	Arr->UpdateResource();
 	return Arr;
+}
+
+UTexture2D* FGXTerrainPBR::BuildAtlas(const TArray<TArray<uint8>>& Slices, const TArray<FIntPoint>& Sizes, bool bNormal, const TCHAR* Name)
+{
+	constexpr int32 Cols = 4;
+	constexpr int32 Rows = 2;
+	const int32 AW = GTargetSize * Cols;
+	const int32 AH = GTargetSize * Rows;
+	UTexture2D* Atlas = UTexture2D::CreateTransient(AW, AH, PF_B8G8R8A8, Name);
+	if (!Atlas)
+	{
+		return nullptr;
+	}
+	Atlas->SRGB = !bNormal;
+	Atlas->CompressionSettings = bNormal ? TC_Normalmap : TC_Default;
+	Atlas->Filter = TF_Bilinear;
+	Atlas->AddressX = TA_Clamp;
+	Atlas->AddressY = TA_Clamp;
+	Atlas->AddToRoot();
+	Roots.Add(Atlas);
+
+	FTexturePlatformData* PD = Atlas->GetPlatformData();
+	if (!PD || PD->Mips.Num() == 0)
+	{
+		return Atlas;
+	}
+	uint8* Dest = static_cast<uint8*>(PD->Mips[0].BulkData.Lock(LOCK_READ_WRITE));
+	if (!Dest)
+	{
+		return Atlas;
+	}
+	FMemory::Memzero(Dest, static_cast<SIZE_T>(AW) * AH * 4);
+	TArray<uint8> Cell;
+	const int32 CellBytes = GTargetSize * GTargetSize * 4;
+	for (int32 I = 0; I < GArraySlices; ++I)
+	{
+		const FIntPoint Sz = Sizes.IsValidIndex(I) ? Sizes[I] : FIntPoint(0, 0);
+		static const TArray<uint8> EmptySlice;
+		const TArray<uint8>& Slice = Slices.IsValidIndex(I) ? Slices[I] : EmptySlice;
+		ResizeBGRA(Slice, Sz.X, Sz.Y, Cell, GTargetSize, GTargetSize);
+		if (Cell.Num() < CellBytes)
+		{
+			Cell.SetNumZeroed(CellBytes);
+		}
+		const int32 Col = I % Cols;
+		const int32 Row = I / Cols;
+		const int32 X0 = Col * GTargetSize;
+		const int32 Y0 = Row * GTargetSize;
+		for (int32 Y = 0; Y < GTargetSize; ++Y)
+		{
+			FMemory::Memcpy(
+				Dest + (static_cast<int64>(Y0 + Y) * AW + X0) * 4,
+				Cell.GetData() + static_cast<int64>(Y) * GTargetSize * 4,
+				GTargetSize * 4);
+		}
+	}
+	PD->Mips[0].BulkData.Unlock();
+	Atlas->UpdateResource();
+	return Atlas;
 }

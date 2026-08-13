@@ -1,13 +1,14 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-13** · On-disk build stamp: **GX 0.5.1**  
+Last updated: **2026-08-13** · On-disk build stamp: **GX 0.5.2**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
-- **GX 0.5.1** PBR load no longer OOB-crashes on the 1024 Imagine JPGs (safe resize + bool loader).
+- **GX 0.5.2** consistent MC winding (caps had hole walls); brush remesh is LOD0 + face neighbors only (one dig no longer stair-steps the hill); preview hidden off-camera; PBR uses 2D atlases.
+- **GX 0.5.1** PBR load no longer OOB-crashes on the 1024 Imagine JPGs.
 - **GX 0.5.0** PBR from existing Imagine sets. Triplanar arrays + slope/height blend. `M_VoxelTerrain_PBR` via the Python script.
 - **GX 0.4.7** no bounce in dug holes. Brush hidden unless the ray hits. Hardware RT on near chunks.
 - **GX 0.4.6** brush writes the same voxel corners the mesher samples. Distant sphere hidden. Place works without inventory.

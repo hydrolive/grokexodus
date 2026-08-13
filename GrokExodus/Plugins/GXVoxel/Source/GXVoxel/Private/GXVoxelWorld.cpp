@@ -331,6 +331,7 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	{
 		EnqueueRemeshNeighborhood(C);
 	}
+	FlushMeshQueue(48);
 	return Out;
 }
 
@@ -351,6 +352,7 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	{
 		EnqueueRemeshNeighborhood(C);
 	}
+	FlushMeshQueue(48);
 	return Out;
 }
 
@@ -447,15 +449,14 @@ void AGXVoxelWorld::InvalidateHollow(const FGXChunkKey& Coord)
 
 void AGXVoxelWorld::EnqueueRemeshNeighborhood(const FGXChunkKey& Coord)
 {
-	for (int32 Z = -1; Z <= 1; ++Z)
+	static const int32 Off[7][3] = {
+		{0,0,0},{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}
+	};
+	for (int32 I = 0; I < 7; ++I)
 	{
-		for (int32 Y = -1; Y <= 1; ++Y)
-		{
-			for (int32 X = -1; X <= 1; ++X)
-			{
-				EnqueueRemesh(FGXChunkKey(Coord.X + X, Coord.Y + Y, Coord.Z + Z));
-			}
-		}
+		const FGXChunkKey N(Coord.X + Off[I][0], Coord.Y + Off[I][1], Coord.Z + Off[I][2]);
+		BrushForceLOD0.Add(N);
+		EnqueueRemesh(N);
 	}
 }
 
@@ -584,13 +585,14 @@ void AGXVoxelWorld::ProcessMeshQueue(int32 Budget)
 		{
 			continue;
 		}
-		if (bAsync)
+		const bool bSync = !bAsync || BrushForceLOD0.Contains(Coord);
+		if (bSync)
 		{
-			EnqueueChunkMeshAsync(Coord);
+			BuildChunkMeshSync(Coord);
 		}
 		else
 		{
-			BuildChunkMeshSync(Coord);
+			EnqueueChunkMeshAsync(Coord);
 		}
 		++Built;
 	}
@@ -606,7 +608,8 @@ void AGXVoxelWorld::BuildChunkMeshSync(const FGXChunkKey& Coord)
 	const FVector Local = WorldToLocalMeters(CachedViewerWorld.IsNearlyZero() ? GetPrimaryInvokerLocation() : CachedViewerWorld);
 	const float ChunkM = VoxelSize * FGXVoxelConstants::ChunkSize;
 	const FVector Center((Coord.X + 0.5f) * ChunkM, (Coord.Y + 0.5f) * ChunkM, (Coord.Z + 0.5f) * ChunkM);
-	const int32 LOD = SelectLOD(FVector::Dist(Center, Local));
+	const int32 LOD = BrushForceLOD0.Contains(Coord) ? 0 : SelectLOD(FVector::Dist(Center, Local));
+	BrushForceLOD0.Remove(Coord);
 	FGXMesher::FSettings S;
 	S.LOD = LOD;
 	FGXMeshBuffers Mesh = FGXMesher::MeshChunk(*Snap, Coord, S);
@@ -629,7 +632,8 @@ void AGXVoxelWorld::EnqueueChunkMeshAsync(const FGXChunkKey& Coord)
 	const FVector Local = WorldToLocalMeters(GetPrimaryInvokerLocation());
 	const float ChunkM = VoxelSize * FGXVoxelConstants::ChunkSize;
 	const FVector Center((Coord.X + 0.5f) * ChunkM, (Coord.Y + 0.5f) * ChunkM, (Coord.Z + 0.5f) * ChunkM);
-	const int32 LOD = SelectLOD(FVector::Dist(Center, Local));
+	const int32 LOD = BrushForceLOD0.Contains(Coord) ? 0 : SelectLOD(FVector::Dist(Center, Local));
+	BrushForceLOD0.Remove(Coord);
 
 	Jobs->Enqueue(EGXJobPriority::NearMesh, Stamp,
 		[this, Coord, LOD, Snap, Stamp]()
@@ -677,15 +681,16 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 {
 	if (MeshData.IsEmpty())
 	{
-		HollowChunks.Add(Coord);
-		if (AGXVoxelChunkProxy* Empty = ChunkActors.FindRef(Coord).Get())
+		if (AGXVoxelChunkProxy* Existing = ChunkActors.FindRef(Coord).Get())
 		{
-			if (!Empty->HasRenderableMesh())
+			if (Existing->HasRenderableMesh())
 			{
-				Empty->Destroy();
-				ChunkActors.Remove(Coord);
+				return;
 			}
+			Existing->Destroy();
+			ChunkActors.Remove(Coord);
 		}
+		HollowChunks.Add(Coord);
 		return;
 	}
 	HollowChunks.Remove(Coord);

@@ -204,6 +204,7 @@ protected:
 	/** Shell chunks that meshed to nothing — do not rebuild every frame. */
 	TSet<FGXChunkKey> HollowChunks;
 	TSet<FGXChunkKey> RemeshWhenIdle;
+	TSet<FGXChunkKey> BrushForceLOD0;
 
 	FVector CachedViewerWorld = FVector::ZeroVector;
 	FVector LastStreamViewerWorld = FVector(1e12f, 0, 0);

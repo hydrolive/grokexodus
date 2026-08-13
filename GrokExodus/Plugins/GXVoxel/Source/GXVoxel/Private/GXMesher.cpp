@@ -186,21 +186,11 @@ FGXMeshBuffers FGXMesher::MeshChunk(
 					{
 						continue;
 					}
-					// UE/D3D front faces are clockwise. Aim the RH-cross *inward* so the
-					// outside of the crust is the visible side (was GL/CCW, so you saw
-					// through the ground and only the underground faces).
-					const FVector FN = FVector::CrossProduct(
-						Mesh.Positions[I1] - Mesh.Positions[I0],
-						Mesh.Positions[I2] - Mesh.Positions[I0]);
-					const FVector Centroid = (Mesh.Positions[I0] + Mesh.Positions[I1] + Mesh.Positions[I2]) / 3.f;
-					if (FVector::DotProduct(FN, Centroid) < 0.f)
-					{
-						Mesh.Indices.Add(I0); Mesh.Indices.Add(I1); Mesh.Indices.Add(I2);
-					}
-					else
-					{
-						Mesh.Indices.Add(I0); Mesh.Indices.Add(I2); Mesh.Indices.Add(I1);
-					}
+					// One winding for every triangle. Per-face centroid tests flip
+					// vertical walls (caps with hole sides) and are unstable at Dot~0.
+					Mesh.Indices.Add(I0);
+					Mesh.Indices.Add(I2);
+					Mesh.Indices.Add(I1);
 				}
 			}
 		}

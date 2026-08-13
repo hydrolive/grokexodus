@@ -151,6 +151,12 @@ void UGXTerrainToolComponent::TickComponent(float DeltaTime, ELevelTick TickType
 	if (PreviewMesh)
 	{
 		PreviewMesh->SetVisibility(bHit);
+		PreviewMesh->SetHiddenInGame(!bHit);
+		if (!bHit)
+		{
+			PreviewMesh->SetWorldScale3D(FVector(0.001f));
+			PreviewMesh->SetWorldLocation(Start - FVector(0, 0, 100000.f));
+		}
 	}
 	if (!bHit)
 	{
@@ -205,7 +211,7 @@ void UGXTerrainToolComponent::ApplyTool()
 			}
 			return;
 		}
-		const FVector PlaceAt = Hit.Location + Hit.Normal * (BrushRadiusM * 40.0f);
+		const FVector PlaceAt = Hit.Location + Hit.Normal * (BrushRadiusM * 25.0f);
 		const FGXDigOutcome R = World->PlaceSphere(PlaceAt, BrushRadiusM, PlaceMaterialId);
 		if (R.bSuccess)
 		{
