@@ -201,6 +201,7 @@ protected:
 	TSet<FGXChunkKey> AsyncInFlight;
 	/** Shell chunks that meshed to nothing — do not rebuild every frame. */
 	TSet<FGXChunkKey> HollowChunks;
+	TSet<FGXChunkKey> RemeshWhenIdle;
 
 	FVector CachedViewerWorld = FVector::ZeroVector;
 	FVector LastStreamViewerWorld = FVector(1e12f, 0, 0);
@@ -227,6 +228,7 @@ protected:
 	void RebuildParams();
 	void RefreshLoadState();
 	void EnqueueRemesh(const FGXChunkKey& Coord);
+	void EnqueueRemeshNeighborhood(const FGXChunkKey& Coord);
 	void ProcessMeshQueue(int32 Budget);
 	void BuildChunkMeshSync(const FGXChunkKey& Coord);
 	void EnqueueChunkMeshAsync(const FGXChunkKey& Coord);

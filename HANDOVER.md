@@ -1,13 +1,14 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-13** · On-disk build stamp: **GX 0.4.5**  
+Last updated: **2026-08-13** · On-disk build stamp: **GX 0.4.6**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
-- **GX 0.4.5** crust winding is clockwise (UE/D3D front faces). 0.4.4 was inside-out: see-through ground, only underground faces when digging.
+- **GX 0.4.6** brush writes the same voxel corners the mesher samples (0.4.5 left a stamp “grass” layer over holes; place needed stock so add did nothing). Distant sphere hidden. Lit vertex-color + shadows on near chunks. Place works without inventory.
+- **GX 0.4.5** crust winding is clockwise (UE/D3D front faces).
 - **GX 0.4.4** spawn/stream follow the pawn. 0.4.3 streamed the +X crust while ignoring a pawn inside `0.4*R`.
 - Full-screen load overlay + progress + status, ≥2.5 s hold, then fade. Gold `GX 0.4.4` stamp stays top-left. Orange/cyan brush sphere in front of the camera.
 - `GrokExodus/Saved/GX_RUNNING_VERSION.txt` is written when GXPresentation starts. Console: `gx.version`.
@@ -27,12 +28,12 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 
 Then Wave D (grids/industry) and Wave E (Earth→Moon).
 
-## Verify after 0.4.5
+## Verify after 0.4.6
 
 1. Close Unreal. Rebuild Development Editor (`-NoUBA` if GXCore 4551 comes back). Reopen.
-2. PIE: gold `GX 0.4.5`. Ground is **opaque** from above; you should not see the underside of the horizon.
-3. Dig: hole walls and the new surface face you. You should not see a cave of inward faces.
-4. Standing on colored voxel crust. Orange drill sphere. LMB digs.
+2. Gold `GX 0.4.6`. One crust, not two. LMB drill cuts a hole; the grass layer must not stay flat over it.
+3. RMB / G → blue sphere, LMB places a bump (no inventory needed).
+4. Near-field terrain should take sun shadows so relief is readable.
 
 If FPS still ~2 after that log exists, use the perf line (`tick` / `stream` / `meshApply` / `chunks`) to see if it is CPU meshing vs remaining Lumen/DF cost.
 
@@ -45,7 +46,8 @@ See `AGENTS.md`:
 
 ## Recent commits
 
-- (this) GX 0.4.5 flip crust winding so surface faces are visible
+- (this) GX 0.4.6 brush samples match mesher; place without stock; lit shadows
+- `fe8d59f` GX 0.4.5 flip crust winding so surface faces are visible
 - `976ab84` GX 0.4.4 stand on the crust, cook collision underfoot, show brush sphere
 - `f01fa82` GX 0.4.3 load screen counts hollow chunks so it can reach Ready
 - `e84e128` GX 0.4.2 fix LNK2019: VoxelHUD no longer links unexported GXLoadScreen

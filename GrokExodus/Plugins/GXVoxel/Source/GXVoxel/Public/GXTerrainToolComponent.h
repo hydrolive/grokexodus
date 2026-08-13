@@ -42,6 +42,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tool")
 	bool bDrawDebugPreview = true;
 
+	/** Prototype: place without inventory. Stock still accumulates from digging. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tool")
+	bool bRequireStockToPlace = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Craftsmanship")
 	float DigSpeedMul = 1.0f;
 

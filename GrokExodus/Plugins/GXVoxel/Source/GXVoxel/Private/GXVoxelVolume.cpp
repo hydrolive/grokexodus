@@ -108,11 +108,11 @@ FGXGenerationStamp FGXVoxelVolume::SetVoxel(const FIntVector& VoxelCoord, const 
 						Chunk.X * FGXVoxelConstants::ChunkSize + Page.X * FGXVoxelConstants::PageSize + X,
 						Chunk.Y * FGXVoxelConstants::ChunkSize + Page.Y * FGXVoxelConstants::PageSize + Y,
 						Chunk.Z * FGXVoxelConstants::ChunkSize + Page.Z * FGXVoxelConstants::PageSize + Z);
-					const FVector3d Center(
-						(static_cast<double>(GV.X) + 0.5) * VoxelSize,
-						(static_cast<double>(GV.Y) + 0.5) * VoxelSize,
-						(static_cast<double>(GV.Z) + 0.5) * VoxelSize);
-					Slot[PageIndex]->Set(X, Y, Z, Stamp.SamplePacked(Center));
+					const FVector3d Corner(
+						static_cast<double>(GV.X) * VoxelSize,
+						static_cast<double>(GV.Y) * VoxelSize,
+						static_cast<double>(GV.Z) * VoxelSize);
+					Slot[PageIndex]->Set(X, Y, Z, Stamp.SamplePacked(Corner));
 				}
 			}
 		}
@@ -173,10 +173,11 @@ FGXVoxelVolume::FBrushResult FGXVoxelVolume::ApplySphereBrush(
 			for (int32 X = MinX; X <= MaxX; ++X)
 			{
 				const FIntVector VC(X, Y, Z);
+				// Same sample point the mesher uses (voxel corners, not cell centers).
 				const FVector3d World(
-					(static_cast<double>(X) + 0.5) * VoxelSize,
-					(static_cast<double>(Y) + 0.5) * VoxelSize,
-					(static_cast<double>(Z) + 0.5) * VoxelSize);
+					static_cast<double>(X) * VoxelSize,
+					static_cast<double>(Y) * VoxelSize,
+					static_cast<double>(Z) * VoxelSize);
 				const FVector3d Delta = World - CenterM;
 				const float D2 = static_cast<float>(Delta.SizeSquared());
 				if (D2 > R2)
@@ -293,4 +294,19 @@ FGXVoxelPacked FGXVoxelSnapshot::Sample(const FVector3d& PlanetLocalM) const
 	}
 	FGXSphereStamp Eval(Params);
 	return Eval.SamplePacked(PlanetLocalM);
+}
+
+bool FGXVoxelSnapshot::HasStored(const FVector3d& PlanetLocalM) const
+{
+	const FIntVector V = FGXVoxelVolume::WorldToVoxel(PlanetLocalM, Params.VoxelSize);
+	FGXChunkKey Chunk;
+	FGXPageKey Page;
+	FIntVector Local;
+	FGXVoxelVolume::VoxelToPage(V, Chunk, Page, Local);
+	if (const TArray<TSharedPtr<const FGXVoxelPage, ESPMode::ThreadSafe>>* Slot = Pages.Find(Chunk))
+	{
+		const int32 PageIndex = Page.Index();
+		return Slot->IsValidIndex(PageIndex) && (*Slot)[PageIndex].IsValid();
+	}
+	return false;
 }

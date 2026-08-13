@@ -72,7 +72,8 @@ void AGXVoxelWorld::SetupDistantSphere()
 	}
 	const float WorldRadiusCm = PlanetRadius * GMetersToUU * 0.97f;
 	DistantPlanetSphere->SetRelativeScale3D(FVector(WorldRadiusCm / 50.0f));
-	DistantPlanetSphere->SetVisibility(true);
+	// Hidden at walkable scale — it reads as a second uneditable grass layer under holes.
+	DistantPlanetSphere->SetVisibility(false);
 	if (UMaterial* DefaultMat = UMaterial::GetDefaultMaterial(MD_Surface))
 	{
 		DistantPlanetSphere->SetMaterial(0, DefaultMat);
@@ -88,7 +89,7 @@ void AGXVoxelWorld::BeginPlay()
 	SetupDistantSphere();
 	WarmupTimeRemaining = WarmupSeconds;
 	LoadObject<UMaterialInterface>(nullptr,
-		TEXT("/Engine/EngineDebugMaterials/VertexColorViewMode_ColorOnly.VertexColorViewMode_ColorOnly"));
+		TEXT("/Engine/EngineDebugMaterials/VertexColorMaterial.VertexColorMaterial"));
 
 	if (bAutoLoadOnBeginPlay)
 	{
@@ -128,8 +129,7 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	CachedViewerWorld = GetPrimaryInvokerLocation();
 	if (DistantPlanetSphere)
 	{
-		const float PlayerR = WorldToLocalMeters(CachedViewerWorld).Size();
-		DistantPlanetSphere->SetVisibility(FMath::Abs(PlayerR - PlanetRadius) > StreamRadius * 3.0f);
+		DistantPlanetSphere->SetVisibility(false);
 	}
 	StreamCooldown -= DeltaSeconds;
 	double StreamMs = 0.0;
@@ -315,8 +315,7 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	if (Jobs) Jobs->BumpStamp();
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
-		InvalidateHollow(C);
-		EnqueueRemesh(C);
+		EnqueueRemeshNeighborhood(C);
 	}
 	return Out;
 }
@@ -336,8 +335,7 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	if (Jobs) Jobs->BumpStamp();
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
-		InvalidateHollow(C);
-		EnqueueRemesh(C);
+		EnqueueRemeshNeighborhood(C);
 	}
 	return Out;
 }
@@ -433,9 +431,28 @@ void AGXVoxelWorld::InvalidateHollow(const FGXChunkKey& Coord)
 	HollowChunks.Remove(Coord);
 }
 
+void AGXVoxelWorld::EnqueueRemeshNeighborhood(const FGXChunkKey& Coord)
+{
+	for (int32 Z = -1; Z <= 1; ++Z)
+	{
+		for (int32 Y = -1; Y <= 1; ++Y)
+		{
+			for (int32 X = -1; X <= 1; ++X)
+			{
+				EnqueueRemesh(FGXChunkKey(Coord.X + X, Coord.Y + Y, Coord.Z + Z));
+			}
+		}
+	}
+}
+
 void AGXVoxelWorld::EnqueueRemesh(const FGXChunkKey& Coord)
 {
 	HollowChunks.Remove(Coord);
+	if (AsyncInFlight.Contains(Coord))
+	{
+		RemeshWhenIdle.Add(Coord);
+		return;
+	}
 	if (MeshQueued.Contains(Coord))
 	{
 		return;
@@ -544,6 +561,11 @@ void AGXVoxelWorld::ProcessMeshQueue(int32 Budget)
 	{
 		const FGXChunkKey Coord = MeshQueue.Pop(EAllowShrinking::No);
 		MeshQueued.Remove(Coord);
+		if (AsyncInFlight.Contains(Coord))
+		{
+			RemeshWhenIdle.Add(Coord);
+			continue;
+		}
 		if (HollowChunks.Contains(Coord))
 		{
 			continue;
@@ -625,6 +647,10 @@ void AGXVoxelWorld::DrainPendingMeshes(int32 Budget)
 	for (FPendingMesh& P : Local)
 	{
 		AsyncInFlight.Remove(P.Coord);
+		if (RemeshWhenIdle.Remove(P.Coord))
+		{
+			EnqueueRemesh(P.Coord);
+		}
 		if (Jobs && !Jobs->ShouldApply(P.Stamp))
 		{
 			continue;

@@ -12,16 +12,16 @@ AGXVoxelChunkProxy::AGXVoxelChunkProxy()
 	Mesh = CreateDefaultSubobject<UProceduralMeshComponent>(TEXT("GXMesh"));
 	SetRootComponent(Mesh);
 	Mesh->bUseAsyncCooking = false;
-	Mesh->SetCastShadow(false);
-	Mesh->bCastDynamicShadow = false;
+	Mesh->SetCastShadow(true);
+	Mesh->bCastDynamicShadow = true;
 	Mesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 	Mesh->SetCollisionProfileName(UCollisionProfile::BlockAll_ProfileName);
 	Mesh->SetGenerateOverlapEvents(false);
 	Mesh->SetCanEverAffectNavigation(false);
 	Mesh->bUseComplexAsSimpleCollision = true;
 	Mesh->bAffectDistanceFieldLighting = false;
-	Mesh->bAffectDynamicIndirectLighting = false;
-	Mesh->bCastContactShadow = false;
+	Mesh->bAffectDynamicIndirectLighting = true;
+	Mesh->bCastContactShadow = true;
 	Mesh->SetVisibleInRayTracing(false);
 	Mesh->bNeverDistanceCull = false;
 }
@@ -95,9 +95,18 @@ void AGXVoxelChunkProxy::ApplyMesh(
 		Tangents,
 		bCollision);
 
-	// Vertex-color debug material is unlit and always visible (never black).
-	// Lit PBR triplanar is Wave C+ once textures are imported.
+	// Lit vertex-color so holes and brush edits read with shadows.
 	UMaterialInterface* Mat = Material;
+	if (!Mat)
+	{
+		Mat = LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Engine/EngineDebugMaterials/VertexColorMaterial.VertexColorMaterial"));
+	}
+	if (!Mat)
+	{
+		Mat = LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Engine/EngineDebugMaterials/DebugMeshMaterial.DebugMeshMaterial"));
+	}
 	if (!Mat)
 	{
 		Mat = LoadObject<UMaterialInterface>(nullptr,
@@ -124,6 +133,9 @@ void AGXVoxelChunkProxy::ApplyMesh(
 	}
 	Mesh->SetMaterial(0, Mat);
 	Mesh->SetCollisionEnabled(bCollision ? ECollisionEnabled::QueryAndPhysics : ECollisionEnabled::NoCollision);
+	Mesh->SetCastShadow(bCollision);
+	Mesh->bCastDynamicShadow = bCollision;
+	Mesh->bCastContactShadow = bCollision;
 }
 
 void AGXVoxelChunkProxy::ClearMesh()

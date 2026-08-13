@@ -8,6 +8,7 @@
 #include "DrawDebugHelpers.h"
 #include "GameFramework/Pawn.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "Engine/Engine.h"
 
 UGXTerrainToolComponent::UGXTerrainToolComponent()
 {
@@ -189,14 +190,23 @@ void UGXTerrainToolComponent::ApplyTool()
 	{
 		const float Need = BrushRadiusM * BrushRadiusM * BrushRadiusM * 0.5f;
 		float& Stock = MaterialStock.FindOrAdd(PlaceMaterialId);
-		if (Stock < Need * 0.1f)
+		if (bRequireStockToPlace && Stock < Need * 0.1f)
 		{
+			if (GEngine)
+			{
+				GEngine->AddOnScreenDebugMessage(21, 1.5f, FColor::Orange, TEXT("No stock to place — dig first"));
+			}
 			return;
 		}
-		const FGXDigOutcome R = World->PlaceSphere(Hit.Location + Hit.Normal * 20.0f, BrushRadiusM, PlaceMaterialId);
+		const FVector PlaceAt = Hit.Location + Hit.Normal * (BrushRadiusM * 40.0f);
+		const FGXDigOutcome R = World->PlaceSphere(PlaceAt, BrushRadiusM, PlaceMaterialId);
 		if (R.bSuccess)
 		{
 			Stock = FMath::Max(0.0f, Stock - Need);
+			if (GEngine)
+			{
+				GEngine->AddOnScreenDebugMessage(22, 0.6f, FColor::Cyan, TEXT("Placed"));
+			}
 		}
 	}
 }

@@ -47,6 +47,7 @@ public:
 	TMap<FGXChunkKey, TArray<TSharedPtr<const FGXVoxelPage, ESPMode::ThreadSafe>>> Pages;
 
 	FGXVoxelPacked Sample(const FVector3d& PlanetLocalM) const;
+	bool HasStored(const FVector3d& PlanetLocalM) const;
 };
 
 /**
