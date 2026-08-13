@@ -80,9 +80,27 @@ void FGXTerrainPBR::Initialize(UObject* Outer)
 	AlbedoArray = BuildArray(AlbedoSlices, AlbedoSizes, false, TEXT("GXAlbedoArray"));
 	NormalArray = BuildArray(NormalSlices, NormalSizes, true, TEXT("GXNormalArray"));
 	RoughArray = BuildArray(RoughSlices, RoughSizes, false, TEXT("GXRoughArray"));
-	AlbedoAtlas = BuildAtlas(AlbedoSlices, AlbedoSizes, false, TEXT("GXAlbedoAtlas"));
+	AlbedoAtlas = LoadObject<UTexture2D>(nullptr,
+		TEXT("/Game/Voxel/Textures/T_VoxelAlbedoAtlas.T_VoxelAlbedoAtlas"));
+	if (AlbedoAtlas)
+	{
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXTerrainPBR: using imported albedo atlas"));
+	}
+	else
+	{
+		AlbedoAtlas = BuildAtlas(AlbedoSlices, AlbedoSizes, false, TEXT("GXAlbedoAtlas"));
+	}
 	NormalAtlas = BuildAtlas(NormalSlices, NormalSizes, true, TEXT("GXNormalAtlas"));
-	RoughAtlas = BuildAtlas(RoughSlices, RoughSizes, false, TEXT("GXRoughAtlas"));
+	RoughAtlas = LoadObject<UTexture2D>(nullptr,
+		TEXT("/Game/Voxel/Textures/T_VoxelRoughAtlas.T_VoxelRoughAtlas"));
+	if (RoughAtlas)
+	{
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXTerrainPBR: using imported roughness atlas"));
+	}
+	else
+	{
+		RoughAtlas = BuildAtlas(RoughSlices, RoughSizes, false, TEXT("GXRoughAtlas"));
+	}
 
 	UMaterialInterface* Parent = LoadObject<UMaterialInterface>(nullptr,
 		TEXT("/Game/Voxel/Materials/M_VoxelTerrain_PBR.M_VoxelTerrain_PBR"));

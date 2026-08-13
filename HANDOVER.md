@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-13** · On-disk build stamp: **GX 0.5.3**  
+Last updated: **2026-08-13** · On-disk build stamp: **GX 0.5.4**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.5.4** Imagine JPGs are imported as real Texture2D assets (`/Game/Voxel/Textures/T_VoxelAlbedoAtlas`, per-biome `T_*_A`). Empty TextureSampleParameter2D nodes were DefaultTextureCube, so the 2D atlas bind was ignored and the crust went black. Re-run the Python script; AlbedoAtlas/RoughAtlas must show the 4×2 atlas, not a cube.
 - **GX 0.5.3** `M_VoxelTerrain_PBR` is graph-only. Custom HLSL (`WorldNormal` / `MatId` / `AlbedoAtlas` …) never gets declared in `Material.ush` and compiles to the default gray material. Close the material editor, re-run `create_voxel_pbr_material.py`, look for `[GXPBR] OK graph-only … custom=0`. Mesher remaps mat ids 8–12 into atlas slots 0–7.
 - **GX 0.5.2** consistent MC winding (caps had hole walls); brush remesh is LOD0 + face neighbors only (one dig no longer stair-steps the hill); preview hidden off-camera; PBR uses 2D atlases.
 - **GX 0.5.1** PBR load no longer OOB-crashes on the 1024 Imagine JPGs.
@@ -32,6 +33,14 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 5. Time warp (refuse in atmo / thrusting).
 
 Then Wave D (grids/industry) and Wave E (Earth→Moon).
+
+## Verify after 0.5.4
+
+1. Close the `M_VoxelTerrain_PBR` tab.
+2. `py "E:/Github/grokexodus/GrokExodus/Content/Python/create_voxel_pbr_material.py"`
+3. Log `[GXPBR] OK graph-only … albedo=/Game/Voxel/Textures/T_VoxelAlbedoAtlas`. Content Browser should list grass/dirt/snow under `/Game/Voxel/Textures`.
+4. Re-open the material: AlbedoAtlas / RoughAtlas are 2D atlases (4×2 grass, rock, dirt, sand / snow, mud, volcanic) — **not** DefaultTextureCube.
+5. PIE: gold `GX 0.5.4`, tiled biomes, not black.
 
 ## Verify after 0.5.3
 
@@ -64,7 +73,8 @@ See `AGENTS.md`:
 
 ## Recent commits
 
-- (this) GX 0.5.3 graph-only PBR material (Custom HLSL never compiles)
+- (this) GX 0.5.4 import Imagine atlases so PBR is not DefaultTextureCube / black
+- `ee565c5` GX 0.5.3 graph-only PBR material (Custom HLSL never compiles)
 - `9006942` GX 0.5.2: place walls, hill stair-steps, black flicker, PBR atlases
 - `1cff121` Add M_VoxelTerrain_PBR created by the Imagine PBR script
 - `42bedda` GX 0.5.1: stop the PBR texture loader from crashing PIE

@@ -210,7 +210,7 @@ Moon SMA (authored) ≈ 280 km. Sidereal day (authored) 24 min so ground tracks 
 | 12 | Concrete | placeable |
 
 Imagine source JPGs live at `Content/Voxel/Textures/Source/T_<Material>_{A,N,R}.jpg`.  
-Runtime: `FGXTerrainPBR` packs them into a 4×2 atlas (`AlbedoAtlas` / `RoughAtlas`) and binds `/Game/Voxel/Materials/M_VoxelTerrain_PBR`. The material is **graph-only** (WorldPosition tiling + UV0.x atlas cell + slope lerp to rock). Do **not** put Custom HLSL on this asset — UE 5.8 does not declare Custom input names, so the shader fails and the default gray material is used. Recreate with `Content/Python/create_voxel_pbr_material.py` and confirm the log line `[GXPBR] OK graph-only … custom=0`.
+Runtime: `create_voxel_pbr_material.py` imports those JPGs plus `T_VoxelAtlas_{A,R}.png` as `/Game/Voxel/Textures/T_VoxelAlbedoAtlas` and `T_VoxelRoughAtlas`, and assigns them on the graph-only `M_VoxelTerrain_PBR`. `FGXTerrainPBR` prefers those imported 2D assets (runtime JPEG pack is the fallback). Do **not** leave TextureSampleParameter2D unbound — UE 5.8 substitutes `DefaultTextureCube` and the crust goes black. Confirm `[GXPBR] OK graph-only … albedo=/Game/Voxel/Textures/T_VoxelAlbedoAtlas`.
 
 ---
 

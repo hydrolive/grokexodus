@@ -3,27 +3,41 @@ Create / refresh /Game/Voxel/Materials/M_VoxelTerrain_PBR
 
 GRAPH ONLY. Do not add MaterialExpressionCustom.
 
-UE 5.8 never injects Custom-node input names (WorldNormal, MatId, AlbedoAtlas, …)
-into generated Material.ush. That produced the undeclared-identifier flood and
-forced the default gray material in PIE.
+Imports the Imagine biome JPGs plus the 4x2 atlases and assigns them as
+real Texture2D defaults. An empty TextureSampleParameter2D in UE 5.8
+falls back to DefaultTextureCube; a cube sampler cannot take the runtime
+2D atlas, so the crust goes black.
 
-C++ (FGXTerrainPBR) binds:
-  AlbedoAtlas / RoughAtlas   4x2 of 512px Imagine tiles (ids 0-7)
-  TileScale, SlopeStart, SlopeEnd
-
-UV0.x is the atlas slot. The mesher remaps ores/bedrock (8-12) into 0-7.
-
-In the editor Output Log:
+In the editor Output Log (close the material tab first):
   py "E:/Github/grokexodus/GrokExodus/Content/Python/create_voxel_pbr_material.py"
 
-Close the material editor first. Success log:
-  [GXPBR] OK graph-only /Game/Voxel/Materials/M_VoxelTerrain_PBR custom=0
+Success:
+  [GXPBR] OK graph-only ... custom=0 albedo=/Game/Voxel/Textures/T_VoxelAlbedoAtlas
 """
+import os
 import unreal
 
 ASSET = "/Game/Voxel/Materials/M_VoxelTerrain_PBR"
 PACKAGE = "/Game/Voxel/Materials"
 NAME = "M_VoxelTerrain_PBR"
+TEX_PKG = "/Game/Voxel/Textures"
+ALBEDO_ATLAS = TEX_PKG + "/T_VoxelAlbedoAtlas"
+ROUGH_ATLAS = TEX_PKG + "/T_VoxelRoughAtlas"
+
+LAYERS = (
+    "T_TemperateGrass",
+    "T_RockyCliff",
+    "T_DryDirt",
+    "T_SandCoastal",
+    "T_SnowIce",
+    "T_WetMud",
+    "T_VolcanicScorched",
+)
+
+ENGINE_2D = (
+    "/Engine/EngineResources/DefaultTexture.DefaultTexture",
+    "/Engine/EngineResources/WhiteSquareTexture.WhiteSquareTexture",
+)
 
 
 def _shading_lit():
@@ -40,7 +54,7 @@ def _close_editors(asset):
         aes = unreal.get_editor_subsystem(unreal.AssetEditorSubsystem)
         if aes:
             aes.close_all_editors_for_asset(asset)
-            unreal.log("[GXPBR] closed open editors for the material")
+            unreal.log("[GXPBR] closed open editors")
     except Exception as err:
         unreal.log_warning("[GXPBR] close editors: %s" % err)
 
@@ -72,9 +86,84 @@ def _count_custom(mat):
     return n
 
 
+def _source_dir():
+    return os.path.normpath(os.path.join(unreal.Paths.project_content_dir(), "Voxel", "Textures", "Source"))
+
+
+def _load_engine_2d():
+    for path in ENGINE_2D:
+        if unreal.EditorAssetLibrary.does_asset_exist(path):
+            tex = unreal.EditorAssetLibrary.load_asset(path)
+            if tex:
+                return tex
+    return None
+
+
+def _import_texture(abs_path, dest_pkg, dest_name, srgb, clamp):
+    dest = dest_pkg + "/" + dest_name
+    if not os.path.isfile(abs_path):
+        unreal.log_warning("[GXPBR] missing source %s" % abs_path)
+        return unreal.EditorAssetLibrary.load_asset(dest) if unreal.EditorAssetLibrary.does_asset_exist(dest) else None
+
+    if not unreal.EditorAssetLibrary.does_directory_exist(dest_pkg):
+        unreal.EditorAssetLibrary.make_directory(dest_pkg)
+
+    task = unreal.AssetImportTask()
+    _set(task, "filename", abs_path)
+    _set(task, "destination_path", dest_pkg)
+    _set(task, "destination_name", dest_name)
+    _set(task, "replace_existing", True)
+    _set(task, "automated", True)
+    _set(task, "save", True)
+    unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
+
+    tex = unreal.EditorAssetLibrary.load_asset(dest)
+    if not tex:
+        unreal.log_error("[GXPBR] import failed %s" % dest)
+        return None
+
+    _set(tex, "srgb", bool(srgb))
+    _set(tex, "sRGB", bool(srgb))
+    tc = getattr(unreal.TextureCompressionSettings, "TC_DEFAULT", None)
+    if tc is not None:
+        _set(tex, "compression_settings", tc)
+    filt = getattr(unreal.TextureFilter, "TF_BILINEAR", None)
+    if filt is not None:
+        _set(tex, "filter", filt)
+    addr_enum = getattr(unreal.TextureAddress, "TA_CLAMP" if clamp else "TA_WRAP", None)
+    if addr_enum is not None:
+        _set(tex, "address_x", addr_enum)
+        _set(tex, "address_y", addr_enum)
+    unreal.EditorAssetLibrary.save_asset(dest)
+    unreal.log("[GXPBR] imported %s srgb=%s" % (dest, srgb))
+    return tex
+
+
+def _import_all():
+    src = _source_dir()
+    albedo = _import_texture(os.path.join(src, "T_VoxelAtlas_A.png"), TEX_PKG, "T_VoxelAlbedoAtlas", True, True)
+    rough = _import_texture(os.path.join(src, "T_VoxelAtlas_R.png"), TEX_PKG, "T_VoxelRoughAtlas", False, True)
+    for layer in LAYERS:
+        _import_texture(os.path.join(src, layer + "_A.jpg"), TEX_PKG, layer + "_A", True, False)
+        _import_texture(os.path.join(src, layer + "_R.jpg"), TEX_PKG, layer + "_R", False, False)
+    fallback = _load_engine_2d()
+    if not albedo:
+        albedo = fallback
+        unreal.log_warning("[GXPBR] albedo atlas missing — using engine DefaultTexture")
+    if not rough:
+        rough = fallback
+        unreal.log_warning("[GXPBR] rough atlas missing — using engine DefaultTexture")
+    return albedo, rough
+
+
 def main():
     tools = unreal.AssetToolsHelpers.get_asset_tools()
     mel = unreal.MaterialEditingLibrary
+
+    albedo_tex, rough_tex = _import_all()
+    if not albedo_tex:
+        unreal.log_error("[GXPBR] no 2D albedo texture at all — aborting (would become DefaultTextureCube)")
+        return
 
     mat = None
     if unreal.EditorAssetLibrary.does_asset_exist(ASSET):
@@ -89,8 +178,6 @@ def main():
         unreal.log_error("[GXPBR] could not load or create %s" % ASSET)
         return
 
-    # Wipe the previous graph (including any Custom HLSL) in place so soft
-    # references and the content-browser object stay valid.
     try:
         mel.delete_all_material_expressions(mat)
     except Exception as err:
@@ -109,8 +196,8 @@ def main():
     for prop, val in (
         ("blend_mode", unreal.BlendMode.BLEND_OPAQUE),
         ("two_sided", False),
-        ("b_tangent_space_normal", False),
-        ("tangent_space_normal", False),
+        ("b_tangent_space_normal", True),
+        ("tangent_space_normal", True),
         ("b_used_with_procedural_mesh", True),
         ("used_with_procedural_mesh", True),
         ("b_used_with_static_lighting", True),
@@ -201,10 +288,13 @@ def main():
         connect(a, ao, n, "")
         return n
 
-    def tex(param, uv_node, px, py, linear=False):
+    def tex(param, uv_node, texture, px, py, linear=False):
         n = node(unreal.MaterialExpressionTextureSampleParameter2D, px, py, param)
         _set(n, "parameter_name", param)
         _set(n, "group", "Terrain")
+        if texture:
+            if not _set(n, "texture", texture):
+                _set(n, "texture_object", texture)
         sampler = None
         if linear:
             sampler = getattr(unreal.MaterialSamplerType, "SAMPLERTYPE_LINEAR_COLOR", None)
@@ -216,7 +306,6 @@ def main():
             connect(uv_node, "", n, "Coordinates")
         return n
 
-    # --- inputs -----------------------------------------------------------
     wp = node(unreal.MaterialExpressionWorldPosition, x0, 0, "WorldPos")
     vn = node(unreal.MaterialExpressionVertexNormalWS, x0, 160, "VertexN")
     tc = node(unreal.MaterialExpressionTextureCoordinate, x0, 320, "UV0")
@@ -226,7 +315,6 @@ def main():
     slope_a = scalar("SlopeStart", 0.32, x0, 720)
     slope_b = scalar("SlopeEnd", 0.72, x0, 840)
 
-    # tiled world XY (spawn is +Z pole — XY is the tangent plane there)
     p = mul(wp, "", tile, "", x0 + 280, 0, "World*Tile")
     p_x = mask(p, "", True, False, False, x0 + 540, -40, "Px")
     p_y = mask(p, "", False, True, False, x0 + 540, 40, "Py")
@@ -238,7 +326,6 @@ def main():
     pu = add(mul(lu, "", c_096, "", x0 + 1060, -40), "", c_002, "", x0 + 1320, -40, "padU")
     pv = add(mul(lv, "", c_096, "", x0 + 1060, 40), "", c_002, "", x0 + 1320, 40, "padV")
 
-    # atlas cell from UV0.x  (4 columns x 2 rows)
     mat_id = mask(tc, "", True, False, False, x0 + 280, 320, "MatId")
     c_0 = const(0.0, x0 + 280, 400, "0")
     c_7 = const(7.0, x0 + 280, 460, "7")
@@ -257,18 +344,16 @@ def main():
     atlas_v = mul(add(row, "", pv, "", x0 + 1580, 40), "", c_05, "", x0 + 1840, 40, "atlasV")
     atlas_uv = append(atlas_u, "", atlas_v, "", x0 + 2100, 0, "atlasUV")
 
-    # rock cell (2, 0) = T_RockyCliff
     c_2 = const(2.0, x0 + 1320, 520, "2")
     rock_u = mul(add(c_2, "", pu, "", x0 + 1580, 500), "", c_025, "", x0 + 1840, 500, "rockU")
     rock_v = mul(add(c_0, "", pv, "", x0 + 1580, 560), "", c_05, "", x0 + 1840, 560, "rockV")
     rock_uv = append(rock_u, "", rock_v, "", x0 + 2100, 520, "rockUV")
 
-    alb_b = tex("AlbedoAtlas", atlas_uv, x0 + 2360, 0, linear=False)
-    alb_r = tex("AlbedoAtlas", rock_uv, x0 + 2360, 220, linear=False)
-    rgh_b = tex("RoughAtlas", atlas_uv, x0 + 2360, 440, linear=True)
-    rgh_r = tex("RoughAtlas", rock_uv, x0 + 2360, 660, linear=True)
+    alb_b = tex("AlbedoAtlas", atlas_uv, albedo_tex, x0 + 2360, 0, linear=False)
+    alb_r = tex("AlbedoAtlas", rock_uv, albedo_tex, x0 + 2360, 220, linear=False)
+    rgh_b = tex("RoughAtlas", atlas_uv, rough_tex, x0 + 2360, 440, linear=True)
+    rgh_r = tex("RoughAtlas", rock_uv, rough_tex, x0 + 2360, 660, linear=True)
 
-    # wRock = saturate((1 - N·radial - SlopeStart) / (SlopeEnd - SlopeStart))
     radial = node(unreal.MaterialExpressionNormalize, x0 + 280, 720, "radial")
     connect(wp, "", radial, "")
     ndot = node(unreal.MaterialExpressionDotProduct, x0 + 540, 720, "NdotUp")
@@ -286,9 +371,8 @@ def main():
     connect(alb_r, "RGB", lerp_a, "B")
     connect(w_rock, "", lerp_a, "Alpha")
 
-    # keep biome tint visible if the atlas is still the default white
-    tint_amt = const(0.45, x0 + 2700, 280, "tintAmt")
-    tint_base = const(0.55, x0 + 2700, 340, "tintBase")
+    tint_amt = const(0.35, x0 + 2700, 280, "tintAmt")
+    tint_base = const(0.65, x0 + 2700, 340, "tintBase")
     tint = add(mul(vc, "RGB", tint_amt, "", x0 + 2960, 280), "", tint_base, "", x0 + 3220, 280, "tint")
     albedo = mul(lerp_a, "", tint, "", x0 + 3480, 80, "Albedo*Tint")
 
@@ -305,7 +389,8 @@ def main():
 
     plug(albedo, "", unreal.MaterialProperty.MP_BASE_COLOR)
     plug(lerp_r, "", unreal.MaterialProperty.MP_ROUGHNESS)
-    plug(vn, "", unreal.MaterialProperty.MP_NORMAL)
+    # Leave Normal unconnected so the mesh uses tangent-space vertex normals.
+    # Plugging VertexNormalWS into Normal while tangent-space is on makes the crust black.
 
     metal = const(0.02, x0 + 3480, 500, "metal")
     plug(metal, "", unreal.MaterialProperty.MP_METALLIC)
@@ -328,8 +413,10 @@ def main():
     mel.recompile_material(mat)
     unreal.EditorAssetLibrary.save_asset(ASSET)
     unreal.log(
-        "[GXPBR] OK graph-only %s custom=%d exprs=%d"
-        % (ASSET, customs, len(_expressions(mat)))
+        "[GXPBR] OK graph-only %s custom=%d exprs=%d albedo=%s rough=%s"
+        % (ASSET, customs, len(_expressions(mat)),
+           ALBEDO_ATLAS if albedo_tex else "none",
+           ROUGH_ATLAS if rough_tex else "none")
     )
 
 
