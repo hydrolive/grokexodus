@@ -337,57 +337,72 @@ int32 AGXVoxelWorld::SelectLOD(float DistanceM) const
 void AGXVoxelWorld::RefreshLoadState()
 {
 	LastMeshedNear = 0;
+	int32 HollowNear = 0;
 	const FVector Local = WorldToLocalMeters(CachedViewerWorld.IsNearlyZero() ? GetPrimaryInvokerLocation() : CachedViewerWorld);
 	const float ChunkM = VoxelSize * FGXVoxelConstants::ChunkSize;
 	const float NearSq = NearFieldRadius * NearFieldRadius;
+	auto IsNear = [&](const FGXChunkKey& Key)
+	{
+		const FVector Center((Key.X + 0.5f) * ChunkM, (Key.Y + 0.5f) * ChunkM, (Key.Z + 0.5f) * ChunkM);
+		return FVector::DistSquared(Center, Local) <= NearSq;
+	};
+
 	for (const auto& Pair : ChunkActors)
 	{
-		const FVector Center((Pair.Key.X + 0.5f) * ChunkM, (Pair.Key.Y + 0.5f) * ChunkM, (Pair.Key.Z + 0.5f) * ChunkM);
-		if (FVector::DistSquared(Center, Local) > NearSq)
-		{
-			continue;
-		}
-		if (Pair.Value.IsValid() && Pair.Value->HasRenderableMesh())
+		if (IsNear(Pair.Key) && Pair.Value.IsValid() && Pair.Value->HasRenderableMesh())
 		{
 			++LastMeshedNear;
 		}
 	}
+	// Air / solid-interior chunks mesh to nothing. They are finished work, not missing terrain.
+	for (const FGXChunkKey& Key : HollowChunks)
+	{
+		if (IsNear(Key))
+		{
+			++HollowNear;
+		}
+	}
 
 	const int32 Queue = MeshQueue.Num() + AsyncInFlight.Num();
-	const float MeshFrac = (LastDesiredNear > 0)
-		? static_cast<float>(LastMeshedNear) / static_cast<float>(LastDesiredNear)
+	const int32 Desired = FMath::Max(LastDesiredNear, LastMeshedNear + HollowNear);
+	const int32 Resolved = FMath::Min(LastMeshedNear + HollowNear, Desired);
+	const float MeshFrac = (Desired > 0)
+		? static_cast<float>(Resolved) / static_cast<float>(Desired)
 		: 0.0f;
 	const float QueueFrac = (Queue <= 0) ? 1.0f : FMath::Clamp(1.0f - Queue / 80.0f, 0.0f, 0.85f);
 
-	if (LastMeshedNear == 0)
+	if (LastMeshedNear == 0 && Resolved == 0)
 	{
 		LoadStatus = TEXT("Generating crust density…");
 		LoadProgress = 0.08f;
 	}
-	else if (MeshFrac < 0.5f)
+	else if (Queue > 0 && MeshFrac < 0.95f)
 	{
-		LoadStatus = FString::Printf(TEXT("Meshing near-field terrain  %d / %d"), LastMeshedNear, FMath::Max(LastDesiredNear, 1));
-		LoadProgress = 0.10f + 0.45f * MeshFrac;
+		LoadStatus = FString::Printf(TEXT("Meshing near-field terrain  %d / %d"), Resolved, FMath::Max(Desired, 1));
+		LoadProgress = 0.10f + 0.70f * MeshFrac;
 	}
 	else if (Queue > 8)
 	{
 		LoadStatus = FString::Printf(TEXT("Streaming horizon  %d chunks queued"), Queue);
-		LoadProgress = 0.55f + 0.25f * QueueFrac;
+		LoadProgress = 0.80f + 0.10f * QueueFrac;
 	}
 	else if (WarmupTimeRemaining > 0.0f)
 	{
 		LoadStatus = TEXT("Cooking collision underfoot…");
-		LoadProgress = 0.82f;
+		LoadProgress = 0.92f;
 	}
 	else
 	{
 		LoadStatus = TEXT("Compiling shaders / lighting…");
-		LoadProgress = 0.92f;
+		LoadProgress = 0.96f;
 	}
 
-	const bool bNearFilled = LastMeshedNear >= 4 && MeshFrac >= 0.85f;
+	// A spherical near-field is mostly hollow. Ready when the queue is quiet and
+	// we have real ground — do not require 85% of the ball to have a visible mesh.
+	const bool bHaveGround = LastMeshedNear >= 4;
+	const bool bNearFilled = Desired == 0 || MeshFrac >= 0.85f;
 	const bool bQueueQuiet = Queue <= 2;
-	if (bNearFilled && bQueueQuiet && WarmupTimeRemaining <= 0.0f)
+	if (bHaveGround && bQueueQuiet && (bNearFilled || Queue == 0) && WarmupTimeRemaining <= 0.0f)
 	{
 		LoadStatus = TEXT("Ready");
 		LoadProgress = 1.0f;
