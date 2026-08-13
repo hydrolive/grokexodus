@@ -88,8 +88,17 @@ void AGXVoxelWorld::BeginPlay()
 	RebuildParams();
 	SetupDistantSphere();
 	WarmupTimeRemaining = WarmupSeconds;
-	LoadObject<UMaterialInterface>(nullptr,
-		TEXT("/Engine/EngineDebugMaterials/VertexColorMaterial.VertexColorMaterial"));
+	TerrainPBR = MakeUnique<FGXTerrainPBR>();
+	TerrainPBR->Initialize(this);
+	if (UMaterialInterface* PBR = TerrainPBR->GetMaterial())
+	{
+		TerrainMaterial = PBR;
+	}
+	else
+	{
+		LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Engine/EngineDebugMaterials/VertexColorMaterial.VertexColorMaterial"));
+	}
 
 	if (bAutoLoadOnBeginPlay)
 	{
@@ -105,6 +114,11 @@ void AGXVoxelWorld::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (bAutoSaveOnEndPlay)
 	{
 		SaveWorld();
+	}
+	if (TerrainPBR)
+	{
+		TerrainPBR->Shutdown();
+		TerrainPBR.Reset();
 	}
 	if (Jobs)
 	{

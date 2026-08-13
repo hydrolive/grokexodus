@@ -9,6 +9,7 @@
 #include "GXVoxelTypes.h"
 #include "GXMesher.h"
 #include "GXVoxelVolume.h"
+#include "GXTerrainPBR.h"
 #include "GXVoxelWorld.generated.h"
 
 class AGXVoxelChunkProxy;
@@ -194,6 +195,7 @@ public:
 protected:
 	TUniquePtr<FGXVoxelVolume> Volume;
 	TUniquePtr<FGXJobGraph> Jobs;
+	TUniquePtr<FGXTerrainPBR> TerrainPBR;
 
 	TMap<FGXChunkKey, TWeakObjectPtr<AGXVoxelChunkProxy>> ChunkActors;
 	TArray<FGXChunkKey> MeshQueue;

@@ -1,13 +1,14 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-13** · On-disk build stamp: **GX 0.4.7**  
+Last updated: **2026-08-13** · On-disk build stamp: **GX 0.5.0**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
-- **GX 0.4.7** no bounce in dug holes (unstick only if torso is buried; no crust-snap while solid is within 4 m). Brush sphere hidden unless the ray hits terrain. Hardware RT + Lumen HW on; only near collision chunks are in the RT scene.
+- **GX 0.5.0** PBR from existing Imagine sets (`Content/Voxel/Textures/Source`). Triplanar arrays + slope/height blend. Create `/Game/Voxel/Materials/M_VoxelTerrain_PBR` with `Content/Python/create_voxel_pbr_material.py` if missing.
+- **GX 0.4.7** no bounce in dug holes. Brush hidden unless the ray hits. Hardware RT on near chunks.
 - **GX 0.4.6** brush writes the same voxel corners the mesher samples. Distant sphere hidden. Place works without inventory.
 - **GX 0.4.5** crust winding is clockwise (UE/D3D front faces).
 - **GX 0.4.4** spawn/stream follow the pawn. 0.4.3 streamed the +X crust while ignoring a pawn inside `0.4*R`.
@@ -28,6 +29,12 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 5. Time warp (refuse in atmo / thrusting).
 
 Then Wave D (grids/industry) and Wave E (Earth→Moon).
+
+## Verify after 0.5.0
+
+1. Close Unreal. If `M_VoxelTerrain_PBR` is missing, run `Content/Python/create_voxel_pbr_material.py` in the editor, then rebuild Development Editor `-NoUBA`.
+2. Gold `GX 0.5.0`. Grass/dirt/rock/sand/snow should show tiled PBR, not flat vertex color.
+3. Cliffs blend toward rock. Dig/place still cuts the textured surface.
 
 ## Verify after 0.4.7
 

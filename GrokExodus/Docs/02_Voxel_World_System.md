@@ -209,8 +209,8 @@ Moon SMA (authored) ≈ 280 km. Sidereal day (authored) 24 min so ground tracks 
 | 9–11 | OreIron / OreCopper / OreCrystal | mid-crust veins |
 | 12 | Concrete | placeable |
 
-Imagine source JPGs remain at `Content/Voxel/Textures/Source/T_<Material>_{A,N,R}.jpg`.  
-Runtime mesh uses vertex debug colors and `/Game/Voxel/Materials/M_VoxelTerrain_VertexColor` when present. Full GPU triplanar texture arrays are still the next art pass.
+Imagine source JPGs live at `Content/Voxel/Textures/Source/T_<Material>_{A,N,R}.jpg`.  
+Runtime: `FGXTerrainPBR` packs them into Texture2DArrays and binds `/Game/Voxel/Materials/M_VoxelTerrain_PBR` (triplanar + slope/height blend to rock). Recreate the material with `Content/Python/create_voxel_pbr_material.py`.
 
 ---
 
