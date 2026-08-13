@@ -91,7 +91,7 @@ public:
 	int32 Seed = 1337;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	float StreamRadius = 180.0f;
+	float StreamRadius = 140.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
 	float UnloadRadius = 240.0f;
@@ -100,10 +100,10 @@ public:
 	float NearFieldRadius = 72.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	int32 MaxMeshBuildsPerFrame = 12;
+	int32 MaxMeshBuildsPerFrame = 4;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	int32 WarmupMeshBuildsPerFrame = 96;
+	int32 WarmupMeshBuildsPerFrame = 24;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
 	float WarmupSeconds = 3.0f;
@@ -181,6 +181,13 @@ protected:
 	TArray<FGXChunkKey> MeshQueue;
 	TSet<FGXChunkKey> MeshQueued;
 	TSet<FGXChunkKey> AsyncInFlight;
+	/** Shell chunks that meshed to nothing — do not rebuild every frame. */
+	TSet<FGXChunkKey> HollowChunks;
+
+	FVector CachedViewerWorld = FVector::ZeroVector;
+	FVector LastStreamViewerWorld = FVector(1e12f, 0, 0);
+	float StreamInterval = 0.20f;
+	float StreamCooldown = 0.0f;
 
 	struct FPendingMesh
 	{
@@ -205,4 +212,5 @@ protected:
 	FString GetSavePath() const;
 	void SetupDistantSphere();
 	FVector GetPrimaryInvokerLocation() const;
+	void InvalidateHollow(const FGXChunkKey& Coord);
 };

@@ -36,6 +36,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tool")
 	int32 PlaceMaterialId = 2;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tool")
+	bool bDrawDebugPreview = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Craftsmanship")
 	float DigSpeedMul = 1.0f;
 

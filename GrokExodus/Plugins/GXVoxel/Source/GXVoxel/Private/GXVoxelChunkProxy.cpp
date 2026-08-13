@@ -85,14 +85,28 @@ void AGXVoxelChunkProxy::ApplyMesh(
 		Tangents,
 		bCollision);
 
+	// Vertex-color debug material is unlit and always visible (never black).
+	// Lit PBR triplanar is Wave C+ once textures are imported.
 	UMaterialInterface* Mat = Material;
 	if (!Mat)
 	{
-		Mat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Game/Voxel/Materials/M_VoxelTerrain_VertexColor.M_VoxelTerrain_VertexColor"));
+		Mat = LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Engine/EngineDebugMaterials/VertexColorViewMode_ColorOnly.VertexColorViewMode_ColorOnly"));
 	}
 	if (!Mat)
 	{
-		Mat = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/EngineMaterials/WorldGridMaterial.WorldGridMaterial"));
+		Mat = LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial"));
+	}
+	if (Mat && Mat->GetName().Contains(TEXT("BasicShape")))
+	{
+		if (UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(Mat, this))
+		{
+			const FLinearColor C = Colors.Num() > 0 ? Colors[0] : FLinearColor(0.38f, 0.62f, 0.28f);
+			MID->SetVectorParameterValue(TEXT("BaseColor"), C);
+			MID->SetVectorParameterValue(TEXT("Color"), C);
+			Mat = MID;
+		}
 	}
 	if (!Mat)
 	{

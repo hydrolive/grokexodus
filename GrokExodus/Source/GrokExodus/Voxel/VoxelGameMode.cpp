@@ -51,14 +51,15 @@ void AVoxelGameMode::BeginPlay()
 		if (AGXVoxelWorld* W = GetWorld()->SpawnActor<AGXVoxelWorld>(FVector::ZeroVector, FRotator::ZeroRotator, SP))
 		{
 			W->PlanetRadius = 4000.0f;
-			W->StreamRadius = 180.0f;
-			W->UnloadRadius = 250.0f;
-			W->NearFieldRadius = 96.0f;
+			W->StreamRadius = 140.0f;
+			W->UnloadRadius = 190.0f;
+			W->NearFieldRadius = 80.0f;
 			W->MaxRelief = 180.0f;
 			W->bForceLOD0 = true;
-			W->bAsyncMeshing = false; // fill crust first; async after this is proven
-			W->WarmupSeconds = 4.0f;
-			W->WarmupMeshBuildsPerFrame = 160;
+			W->bAsyncMeshing = true;
+			W->WarmupSeconds = 2.0f;
+			W->WarmupMeshBuildsPerFrame = 24;
+			W->MaxMeshBuildsPerFrame = 4;
 			W->bAutoLoadOnBeginPlay = false;
 		}
 	}

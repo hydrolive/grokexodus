@@ -97,13 +97,13 @@ void UGXTerrainToolComponent::TickComponent(float DeltaTime, ELevelTick TickType
 		FireCooldown = 0.08f;
 	}
 
-	if (World && GetWorld())
+	if (bDrawDebugPreview && World && GetWorld())
 	{
 		const FGXVoxelHit Hit = World->RaycastVoxels(GetTraceStart(), GetTraceDir(), Reach);
 		if (Hit.bHit)
 		{
-			DrawDebugSphere(GetWorld(), Hit.Location, BrushRadiusM * 100.0f, 12,
-				Mode == EGXToolMode::Drill ? FColor::Orange : FColor::Cyan, false, -1.f, 0, 1.5f);
+			DrawDebugSphere(GetWorld(), Hit.Location, BrushRadiusM * 100.0f, 8,
+				Mode == EGXToolMode::Drill ? FColor::Orange : FColor::Cyan, false, 0.f, 0, 1.5f);
 		}
 	}
 }

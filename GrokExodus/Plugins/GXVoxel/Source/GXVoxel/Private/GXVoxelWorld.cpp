@@ -115,40 +115,25 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 		WarmupTimeRemaining -= DeltaSeconds;
 	}
 
-	UpdateStreaming(GetPrimaryInvokerLocation());
-	DrainPendingMeshes(MaxMeshBuildsPerFrame * 2);
+	CachedViewerWorld = GetPrimaryInvokerLocation();
+	StreamCooldown -= DeltaSeconds;
+	const float MovedSq = FVector::DistSquared(CachedViewerWorld, LastStreamViewerWorld);
+	if (StreamCooldown <= 0.0f || MovedSq > FMath::Square(600.0f) || WarmupTimeRemaining > 0.0f)
+	{
+		UpdateStreaming(CachedViewerWorld);
+		LastStreamViewerWorld = CachedViewerWorld;
+		StreamCooldown = StreamInterval;
+	}
 
+	DrainPendingMeshes(MaxMeshBuildsPerFrame);
 	const int32 Budget = (WarmupTimeRemaining > 0.0f) ? WarmupMeshBuildsPerFrame : MaxMeshBuildsPerFrame;
 	ProcessMeshQueue(Budget);
 }
 
 FVector AGXVoxelWorld::GetPrimaryInvokerLocation() const
 {
-	FVector Best = FindSurfaceWorldLocation(FVector(1, 0, 0)) + FVector(200, 0, 0);
-	float BestScore = -1.0f;
 	if (UWorld* World = GetWorld())
 	{
-		for (TActorIterator<AActor> It(World); It; ++It)
-		{
-			if (UGXVoxelInvokerComponent* Inv = It->FindComponentByClass<UGXVoxelInvokerComponent>())
-			{
-				if (!Inv->bEnabled)
-				{
-					continue;
-				}
-				const FVector Loc = Inv->GetInvokerWorldLocation();
-				const float Dist = WorldToLocalMeters(Loc).Size();
-				if (Dist > PlanetRadius * 0.4f)
-				{
-					return Loc;
-				}
-				if (Dist > BestScore)
-				{
-					BestScore = Dist;
-					Best = Loc;
-				}
-			}
-		}
 		if (APawn* Pawn = UGameplayStatics::GetPlayerPawn(World, 0))
 		{
 			const float Dist = WorldToLocalMeters(Pawn->GetActorLocation()).Size();
@@ -158,7 +143,11 @@ FVector AGXVoxelWorld::GetPrimaryInvokerLocation() const
 			}
 		}
 	}
-	return Best;
+	if (!CachedViewerWorld.IsNearlyZero())
+	{
+		return CachedViewerWorld;
+	}
+	return FindSurfaceWorldLocation(FVector(1, 0, 0)) + FVector(200, 0, 0);
 }
 
 FVector AGXVoxelWorld::WorldToLocalMeters(const FVector& WorldCm) const
@@ -277,6 +266,7 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	if (Jobs) Jobs->BumpStamp();
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
+		InvalidateHollow(C);
 		EnqueueRemesh(C);
 	}
 	return Out;
@@ -297,6 +287,7 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	if (Jobs) Jobs->BumpStamp();
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
+		InvalidateHollow(C);
 		EnqueueRemesh(C);
 	}
 	return Out;
@@ -312,8 +303,14 @@ int32 AGXVoxelWorld::SelectLOD(float DistanceM) const
 	return 2;
 }
 
+void AGXVoxelWorld::InvalidateHollow(const FGXChunkKey& Coord)
+{
+	HollowChunks.Remove(Coord);
+}
+
 void AGXVoxelWorld::EnqueueRemesh(const FGXChunkKey& Coord)
 {
+	HollowChunks.Remove(Coord);
 	if (MeshQueued.Contains(Coord))
 	{
 		return;
@@ -361,6 +358,10 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 					continue;
 				}
 				Desired.Add(CC);
+				if (HollowChunks.Contains(CC))
+				{
+					continue;
+				}
 				const TWeakObjectPtr<AGXVoxelChunkProxy>* Existing = ChunkActors.Find(CC);
 				const bool bNeedMesh = !Existing || !Existing->IsValid() || !Existing->Get()->HasRenderableMesh();
 				if (bNeedMesh)
@@ -409,9 +410,12 @@ void AGXVoxelWorld::ProcessMeshQueue(int32 Budget)
 	const bool bAsync = bAsyncMeshing && WarmupTimeRemaining <= 0.0f && Jobs.IsValid();
 	while (Built < Budget && MeshQueue.Num() > 0)
 	{
-		const FGXChunkKey Coord = MeshQueue[0];
-		MeshQueue.RemoveAt(0);
+		const FGXChunkKey Coord = MeshQueue.Pop(EAllowShrinking::No);
 		MeshQueued.Remove(Coord);
+		if (HollowChunks.Contains(Coord))
+		{
+			continue;
+		}
 		if (bAsync)
 		{
 			EnqueueChunkMeshAsync(Coord);
@@ -431,7 +435,7 @@ void AGXVoxelWorld::BuildChunkMeshSync(const FGXChunkKey& Coord)
 		return;
 	}
 	TSharedRef<FGXVoxelSnapshot, ESPMode::ThreadSafe> Snap = Volume->PublishSnapshot();
-	const FVector Local = WorldToLocalMeters(GetPrimaryInvokerLocation());
+	const FVector Local = WorldToLocalMeters(CachedViewerWorld.IsNearlyZero() ? GetPrimaryInvokerLocation() : CachedViewerWorld);
 	const float ChunkM = VoxelSize * FGXVoxelConstants::ChunkSize;
 	const FVector Center((Coord.X + 0.5f) * ChunkM, (Coord.Y + 0.5f) * ChunkM, (Coord.Z + 0.5f) * ChunkM);
 	const int32 LOD = SelectLOD(FVector::Dist(Center, Local));
@@ -501,6 +505,7 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 {
 	if (MeshData.IsEmpty())
 	{
+		HollowChunks.Add(Coord);
 		if (AGXVoxelChunkProxy* Empty = ChunkActors.FindRef(Coord).Get())
 		{
 			if (!Empty->HasRenderableMesh())
@@ -511,6 +516,7 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 		}
 		return;
 	}
+	HollowChunks.Remove(Coord);
 
 	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
 	const FVector OriginM(Coord.X * ChunkM, Coord.Y * ChunkM, Coord.Z * ChunkM);

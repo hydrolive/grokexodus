@@ -63,14 +63,15 @@ void AGXGameMode::EnsureWorld()
 	if (VoxelWorld)
 	{
 		VoxelWorld->PlanetRadius = PlanetRadius;
-		VoxelWorld->StreamRadius = StreamRadius;
-		VoxelWorld->UnloadRadius = StreamRadius + 70.0f;
-		VoxelWorld->NearFieldRadius = 96.0f;
+		VoxelWorld->StreamRadius = FMath::Min(StreamRadius, 140.0f);
+		VoxelWorld->UnloadRadius = VoxelWorld->StreamRadius + 50.0f;
+		VoxelWorld->NearFieldRadius = 80.0f;
 		VoxelWorld->MaxRelief = FMath::Clamp(PlanetRadius * 0.045f, 80.0f, 220.0f);
 		VoxelWorld->bForceLOD0 = true;
-		VoxelWorld->bAsyncMeshing = false;
-		VoxelWorld->WarmupSeconds = 4.0f;
-		VoxelWorld->WarmupMeshBuildsPerFrame = 160;
+		VoxelWorld->bAsyncMeshing = true;
+		VoxelWorld->WarmupSeconds = 2.0f;
+		VoxelWorld->WarmupMeshBuildsPerFrame = 24;
+		VoxelWorld->MaxMeshBuildsPerFrame = 4;
 		VoxelWorld->bAutoLoadOnBeginPlay = false;
 	}
 }
