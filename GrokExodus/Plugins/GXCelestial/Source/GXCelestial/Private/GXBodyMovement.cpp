@@ -4,6 +4,7 @@
 #include "GXInterfaces.h"
 #include "GameFramework/Character.h"
 #include "Components/CapsuleComponent.h"
+#include "Engine/ActorInstanceHandle.h"
 #include "EngineUtils.h"
 
 UGXBodyMovement::UGXBodyMovement()
@@ -100,6 +101,165 @@ void UGXBodyMovement::NotifyPlayerJumped()
 	AirborneSeconds = 0.0f;
 }
 
+bool UGXBodyMovement::IsJumpingUp() const
+{
+	return JumpIgnoreSnapSeconds > 0.0f && FVector::DotProduct(Velocity, GetUpDir()) > 40.0f;
+}
+
+bool UGXBodyMovement::FindStampSurface(const FVector& CapsuleLocation, FVector& OutSurfaceCm, FVector& OutCapsuleCm) const
+{
+	const IGXVoxelQuery* Q = Cast<IGXVoxelQuery>(FieldActor);
+	if (!Q || !FieldActor)
+	{
+		return false;
+	}
+
+	const FVector Up = GetUpDir();
+	if (Up.IsNearlyZero())
+	{
+		return false;
+	}
+
+	float Half = 88.0f;
+	if (CharacterOwner && CharacterOwner->GetCapsuleComponent())
+	{
+		Half = CharacterOwner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	}
+	constexpr float SkinCm = 2.0f;
+	const FVector Origin = FieldActor->GetActorLocation();
+	auto DensAt = [&](const FVector& WorldCm) -> float
+	{
+		const FVector L = WorldCm - Origin;
+		return Q->SampleDensityMeters(FVector3d(L.X * 0.01, L.Y * 0.01, L.Z * 0.01));
+	};
+
+	// Solid > 0, air < 0. Search inward first so a fallen pawn still finds the crust.
+	const FVector Low = CapsuleLocation - Up * 1200.0f;
+	const FVector High = CapsuleLocation + Up * 800.0f;
+	const float DLow = DensAt(Low);
+	const float DHigh = DensAt(High);
+	if (DLow <= 0.0f)
+	{
+		return false;
+	}
+
+	FVector Solid = Low;
+	FVector Air = High;
+	if (DHigh > 0.0f)
+	{
+		Air = High + Up * 1200.0f;
+		if (DensAt(Air) > 0.0f)
+		{
+			return false;
+		}
+	}
+
+	for (int32 I = 0; I < 18; ++I)
+	{
+		const FVector Mid = (Solid + Air) * 0.5f;
+		if (DensAt(Mid) > 0.0f)
+		{
+			Solid = Mid;
+		}
+		else
+		{
+			Air = Mid;
+		}
+	}
+
+	OutSurfaceCm = Air;
+	OutCapsuleCm = OutSurfaceCm + Up * (Half + SkinCm);
+	return true;
+}
+
+void UGXBodyMovement::FindFloor(const FVector& CapsuleLocation, FFindFloorResult& OutFloorResult, bool bCanUseCachedLocation, const FHitResult* DownwardSweepResult) const
+{
+	Super::FindFloor(CapsuleLocation, OutFloorResult, bCanUseCachedLocation, DownwardSweepResult);
+	if (OutFloorResult.IsWalkableFloor() || IsJumpingUp())
+	{
+		return;
+	}
+
+	FVector Surface, Desired;
+	if (!FindStampSurface(CapsuleLocation, Surface, Desired))
+	{
+		return;
+	}
+
+	const FVector Up = GetUpDir();
+	float Half = 88.0f;
+	if (CharacterOwner && CharacterOwner->GetCapsuleComponent())
+	{
+		Half = CharacterOwner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	}
+	const float FloorDist = FVector::DotProduct(CapsuleLocation - Surface, Up) - Half;
+	// Only a real floor when the soles are within a step of the stamp.
+	if (FloorDist > MaxStepHeight + 12.0f || FloorDist < -Half)
+	{
+		return;
+	}
+
+	FHitResult Hit(1.0f);
+	Hit.bBlockingHit = true;
+	Hit.ImpactPoint = Surface;
+	Hit.Location = Surface;
+	Hit.Normal = Up;
+	Hit.ImpactNormal = Up;
+	Hit.TraceStart = CapsuleLocation;
+	Hit.TraceEnd = Surface;
+	Hit.Distance = FMath::Max(FloorDist, 0.0f);
+	Hit.Time = 0.0f;
+	if (FieldActor)
+	{
+		Hit.HitObjectHandle = FActorInstanceHandle(FieldActor.Get());
+	}
+
+	OutFloorResult.Clear();
+	OutFloorResult.bBlockingHit = true;
+	OutFloorResult.bWalkableFloor = true;
+	OutFloorResult.bLineTrace = true;
+	OutFloorResult.FloorDist = FloorDist;
+	OutFloorResult.LineDist = FloorDist;
+	OutFloorResult.HitResult = Hit;
+}
+
+void UGXBodyMovement::StickToStampFloor()
+{
+	if (!UpdatedComponent || IsJumpingUp())
+	{
+		return;
+	}
+
+	FVector Surface, Desired;
+	const FVector Loc = UpdatedComponent->GetComponentLocation();
+	if (!FindStampSurface(Loc, Surface, Desired))
+	{
+		return;
+	}
+
+	const FVector Up = GetUpDir();
+	const float Err = FVector::DotProduct(Desired - Loc, Up);
+	constexpr float DeadCm = 2.0f;
+	constexpr float StickCm = 80.0f;
+	if (FMath::Abs(Err) > DeadCm && FMath::Abs(Err) <= StickCm)
+	{
+		UpdatedComponent->SetWorldLocation(Loc + Up * Err, false, nullptr, ETeleportType::TeleportPhysics);
+	}
+
+	if (CurrentFloor.IsWalkableFloor() || FMath::Abs(Err) <= StickCm)
+	{
+		const float Into = FVector::DotProduct(Velocity, -Up);
+		if (Into > 0.0f)
+		{
+			Velocity += Up * Into;
+		}
+		if (MovementMode == MOVE_Falling && FMath::Abs(Err) <= StickCm)
+		{
+			SetMovementMode(MOVE_Walking);
+		}
+	}
+}
+
 void UGXBodyMovement::SnapToSurface(bool bZeroVelocity)
 {
 	if (!FieldActor)
@@ -111,41 +271,10 @@ void UGXBodyMovement::SnapToSurface(bool bZeroVelocity)
 		return;
 	}
 
-	if (IGXVoxelQuery* Q = Cast<IGXVoxelQuery>(FieldActor))
+	FVector Surface, Desired;
+	if (FindStampSurface(UpdatedComponent->GetComponentLocation(), Surface, Desired))
 	{
-		const FVector Loc = UpdatedComponent->GetComponentLocation();
-		const FVector Up = GetUpDir();
-		FVector Pos = Loc;
-		for (int32 Step = 0; Step < 48; ++Step)
-		{
-			const FVector Sample = Pos - Up * 90.0f;
-			const FVector3d LM(Sample.X * 0.01, Sample.Y * 0.01, Sample.Z * 0.01);
-			if (Q->SampleDensityMeters(LM) <= 0.0f)
-			{
-				break;
-			}
-			Pos += Up * 20.0f;
-		}
-		// If we started in air, walk inward
-		{
-			const FVector Sample = Pos - Up * 90.0f;
-			const FVector3d LM(Sample.X * 0.01, Sample.Y * 0.01, Sample.Z * 0.01);
-			if (Q->SampleDensityMeters(LM) <= 0.0f)
-			{
-				for (int32 Step = 0; Step < 80; ++Step)
-				{
-					Pos -= Up * 15.0f;
-					const FVector S2 = Pos - Up * 90.0f;
-					const FVector3d L2(S2.X * 0.01, S2.Y * 0.01, S2.Z * 0.01);
-					if (Q->SampleDensityMeters(L2) > 0.0f)
-					{
-						Pos += Up * 110.0f;
-						break;
-					}
-				}
-			}
-		}
-		UpdatedComponent->SetWorldLocation(Pos, false, nullptr, ETeleportType::TeleportPhysics);
+		UpdatedComponent->SetWorldLocation(Desired, false, nullptr, ETeleportType::TeleportPhysics);
 	}
 
 	UpdateGravity();
@@ -154,6 +283,15 @@ void UGXBodyMovement::SnapToSurface(bool bZeroVelocity)
 	{
 		Velocity = FVector::ZeroVector;
 		StopMovementImmediately();
+	}
+	else
+	{
+		const FVector Up = GetUpDir();
+		const float Into = FVector::DotProduct(Velocity, -Up);
+		if (Into > 0.0f)
+		{
+			Velocity += Up * Into;
+		}
 	}
 	SetMovementMode(MOVE_Walking);
 	FindFloor(UpdatedComponent->GetComponentLocation(), CurrentFloor, false);
@@ -179,27 +317,28 @@ void UGXBodyMovement::TickComponent(float DeltaTime, ELevelTick TickType, FActor
 	if (JumpIgnoreSnapSeconds > 0.0f)
 	{
 		JumpIgnoreSnapSeconds -= DeltaTime;
+	}
+
+	// Banks have no collision. Stamp isosurface is the walk floor.
+	// Old 0.08 s snap + "eject until feet are air" was the bounce.
+	StickToStampFloor();
+
+	if (IsJumpingUp())
+	{
 		AirborneSeconds = 0.0f;
 	}
-	else if (bSnapWhenAirborne && FieldActor)
+	else if (bSnapWhenAirborne && FieldActor && !CurrentFloor.IsWalkableFloor())
 	{
-		const bool bNoFloor = !CurrentFloor.IsWalkableFloor();
-		const bool bInShallowHole = bNoFloor && HasSolidWithinMeters(4.0f);
-		if (bNoFloor && !bInShallowHole)
+		AirborneSeconds += DeltaTime;
+		if (AirborneSeconds >= AirborneSnapSeconds)
 		{
-			AirborneSeconds += DeltaTime;
-			if (AirborneSeconds >= AirborneSnapSeconds)
-			{
-				// Keep walk velocity — zeroing this after a 1 s fall into a
-				// missing-chunk pit felt like the pawn was glued in place.
-				SnapToSurface(false);
-				AirborneSeconds = 0.0f;
-			}
-		}
-		else
-		{
+			SnapToSurface(false);
 			AirborneSeconds = 0.0f;
 		}
+	}
+	else
+	{
+		AirborneSeconds = 0.0f;
 	}
 }
 
@@ -247,11 +386,6 @@ void UGXBodyMovement::UnstickIfBuried(float DeltaSeconds)
 	}
 	const FVector Loc = UpdatedComponent->GetComponentLocation();
 	const FVector Up = GetUpDir();
-	float Half = 96.0f;
-	if (CharacterOwner && CharacterOwner->GetCapsuleComponent())
-	{
-		Half = CharacterOwner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
-	}
 	auto Dens = [&](const FVector& P)
 	{
 		const FVector3d M(P.X * 0.01, P.Y * 0.01, P.Z * 0.01);
@@ -265,11 +399,11 @@ void UGXBodyMovement::UnstickIfBuried(float DeltaSeconds)
 	FVector Pos = Loc;
 	for (int32 Step = 0; Step < 24; ++Step)
 	{
-		if (Dens(Pos) <= 0.0f && Dens(Pos - Up * Half) <= 0.0f)
+		if (Dens(Pos) <= 0.0f)
 		{
 			break;
 		}
-		Pos += Up * 15.0f;
+		Pos += Up * 8.0f;
 	}
 	UpdatedComponent->SetWorldLocation(Pos, false, nullptr, ETeleportType::TeleportPhysics);
 	const float Into = FVector::DotProduct(Velocity, -Up);

@@ -29,12 +29,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GX|Gravity")
 	bool bUnstickFromSolid = true;
 
-	/** If the pawn is airborne over the planet for this long, snap back to the crust. */
+	/** Last-resort snap if we truly leave the crust (not the walk floor). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GX|Gravity")
 	bool bSnapWhenAirborne = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GX|Gravity")
-	float AirborneSnapSeconds = 0.08f;
+	float AirborneSnapSeconds = 1.50f;
+
+	virtual void FindFloor(const FVector& CapsuleLocation, FFindFloorResult& OutFloorResult, bool bCanUseCachedLocation, const FHitResult* DownwardSweepResult = nullptr) const override;
 
 	UFUNCTION(BlueprintCallable, Category = "GX|Gravity")
 	FVector GetGravityDir() const;
@@ -61,6 +63,9 @@ protected:
 	void AlignCapsule(float DeltaSeconds);
 	void UnstickIfBuried(float DeltaSeconds);
 	bool HasSolidWithinMeters(float MaxMeters) const;
+	bool FindStampSurface(const FVector& CapsuleLocation, FVector& OutSurfaceCm, FVector& OutCapsuleCm) const;
+	void StickToStampFloor();
+	bool IsJumpingUp() const;
 
 	float AirborneSeconds = 0.0f;
 	float JumpIgnoreSnapSeconds = 0.0f;

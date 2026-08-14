@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.23**  
+Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.24**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.7.24** 0.7.23 play: **bouncing on the voxels**. Banks still have no collision, so CMC had no floor. The 0.08 s airborne snap teleported the capsule ~2 m up, then Unstick ejected until the *feet* were in air, then gravity dropped you through the stamp — trampoline. Stamp isosurface is now a real FindFloor; walk sticks within 80 cm; unstick only lifts the torso; last-resort snap is 1.5 s. Jump-up still ignores the floor. Fingerprint 14.
 - **GX 0.7.23** 0.7.22 shots: grass hills were back, but a **black polygonal hole** sat in the near slope and walking still hit **81 ms CreateMeshSection**. Mixed LOD0/1 seams + 16×48 banks evicting in-stream crust + LOD0 empty-settle were the holes. Stream is LOD0 until transvoxel (0.8). Near/crust empties retry 4 times (not keep-last). Evict only past UnloadRadius; banks start at 28×48 and grow to 36. Same-topology remesh uses UpdateMeshSection. Clipmap valley grass is brighter. Fingerprint 14 — cache reused.
 - **GX 0.7.22** 0.7.21 shot: teal void, no ground. Bank verts were chunk-local on a PMC at the planet origin, so the crust sat in the core. Verts are planet-local cm now. Apply stayed 2–5 ms.
 - **GX 0.7.21** 0.7.20 shots: still walked off voxels. `CreateMeshSection` on the **600th chunk actor** was ~81 ms. Crust is now **16 PMCs × 48 sections** on the world actor — no SpawnActor on the walk path. Stamp snap 0.08 s is the floor. Same cache as 0.7.19/20.
@@ -55,6 +56,12 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 - Live Coding often blocks `Build.bat`. The agent **closes Unreal and rebuilds Development Editor `-NoUBA`** (see `AGENTS.md`). Do not ask the user to do that.
 - **Unreal MCP:** `UnrealMCPython` plugin listens on `127.0.0.1:12029`. Agent **must Start-Process the editor** and confirm a PID before polling the port. Never wait on 12029 with no UnrealEditor process (the user had to launch it by hand). Run Python via `unreal-mcpython__util execute_python`. Unity MCP is disabled.
 - **Plugin GXCore failed to load / GetLastError=4551:** Development `UnrealEditor-GXCore.dll` was an unloadable image (UBA served a bad cached link). DebugGame DLL was fine; the editor loads Development. Fix: delete `Plugins/*/Binaries/Win64/UnrealEditor-GX*.dll` and `Binaries/Win64/UnrealEditor-GrokExodus.dll`, rebuild `GrokExodusEditor Win64 Development -NoUBA`. All six project DLLs now map with `LoadLibraryEx(DONT_RESOLVE)`.
+
+## Verify after 0.7.24
+
+1. Gold `GX 0.7.24`. Stand still — no bounce. Walk a hill — feet stay planted.
+2. Jump still works (2.5 s ignore while going up). You land, you do not trampoline.
+3. Walk 400 m. Holes / hitch checks from 0.7.23 still apply.
 
 ## Verify after 0.7.23
 
