@@ -145,8 +145,8 @@ bool FGXVoxelEarthGeomorphology::RunTest(const FString& Parameters)
 	TestTrue(TEXT("oceans exist"), Ocean > 8);
 	TestTrue(TEXT("high peaks exist"), Peak > 4);
 	TestTrue(TEXT("carved valleys exist"), Valley > 4);
-	TestTrue(TEXT("relief spans kilometres"), (HMax - HMin) > 1500.0f);
-	TestTrue(TEXT("peaks approach MaxRelief"), HMax > Params.MaxRelief * 0.45f);
+	TestTrue(TEXT("relief spans hundreds of meters"), (HMax - HMin) > 600.0f);
+	TestTrue(TEXT("highlands exist"), HMax > Params.MaxRelief * 0.20f);
 
 	float F1 = 0.0f;
 	float F2 = 0.0f;

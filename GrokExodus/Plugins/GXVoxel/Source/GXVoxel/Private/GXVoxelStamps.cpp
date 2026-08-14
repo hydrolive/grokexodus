@@ -76,57 +76,44 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	FGXNoise::WorleyF1F2(
 		Ux * Params.PlateFreq, Uy * Params.PlateFreq, Uz * Params.PlateFreq,
 		Params.Seed + 3u, PlateF1, PlateF2);
-	const float Edge = FGXNoise::Smooth01((PlateF2 - PlateF1) * 3.1f);
-	const float Interior = 1.0f - Edge;
-
-	const int32 PX = FMath::FloorToInt(Ux * Params.PlateFreq);
-	const int32 PY = FMath::FloorToInt(Uy * Params.PlateFreq);
-	const int32 PZ = FMath::FloorToInt(Uz * Params.PlateFreq);
-	const float PlateAge = FGXNoise::HashToFloat(FGXNoise::Hash(PX, PY, PZ, Params.Seed + 3u));
-	const float Converge = FGXNoise::HashToFloat(FGXNoise::Hash(PX, PY, PZ, Params.Seed + 11u));
+	// F2-F1 is ~0 on a suture and large in a cell interior. Do not hash-by-cell:
+	// that stamped each plate as a mesa with vertical walls.
+	const float Suture = FMath::Clamp(1.0f - (PlateF2 - PlateF1) * 1.8f, 0.0f, 1.0f);
+	const float Belt = Suture * Suture;
 
 	float Continents = FGXNoise::FBm(
 		Ux * Params.ContinentFreq, Uy * Params.ContinentFreq, Uz * Params.ContinentFreq,
-		Params.Seed, 6, 2.0f, 0.5f);
-	// Guarantee a walkable continent under the +X spawn cap.
+		Params.Seed, 3, 2.0f, 0.55f);
 	const float SpawnLand = FGXNoise::Smooth01((Ux - 0.08f) / 0.72f);
-	Continents += SpawnLand * 0.46f + (PlateAge - 0.42f) * 0.10f;
+	Continents += SpawnLand * 0.40f;
 
-	const float LandMask = FGXNoise::Smooth01((Continents + 0.04f) / 0.36f);
+	// Wide coastal ramp — land emerges from sea level, it does not cliff out of the abyss.
+	const float LandMask = FGXNoise::Smooth01((Continents + 0.12f) / 0.70f);
 	const float OceanMask = 1.0f - LandMask;
 	const float Coast = 4.0f * LandMask * OceanMask;
 	Out.LandMask = LandMask;
 
-	const float Mountains = FGXNoise::Ridged(
-		Ux * Params.MountainFreq, Uy * Params.MountainFreq, Uz * Params.MountainFreq,
-		Params.Seed + 7u, 4);
-	// Broad range body (kilometers wide) plus a small summit cap — not a spike.
-	const float Massif = FGXNoise::Smooth01((Mountains - 0.22f) / 0.38f);
-	const float Summit = FMath::Pow(FMath::Max(Mountains - 0.62f, 0.0f) / 0.38f, 1.6f);
-	const float Belt = FGXNoise::Smooth01(Edge * 1.15f) * (0.25f + 0.75f * Converge);
-	const float Orogeny = LandMask * Belt * (0.22f * Massif + 0.16f * Summit);
-	// Occasional inland highland, flattened so it stays a mesa not a needle.
-	const float InlandHigh = LandMask * Interior * (1.0f - PlateAge * 0.75f)
-		* FGXNoise::Smooth01((Mountains - 0.55f) / 0.28f) * 0.14f;
-	Out.Orogeny = FMath::Max(Orogeny, InlandHigh);
-
-	const float Foothills = LandMask * FGXNoise::FBm(
-		Ux * Params.MountainFreq * 0.55f, Uy * Params.MountainFreq * 0.55f, Uz * Params.MountainFreq * 0.55f,
-		Params.Seed + 8u, 3, 2.0f, 0.5f) * (0.04f + 0.08f * Belt);
-
-	const float Hills = LandMask * Interior
-		* FGXNoise::FBm(
-			Ux * Params.HillFreq, Uy * Params.HillFreq, Uz * Params.HillFreq,
-			Params.Seed + 17u, 3, 2.0f, 0.5f)
-		* (0.035f + 0.03f * (1.0f - PlateAge));
-
-	const float Shield = Interior * PlateAge * LandMask * 0.07f;
-
-	const float PlatN = FGXNoise::FBm(
+	const float Highland = 0.5f + 0.5f * FGXNoise::FBm(
 		Ux * Params.PlateauFreq, Uy * Params.PlateauFreq, Uz * Params.PlateauFreq,
 		Params.Seed + 21u, 3, 2.0f, 0.5f);
-	const float PlateauMask = LandMask * Interior * FGXNoise::Smooth01((PlatN - 0.05f) / 0.28f) * (1.0f - Belt * 0.65f);
-	const float Plateau = PlateauMask * (0.16f + 0.04f * PlatN);
+	const float Mountains = FGXNoise::Ridged(
+		Ux * Params.MountainFreq, Uy * Params.MountainFreq, Uz * Params.MountainFreq,
+		Params.Seed + 7u, 3);
+	// Continuous range: slow highland envelope * soft ridge. No saturate-to-flat.
+	const float RangeBody = Highland * Mountains;
+	const float Orogeny = LandMask * (0.10f * Highland + 0.20f * RangeBody + 0.10f * Belt * RangeBody);
+	Out.Orogeny = Orogeny;
+
+	const float Foothills = LandMask * Highland * FGXNoise::FBm(
+		Ux * Params.MountainFreq * 0.55f, Uy * Params.MountainFreq * 0.55f, Uz * Params.MountainFreq * 0.55f,
+		Params.Seed + 8u, 3, 2.0f, 0.5f) * 0.05f;
+
+	const float Hills = LandMask * FGXNoise::FBm(
+		Ux * Params.HillFreq, Uy * Params.HillFreq, Uz * Params.HillFreq,
+		Params.Seed + 17u, 3, 2.0f, 0.5f) * 0.04f;
+
+	const float Shield = LandMask * (1.0f - Highland) * 0.03f;
+	const float Plateau = LandMask * Highland * 0.06f;
 
 	const float Wx = FGXNoise::FBm(
 		Ux * Params.RiverFreq * 0.32f, Uy * Params.RiverFreq * 0.32f, Uz * Params.RiverFreq * 0.32f,
@@ -146,7 +133,7 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 		Ux * 4.2f, Uy * 4.2f, Uz * 4.2f, Params.Seed + 56u, 3, 2.0f, 0.5f) - 0.32f) / 0.28f);
 	Out.CanyonCarve = LandMask * CanyonGate * FMath::Pow(Can, 4.4f) * Params.CanyonAmp;
 
-	const float Rift = Edge * (1.0f - Converge) * LandMask * 0.06f;
+	const float Rift = Belt * (1.0f - Highland) * LandMask * 0.03f;
 
 	const float LocalRidge = LandMask * FGXNoise::FBm(
 		Ux * Params.LocalRidgeFreq, Uy * Params.LocalRidgeFreq, Uz * Params.LocalRidgeFreq,
@@ -184,27 +171,19 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 		Ux * Params.DetailFreq, Uy * Params.DetailFreq, Uz * Params.DetailFreq,
 		Params.Seed + 19u, 3, 2.0f, 0.5f) * 0.010f * LandMask;
 
-	const float Abyssal = -Params.OceanDepthFrac * (0.55f + 0.45f * (0.5f + 0.5f * FGXNoise::FBm(
-		Ux * 1.55f, Uy * 1.55f, Uz * 1.55f, Params.Seed + 5u, 4, 2.0f, 0.5f)));
-	const float Trench = OceanMask * Edge * Converge * Params.TrenchAmp;
-	const float OceanFloor = OceanMask * (Abyssal - Trench);
-	const float Shelf = OceanMask * Coast * 0.11f;
+	const float Abyssal = -Params.OceanDepthFrac * (0.35f + 0.25f * (0.5f + 0.5f * FGXNoise::FBm(
+		Ux * 1.55f, Uy * 1.55f, Uz * 1.55f, Params.Seed + 5u, 3, 2.0f, 0.5f)));
+	const float Trench = OceanMask * Belt * 0.35f * Params.TrenchAmp;
+	// Shelf stays near sea level. Deep ocean only far from land.
+	const float OceanFloor = Abyssal * FMath::Pow(OceanMask, 2.0f) - Trench;
+	const float Shelf = Coast * 0.02f;
 
-	float LandH = 0.09f
-		+ Shield
-		+ Hills
-		+ Foothills
-		+ Plateau
-		+ Orogeny
-		+ InlandHigh
-		+ Out.Volcano * 0.55f
-		+ Local
-		+ Detail
-		- Out.RiverCarve
-		- Out.CanyonCarve
-		- Rift
-		- GlacialCarve;
-	LandH *= LandMask;
+	// Inland weight ramps after the beach so coasts are beaches, not 1 km cliffs.
+	const float Inland = FGXNoise::Smooth01((LandMask - 0.35f) / 0.50f);
+	float LandH = 0.03f * LandMask
+		+ Inland * (Shield + Hills + Foothills + Plateau + Orogeny
+			+ Out.Volcano * 0.35f + Local + Detail
+			- Out.RiverCarve - Out.CanyonCarve - Rift - GlacialCarve);
 
 	const float NormH = FMath::Lerp(OceanFloor + Shelf, LandH, LandMask);
 	Out.HeightM = NormH * Relief + Params.SeaLevelBias;
