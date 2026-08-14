@@ -134,6 +134,8 @@ Path: `Saved/VoxelWorld/<SaveFileName>` (default `earth_default.gxsav`).
 
 Unedited crust meshes and the height atlas live in `Saved/VoxelWorld/crust_<fingerprint>/`. First PIE bakes them; later PIE loads them. Changing seed, radius, relief, or stamp params makes a new folder. Digs invalidate only the dirty chunk files.
 
+Empty `.gxm` files are deleted and the chunk is **session-settled** (not remeshed every tick). Stream only enqueues chunks whose 8 corners + center straddle the isosurface (±8 m). Far voxel jobs wait until the near queue is quiet. Overlay Desired counts settled empties as done so it can reach Ready without walking. `gx.perf.trace 1` logs `GX-stream` on change and a 1 Hz `GX-<ver> perf` line (`inflight`, `mailbox`, `cache`, `settled`).
+
 ```text
 GXV1 header  (seed, radius, relief, voxel size)
 page count

@@ -258,8 +258,12 @@ protected:
 	FString LoadStatus = TEXT("Booting planet…");
 	int32 LastDesiredNear = 0;
 	int32 LastMeshedNear = 0;
+	int32 LastHollowNear = 0;
+	int32 LastSettledEmpty = 0;
 	int32 CacheHits = 0;
 	int32 CacheMisses = 0;
+	int32 LastInFlightLogged = 0;
+	int32 StallSeconds = 0;
 
 	void RebuildParams();
 	void ResetStreamingState();
@@ -281,4 +285,6 @@ protected:
 	void SetupDistantSphere();
 	FVector GetPrimaryInvokerLocation() const;
 	void InvalidateHollow(const FGXChunkKey& Coord);
+	void MarkChunkEmpty(const FGXChunkKey& Coord, const TCHAR* Reason);
+	bool ChunkOverlapsSurface(const FGXChunkKey& Coord, float ChunkM) const;
 };

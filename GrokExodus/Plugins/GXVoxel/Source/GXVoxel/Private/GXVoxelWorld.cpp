@@ -102,6 +102,9 @@ void AGXVoxelWorld::ResetStreamingState()
 	MeshQueued.Empty();
 	AsyncInFlight.Empty();
 	HollowChunks.Empty();
+	LastSettledEmpty = 0;
+	LastHollowNear = 0;
+	StallSeconds = 0;
 	RemeshWhenIdle.Empty();
 	BrushForceLOD0.Empty();
 	{
@@ -305,7 +308,9 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	StreamCooldown -= DeltaSeconds;
 	double StreamMs = 0.0;
 	const float MovedSq = FVector::DistSquared(CachedViewerWorld, LastStreamViewerWorld);
-	if (bAtlasReady && (StreamCooldown <= 0.0f || MovedSq > FMath::Square(600.0f) || WarmupTimeRemaining > 0.0f))
+	// Do not stream every warmup frame — that stamped 2300 jobs in 1 s and
+	// left the async pool wedged on empty remeshes.
+	if (bAtlasReady && (StreamCooldown <= 0.0f || MovedSq > FMath::Square(600.0f)))
 	{
 		const double S0 = FPlatformTime::Seconds();
 		UpdateStreaming(CachedViewerWorld);
@@ -342,17 +347,44 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	if (LogAcc >= 1.0)
 	{
 		LogAcc = 0.0;
+		int32 MailboxN = 0;
+		if (MeshMailbox.IsValid())
+		{
+			FScopeLock Lock(&MeshMailbox->CS);
+			MailboxN = MeshMailbox->Pending.Num();
+		}
+		const int32 InF = AsyncInFlight.Num();
+		const int32 QAfter = NearMeshQueue.Num() + MeshQueue.Num();
+		if (InF > 0 && InF == LastInFlightLogged && QAfter >= QueueBefore - 1 && !bWorldReady)
+		{
+			++StallSeconds;
+		}
+		else
+		{
+			StallSeconds = 0;
+		}
+		LastInFlightLogged = InF;
 		UE_LOG(LogGXVoxel, Warning,
-			TEXT("GX-%s perf tick=%.1fms stream=%.1fms meshApply=%.1fms dt=%.1fms fps~%.1f chunks=%d hollow=%d queue=%d->%d ready=%d status=%s playerR=%.0fm"),
+			TEXT("GX-%s perf tick=%.1fms stream=%.1fms meshApply=%.1fms dt=%.1fms fps~%.1f chunks=%d hollow=%d near=%d/%d settled=%d queue=%d->%d inflight=%d jobs=%d mailbox=%d cache=%d/%d ready=%d status=%s playerR=%.0fm"),
 			GX_VERSION_STRING,
 			TickMs, StreamMs, MeshMs,
 			DeltaSeconds * 1000.0,
 			DeltaSeconds > KINDA_SMALL_NUMBER ? 1.0 / DeltaSeconds : 0.0,
 			ChunkActors.Num(), HollowChunks.Num(),
-			QueueBefore, NearMeshQueue.Num() + MeshQueue.Num(),
+			LastMeshedNear, LastDesiredNear, LastSettledEmpty,
+			QueueBefore, QAfter,
+			InF, Jobs ? Jobs->NumInFlight() : 0, MailboxN,
+			CacheHits, CacheMisses,
 			bWorldReady ? 1 : 0,
 			*LoadStatus,
 			WorldToLocalMeters(CachedViewerWorld).Size());
+		if (StallSeconds >= 3)
+		{
+			GX_PERF(1, TEXT("GX-mesh STALL %ds inflight=%d jobs=%d mailbox=%d nearQ=%d farQ=%d desired=%d meshed=%d hollow=%d"),
+				StallSeconds, InF, Jobs ? Jobs->NumInFlight() : 0, MailboxN,
+				NearMeshQueue.Num(), MeshQueue.Num(),
+				LastDesiredNear, LastMeshedNear, HollowChunks.Num());
+		}
 	}
 }
 
@@ -588,7 +620,7 @@ int32 AGXVoxelWorld::SelectLOD(float DistanceM) const
 void AGXVoxelWorld::RefreshLoadState()
 {
 	LastMeshedNear = 0;
-	int32 HollowNear = 0;
+	LastHollowNear = 0;
 	const FVector Local = WorldToLocalMeters(CachedViewerWorld.IsNearlyZero() ? GetPrimaryInvokerLocation() : CachedViewerWorld);
 	const float ChunkM = VoxelSize * FGXVoxelConstants::ChunkSize;
 	const float NearSq = NearFieldRadius * NearFieldRadius;
@@ -610,14 +642,15 @@ void AGXVoxelWorld::RefreshLoadState()
 	{
 		if (IsNear(Key))
 		{
-			++HollowNear;
+			++LastHollowNear;
 		}
 	}
 
 	const int32 Queue = NearMeshQueue.Num() + MeshQueue.Num() + AsyncInFlight.Num();
-	// Desired is crust-intersecting near chunks, not the whole 110 m ball.
-	const int32 Desired = FMath::Max(LastDesiredNear, LastMeshedNear);
-	const int32 Resolved = FMath::Min(LastMeshedNear, FMath::Max(Desired, 1));
+	// Desired is crust-overlapping near chunks. Settled empties count as resolved
+	// so 32 meshes + 132 air does not sit on 32/164 forever.
+	const int32 Desired = FMath::Max(LastDesiredNear, LastMeshedNear + LastHollowNear);
+	const int32 Resolved = FMath::Min(LastMeshedNear + LastHollowNear, FMath::Max(Desired, 1));
 	const float MeshFrac = (Desired > 0)
 		? static_cast<float>(Resolved) / static_cast<float>(Desired)
 		: 0.0f;
@@ -663,19 +696,74 @@ void AGXVoxelWorld::RefreshLoadState()
 	const bool bHaveGround = LastMeshedNear >= 2;
 	const bool bNearFilled = Desired == 0 || MeshFrac >= 0.70f;
 	const bool bNearQuiet = NearMeshQueue.Num() == 0 && AsyncInFlight.Num() <= 2;
-	if (bAtlasReady && bHaveGround && bNearQuiet && WarmupTimeRemaining <= 0.0f)
+	if (bAtlasReady && bHaveGround && (bNearQuiet || bNearFilled) && WarmupTimeRemaining <= 0.0f)
 	{
 		LoadStatus = TEXT("Ready");
 		LoadProgress = 1.0f;
 		bWorldReady = true;
 	}
 	GX_PERF(2, TEXT("GX-load mesh=%d hollowNear=%d desired=%d queue=%d status=%s"),
-		LastMeshedNear, HollowNear, Desired, Queue, *LoadStatus);
+		LastMeshedNear, LastHollowNear, Desired, Queue, *LoadStatus);
 }
 
 void AGXVoxelWorld::InvalidateHollow(const FGXChunkKey& Coord)
 {
 	HollowChunks.Remove(Coord);
+}
+
+void AGXVoxelWorld::MarkChunkEmpty(const FGXChunkKey& Coord, const TCHAR* Reason)
+{
+	if (HollowChunks.Contains(Coord))
+	{
+		return;
+	}
+	HollowChunks.Add(Coord);
+	++LastSettledEmpty;
+	GX_PERF(2, TEXT("GX-empty settle %d_%d_%d %s"), Coord.X, Coord.Y, Coord.Z, Reason ? Reason : TEXT("?"));
+}
+
+bool AGXVoxelWorld::ChunkOverlapsSurface(const FGXChunkKey& Coord, float ChunkM) const
+{
+	const FVector Origin(Coord.X * ChunkM, Coord.Y * ChunkM, Coord.Z * ChunkM);
+	float SMin = 1.0e9f;
+	float SMax = -1.0e9f;
+	auto Acc = [&](const FVector& P)
+	{
+		const float R = P.Size();
+		if (R < 1.0f)
+		{
+			SMin = FMath::Min(SMin, -PlanetRadius);
+			SMax = FMath::Max(SMax, PlanetRadius);
+			return;
+		}
+		const FVector3f Dir(P.X / R, P.Y / R, P.Z / R);
+		float Surf = PlanetRadius;
+		if (CrustAtlas.IsValid())
+		{
+			Surf = PlanetRadius + CrustAtlas->SampleHeight(Dir);
+		}
+		else if (Volume)
+		{
+			Surf = Volume->GetStamp().SampleSurfaceRadius(Dir);
+		}
+		const float S = R - Surf;
+		SMin = FMath::Min(SMin, S);
+		SMax = FMath::Max(SMax, S);
+	};
+	for (int32 Zi = 0; Zi <= 1; ++Zi)
+	{
+		for (int32 Yi = 0; Yi <= 1; ++Yi)
+		{
+			for (int32 Xi = 0; Xi <= 1; ++Xi)
+			{
+				Acc(FVector(Origin.X + Xi * ChunkM, Origin.Y + Yi * ChunkM, Origin.Z + Zi * ChunkM));
+			}
+		}
+	}
+	Acc(Origin + FVector(ChunkM * 0.5f));
+	// 8 m slack: FBm can sit just inside a cell the corners miss.
+	constexpr float Slack = 8.0f;
+	return !(SMax < -Slack || SMin > Slack);
 }
 
 void AGXVoxelWorld::EnqueueRemeshNeighborhood(const FGXChunkKey& Coord)
@@ -727,14 +815,11 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 	const FGXChunkKey Center = FGXVoxelVolume::VoxelToChunk(
 		FGXVoxelVolume::WorldToVoxel(FVector3d(Local.X, Local.Y, Local.Z), VoxelSize));
 
-	const float ChunkHalf = ChunkM * 0.866f;
-	// Only chunks that can contain the isosurface. A 280 m band turned the
-	// 110 m near ball into 171 air/interior jobs that never become a mesh.
-	const float Band = 48.0f + ChunkHalf;
-
 	int32 NearWanted = 0;
 	int32 SkippedAir = 0;
+	int32 DeferredFar = 0;
 	TSet<FGXChunkKey> Desired;
+	const bool bNearBusy = NearMeshQueue.Num() > 0 || LastMeshedNear < 2;
 	for (int32 Z = -ChunkRadius; Z <= ChunkRadius; ++Z)
 	{
 		for (int32 Y = -ChunkRadius; Y <= ChunkRadius; ++Y)
@@ -751,20 +836,7 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 				{
 					continue;
 				}
-				const float R = ChunkCenter.Size();
-				float LocalSurfaceR = PlanetRadius;
-				if (CrustAtlas.IsValid() && R > 1.0f)
-				{
-					const FVector3f Dir(
-						ChunkCenter.X / R, ChunkCenter.Y / R, ChunkCenter.Z / R);
-					LocalSurfaceR = PlanetRadius + CrustAtlas->SampleHeight(Dir);
-				}
-				else if (Volume && R > 1.0f)
-				{
-					const FVector3f Dir(ChunkCenter.X / R, ChunkCenter.Y / R, ChunkCenter.Z / R);
-					LocalSurfaceR = Volume->GetStamp().SampleSurfaceRadius(Dir);
-				}
-				if ((R + ChunkHalf) < (LocalSurfaceR - Band) || (R - ChunkHalf) > (LocalSurfaceR + Band))
+				if (!ChunkOverlapsSurface(CC, ChunkM))
 				{
 					++SkippedAir;
 					continue;
@@ -776,6 +848,17 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 				}
 				if (HollowChunks.Contains(CC))
 				{
+					continue;
+				}
+				if (AsyncInFlight.Contains(CC))
+				{
+					// Already meshing. Do not stamp RemeshWhenIdle every 200 ms —
+					// that re-queued the same 6 jobs forever.
+					continue;
+				}
+				if (bNearBusy && Dist > NearFieldRadius)
+				{
+					++DeferredFar;
 					continue;
 				}
 				const TWeakObjectPtr<AGXVoxelChunkProxy>* Existing = ChunkActors.Find(CC);
@@ -814,9 +897,29 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 		ChunkActors.Remove(K);
 	}
 	LastDesiredNear = NearWanted;
-	GX_PERF(1, TEXT("GX-stream wanted=%d near=%d skipAir=%d hollow=%d queue=%d+%d inflight=%d"),
-		Desired.Num(), NearWanted, SkippedAir, HollowChunks.Num(),
-		NearMeshQueue.Num(), MeshQueue.Num(), AsyncInFlight.Num());
+	{
+		static int32 PrevW = -1, PrevN = -1, PrevQ = -1, PrevI = -1, PrevH = -1;
+		static double LastLog = 0.0;
+		const int32 Qn = NearMeshQueue.Num();
+		const int32 Qf = MeshQueue.Num();
+		const int32 Inf = AsyncInFlight.Num();
+		const int32 Hol = HollowChunks.Num();
+		const double Now = FPlatformTime::Seconds();
+		const bool bChanged = Desired.Num() != PrevW || NearWanted != PrevN || (Qn + Qf) != PrevQ
+			|| Inf != PrevI || Hol != PrevH;
+		if (bChanged || (Now - LastLog) >= 2.0)
+		{
+			PrevW = Desired.Num();
+			PrevN = NearWanted;
+			PrevQ = Qn + Qf;
+			PrevI = Inf;
+			PrevH = Hol;
+			LastLog = Now;
+			GX_PERF(1, TEXT("GX-stream wanted=%d near=%d skipAir=%d deferFar=%d hollow=%d settled=%d queue=%d+%d inflight=%d"),
+				Desired.Num(), NearWanted, SkippedAir, DeferredFar, Hol, LastSettledEmpty,
+				Qn, Qf, Inf);
+		}
+	}
 }
 
 void AGXVoxelWorld::FlushMeshQueue(int32 MaxBuilds)
@@ -997,23 +1100,9 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 			Existing->Destroy();
 			ChunkActors.Remove(Coord);
 		}
-		const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
-		const FVector Center((Coord.X + 0.5f) * ChunkM, (Coord.Y + 0.5f) * ChunkM, (Coord.Z + 0.5f) * ChunkM);
-		const float CR = Center.Size();
-		float SurfaceR = PlanetRadius;
-		if (Volume)
-		{
-			const FVector3f Dir = (CR > 1.0f)
-				? FVector3f(Center.X / CR, Center.Y / CR, Center.Z / CR)
-				: FVector3f(1, 0, 0);
-			SurfaceR = Volume->GetStamp().SampleSurfaceRadius(Dir);
-		}
-		// Only remember "hollow" for air/interior. Near-surface empties are
-		// false negatives (LOD/atlas) and must be allowed to remesh.
-		if (FMath::Abs(CR - SurfaceR) > ChunkM * 1.5f + 48.0f)
-		{
-			HollowChunks.Add(Coord);
-		}
+		// Session-settle. Near-surface empties used to skip this and then
+		// UpdateStreaming re-enqueued them forever (32/164 stuck overlay).
+		MarkChunkEmpty(Coord, TEXT("mesh"));
 		return;
 	}
 	HollowChunks.Remove(Coord);
@@ -1187,8 +1276,8 @@ bool AGXVoxelWorld::TryApplyCachedChunk(const FGXChunkKey& Coord, int32 LOD)
 	if (Mesh.IsEmpty())
 	{
 		IFileManager::Get().Delete(*Path, false, true, true);
-		GX_PERF(1, TEXT("GX-cache reject empty %d_%d_%d"), Coord.X, Coord.Y, Coord.Z);
-		return false;
+		MarkChunkEmpty(Coord, TEXT("cache"));
+		return true;
 	}
 	ApplyBuiltMesh(Coord, FileLOD, MoveTemp(Mesh));
 	return true;
