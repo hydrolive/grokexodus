@@ -93,33 +93,34 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	const float Coast = 4.0f * LandMask * OceanMask;
 	Out.LandMask = LandMask;
 
-	// ~12 km cells: half mountain country, half valley. Equal-sized domains.
+	// ~12 km cells. Three belts: mountains | foothills | lake-flat plains.
 	const float Domain = 0.5f + 0.5f * FGXNoise::FBm(
 		Ux * Params.PlateauFreq, Uy * Params.PlateauFreq, Uz * Params.PlateauFreq,
 		Params.Seed + 21u, 3, 2.0f, 0.5f);
 	const float RangeMask = FGXNoise::Smooth01((Domain - 0.46f) / 0.18f);
 	const float Highland = Domain;
+	const float MountainW = FGXNoise::Smooth01((RangeMask - 0.55f) / 0.20f);
+	const float PlainsW = 1.0f - FGXNoise::Smooth01((RangeMask - 0.10f) / 0.22f);
+	const float HillW = FMath::Clamp(1.0f - MountainW - PlainsW, 0.0f, 1.0f);
 
 	const float Mountains = FGXNoise::Ridged(
 		Ux * Params.MountainFreq, Uy * Params.MountainFreq, Uz * Params.MountainFreq,
 		Params.Seed + 7u, 3);
-	const float Peak = (0.12f + 0.38f * Mountains) * RangeMask;
-	// Valley floor sits at a stable base. Pow(mask) keeps floors wide and fills the foot.
-	const float ValleyFloor = 0.05f;
-	const float Settled = ValleyFloor + Peak * FMath::Pow(RangeMask, 1.55f);
-	const float Orogeny = LandMask * Settled;
-	Out.Orogeny = LandMask * RangeMask * (0.15f + 0.35f * Mountains);
-
-	const float Foothills = LandMask * RangeMask * FGXNoise::FBm(
-		Ux * Params.MountainFreq * 0.45f, Uy * Params.MountainFreq * 0.45f, Uz * Params.MountainFreq * 0.45f,
-		Params.Seed + 8u, 3, 2.0f, 0.5f) * 0.03f;
-
-	// Valleys get almost no hills — that is the flat settling.
-	const float Hills = LandMask * (1.0f - RangeMask) * FGXNoise::FBm(
+	// Lake-bed plains: almost constant. Foothills only next to the range.
+	const float PlainsH = 0.046f;
+	const float HillH = PlainsH + 0.028f * (0.45f + 0.55f * FGXNoise::FBm(
 		Ux * Params.HillFreq, Uy * Params.HillFreq, Uz * Params.HillFreq,
-		Params.Seed + 17u, 3, 2.0f, 0.5f) * 0.008f;
+		Params.Seed + 17u, 3, 2.0f, 0.5f));
+	const float PeakH = PlainsH + (0.10f + 0.40f * Mountains) * FMath::Pow(MountainW, 1.25f);
+	const float Orogeny = LandMask * (PlainsW * PlainsH + HillW * HillH + MountainW * PeakH);
+	Out.Orogeny = LandMask * MountainW * (0.15f + 0.40f * Mountains);
 
-	const float Shield = LandMask * (1.0f - RangeMask) * 0.02f;
+	const float Foothills = LandMask * HillW * FGXNoise::FBm(
+		Ux * Params.MountainFreq * 0.45f, Uy * Params.MountainFreq * 0.45f, Uz * Params.MountainFreq * 0.45f,
+		Params.Seed + 8u, 3, 2.0f, 0.5f) * 0.012f;
+
+	const float Hills = 0.0f;
+	const float Shield = LandMask * PlainsW * 0.004f;
 	const float Plateau = 0.0f;
 
 	const float Wx = FGXNoise::FBm(
@@ -187,10 +188,15 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 
 	// Inland weight ramps after the beach so coasts are beaches, not 1 km cliffs.
 	const float Inland = FGXNoise::Smooth01((LandMask - 0.35f) / 0.50f);
-	float LandH = 0.02f * LandMask
+	const float DetailScale = PlainsW * 0.15f + HillW * 0.55f + MountainW;
+	float LandH = 0.01f * LandMask
 		+ Inland * (Shield + Hills + Foothills + Plateau + Orogeny
-			+ Out.Volcano * 0.20f + Local * (0.35f + 0.65f * RangeMask) + Detail
-			- Out.RiverCarve * (1.0f - RangeMask * 0.7f) - Out.CanyonCarve - Rift - GlacialCarve);
+			+ Out.Volcano * 0.15f * MountainW
+			+ Local * 0.45f * DetailScale
+			+ Detail * DetailScale
+			- Out.RiverCarve * PlainsW * 0.35f
+			- Out.CanyonCarve * (HillW + MountainW)
+			- Rift - GlacialCarve * MountainW);
 
 	const float NormH = FMath::Lerp(OceanFloor + Shelf, LandH, LandMask);
 	Out.HeightM = NormH * Relief + Params.SeaLevelBias;

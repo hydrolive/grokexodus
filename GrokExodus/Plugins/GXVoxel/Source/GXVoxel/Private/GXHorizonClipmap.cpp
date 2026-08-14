@@ -101,8 +101,8 @@ void FGXHorizonClipmap::BuildRing(
 		{
 			const float U = static_cast<float>(I - Half) * CellM;
 			const float D2 = U * U + V * V;
-			// Keep a fat overlap so ring edges share samples and no quad is dropped.
-			if (D2 < InnerPad * 0.64f || D2 > OuterPad * 1.21f)
+			// Keep verts past the inner hole so the first annulus of quads is complete.
+			if (D2 > OuterPad * 1.21f || D2 < InnerPad * 0.49f)
 			{
 				continue;
 			}
@@ -176,17 +176,17 @@ void FGXHorizonClipmap::BuildRing(
 		Normals[V] = N;
 		const FVector Radial = Positions[V].GetSafeNormal();
 		const float Slope = 1.0f - FMath::Abs(FVector::DotProduct(N, Radial));
-		if (Slope < 0.22f)
+		if (Slope < 0.14f)
 		{
-			Colors[V] = FLinearColor(0.32f, 0.46f, 0.24f);
+			Colors[V] = FLinearColor(0.30f, 0.42f, 0.22f); // plains grass
 		}
-		else if (Slope < 0.45f)
+		else if (Slope < 0.32f)
 		{
-			Colors[V] = FLinearColor(0.48f, 0.36f, 0.22f);
+			Colors[V] = FLinearColor(0.46f, 0.34f, 0.20f); // dirt skirt
 		}
 		else
 		{
-			Colors[V] = FLinearColor(0.42f, 0.40f, 0.38f);
+			Colors[V] = FLinearColor(0.50f, 0.48f, 0.46f); // rock, not cyan
 		}
 	}
 
@@ -229,23 +229,31 @@ void FGXHorizonClipmap::Update(
 	FVector T, B;
 	CenterDir.FindBestAxisVectors(T, B);
 
-	// Sit the hole under the voxel stream so L0 always covers the gap.
-	Rings[0].InnerM = FMath::Clamp(InnerHoleM * 0.50f, 80.0f, 220.0f);
+	// Start just inside the voxel stream. Drawing clipmap over L0 caused the
+	// lattice seams in the screenshots (12 m grid z-fighting 1 m voxels).
+	Rings[0].InnerM = FMath::Clamp(InnerHoleM * 0.90f, 200.0f, 400.0f);
 	if (Rings.Num() > 2)
 	{
 		Rings.Last().OuterM = FMath::Max(OuterM, 4000.0f);
 	}
 
-	UMaterialInterface* VertexColor = LoadObject<UMaterialInterface>(nullptr,
-		TEXT("/Engine/EngineDebugMaterials/VertexColorMaterial.VertexColorMaterial"));
+	UMaterialInterface* FarLit = FarMaterial;
+	if (!FarLit)
+	{
+		FarLit = LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Game/Voxel/Materials/M_VoxelHorizonFar.M_VoxelHorizonFar"));
+	}
+	if (!FarLit)
+	{
+		FarLit = LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Engine/EngineDebugMaterials/VertexColorMaterial.VertexColorMaterial"));
+	}
 	for (int32 I = 0; I < Rings.Num(); ++I)
 	{
 		FRing& Ring = Rings[I];
 		if (UProceduralMeshComponent* C = Ring.Comp.Get())
 		{
-			UMaterialInterface* Mat = (I == 0 && NearMaterial) ? NearMaterial
-				: (FarMaterial ? FarMaterial : VertexColor);
-			BuildRing(C, Stamp, CenterDir, T, B, Ring.InnerM, Ring.OuterM, Ring.CellM, Mat);
+			BuildRing(C, Stamp, CenterDir, T, B, Ring.InnerM, Ring.OuterM, Ring.CellM, FarLit);
 		}
 	}
 	bReady = true;

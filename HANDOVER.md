@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-13** · On-disk build stamp: **GX 0.7.2**  
+Last updated: **2026-08-13** · On-disk build stamp: **GX 0.7.3**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.7.3** Plains (lake-flat valley floors) + foothills only at the mountain skirt. Clipmap starts at 0.9× stream so it no longer z-fights voxels (that was the grid). Far mesh uses `M_VoxelHorizonFar` (lit vertex color).
 - **GX 0.7.2** Sparse ~10 km range/valley domains with talus fill. Clipmap rings share a 12/36/72 m grid and overlap; hole sits under the voxel stream. Far rings use vertex-color slope, not the 2 m atlas. **Voxel HLOD is 0.8; cluster “Nanite analog” is 0.9.**
 - **GX 0.7.0** Far crust is a 3-ring height clipmap (to 8 km), not a mean-radius sphere. Voxel LOD is screenspace (`v/d`). Stamp has ~4 km ranges plus walkable 200 m undulation. PBR: dominant-axis UVs + grass→dirt→rock by slope. Review shots: `Saved/Review/` (gitignored).
 - **GX 0.6.3** Mesa/block terrain was Worley plates hashed to a height plus a saturating massif (flat top, vertical suture walls). Height is continuous FBm + soft ridges now; coasts ramp through a shelf. New crust fingerprint.

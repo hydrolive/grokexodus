@@ -501,6 +501,7 @@ def main():
            ROUGH_ATLAS if rough_tex else "none")
     )
     _create_horizon()
+    _create_horizon_far()
 
 
 def _create_horizon():
@@ -576,6 +577,43 @@ def _create_horizon():
     mel.recompile_material(mat)
     unreal.EditorAssetLibrary.save_asset(asset)
     unreal.log("[GXPBR] OK horizon " + asset)
+
+
+def _create_horizon_far():
+    """Lit vertex colors for clipmap rings. No 2 m atlas on 72 m triangles."""
+    asset = "/Game/Voxel/Materials/M_VoxelHorizonFar"
+    name = "M_VoxelHorizonFar"
+    tools = unreal.AssetToolsHelpers.get_asset_tools()
+    mel = unreal.MaterialEditingLibrary
+    mat = None
+    if unreal.EditorAssetLibrary.does_asset_exist(asset):
+        mat = unreal.EditorAssetLibrary.load_asset(asset)
+        _close_editors(mat)
+    else:
+        mat = tools.create_asset(name, PACKAGE, unreal.Material, unreal.MaterialFactoryNew())
+    if not mat:
+        return
+    try:
+        mel.delete_all_material_expressions(mat)
+    except Exception:
+        return
+    lit = _shading_lit()
+    if lit is not None:
+        _set(mat, "shading_model", lit)
+    _set(mat, "two_sided", False)
+    _set(mat, "used_with_static_mesh", True)
+    _set(mat, "used_with_procedural_mesh", True)
+    vc = mel.create_material_expression(mat, unreal.MaterialExpressionVertexColor, -300, 0)
+    rough = mel.create_material_expression(mat, unreal.MaterialExpressionConstant, -300, 160)
+    _set(rough, "r", 0.88)
+    try:
+        mel.connect_material_property(vc, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
+        mel.connect_material_property(rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
+    except Exception as err:
+        unreal.log_warning("[GXPBR] far plug: %s" % err)
+    mel.recompile_material(mat)
+    unreal.EditorAssetLibrary.save_asset(asset)
+    unreal.log("[GXPBR] OK horizon far " + asset)
 
 
 if __name__ == "__main__":

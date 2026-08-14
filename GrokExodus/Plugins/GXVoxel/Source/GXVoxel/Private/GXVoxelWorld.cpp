@@ -326,7 +326,7 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			WorldToLocalMeters(CachedViewerWorld),
 			StreamRadius,
 			HorizonOuterM,
-			TerrainMaterial);
+			nullptr);
 	}
 	if (Foliage && Volume && bWorldReady)
 	{
@@ -723,7 +723,7 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 		FGXVoxelVolume::WorldToVoxel(FVector3d(Local.X, Local.Y, Local.Z), VoxelSize));
 
 	const float ChunkHalf = ChunkM * 0.866f;
-	const float Band = 160.0f + ChunkHalf;
+	const float Band = 280.0f + ChunkHalf;
 
 	int32 NearWanted = 0;
 	TSet<FGXChunkKey> Desired;
