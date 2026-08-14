@@ -26,7 +26,8 @@ public:
 		const FVector& ViewerLocalM,
 		float InnerHoleM,
 		float OuterM,
-		UMaterialInterface* Material);
+		UMaterialInterface* NearMaterial,
+		UMaterialInterface* FarMaterial = nullptr);
 
 	bool IsReady() const { return bReady; }
 

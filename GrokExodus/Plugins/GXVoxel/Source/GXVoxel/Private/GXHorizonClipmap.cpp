@@ -16,9 +16,9 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 
 	struct FSpec { float Inner; float Outer; float Cell; };
 	const FSpec Specs[] = {
-		{ 180.0f, 1100.0f, 12.0f },
-		{ 1000.0f, 3200.0f, 36.0f },
-		{ 3000.0f, 8000.0f, 72.0f },
+		{ 160.0f, 1152.0f, 12.0f },
+		{ 1080.0f, 3240.0f, 36.0f },
+		{ 3168.0f, 8000.0f, 72.0f },
 	};
 	for (const FSpec& S : Specs)
 	{
@@ -101,7 +101,8 @@ void FGXHorizonClipmap::BuildRing(
 		{
 			const float U = static_cast<float>(I - Half) * CellM;
 			const float D2 = U * U + V * V;
-			if (D2 < InnerPad * 0.85f || D2 > OuterPad * 1.05f)
+			// Keep a fat overlap so ring edges share samples and no quad is dropped.
+			if (D2 < InnerPad * 0.64f || D2 > OuterPad * 1.21f)
 			{
 				continue;
 			}
@@ -112,13 +113,13 @@ void FGXHorizonClipmap::BuildRing(
 			}
 			const FVector3f Df(Dir.X, Dir.Y, Dir.Z);
 			const float SurfR = Stamp.SampleSurfaceRadius(Df);
-			const FVector P = Dir * SurfR * 100.0f; // world cm, planet at origin
+			const FVector P = Dir * SurfR * 100.0f;
 			const int32 Idx = I + J * Dim;
 			IndexOf[Idx] = Positions.Num();
 			Positions.Add(P);
 			Normals.Add(Dir);
-			UV0.Add(FVector2D(1.0f, 0.0f)); // grass/dirt; slope blend is in the material
-			Colors.Add(FLinearColor(0.45f, 0.55f, 0.32f, 1.0f));
+			UV0.Add(FVector2D(1.0f, 0.0f));
+			Colors.Add(FLinearColor(0.38f, 0.48f, 0.28f, 1.0f));
 			FVector T = FVector::CrossProduct(Dir, FVector::ZAxisVector);
 			if (T.SizeSquared() < 1e-6f)
 			{
@@ -155,6 +156,40 @@ void FGXHorizonClipmap::BuildRing(
 		}
 	}
 
+	// Face normals + slope colors. Do not use radial N — that made far PBR sample
+	// the 2 m grass/volcanic atlas on 72 m triangles (red tiled sheet).
+	TArray<FVector> AccN;
+	AccN.Init(FVector::ZeroVector, Positions.Num());
+	for (int32 T0 = 0; T0 + 2 < Indices.Num(); T0 += 3)
+	{
+		const int32 IA = Indices[T0], IB = Indices[T0 + 1], IC = Indices[T0 + 2];
+		const FVector FN = FVector::CrossProduct(Positions[IB] - Positions[IA], Positions[IC] - Positions[IA]);
+		AccN[IA] += FN; AccN[IB] += FN; AccN[IC] += FN;
+	}
+	for (int32 V = 0; V < Positions.Num(); ++V)
+	{
+		FVector N = AccN[V].GetSafeNormal();
+		if (N.IsNearlyZero())
+		{
+			N = Normals[V];
+		}
+		Normals[V] = N;
+		const FVector Radial = Positions[V].GetSafeNormal();
+		const float Slope = 1.0f - FMath::Abs(FVector::DotProduct(N, Radial));
+		if (Slope < 0.22f)
+		{
+			Colors[V] = FLinearColor(0.32f, 0.46f, 0.24f);
+		}
+		else if (Slope < 0.45f)
+		{
+			Colors[V] = FLinearColor(0.48f, 0.36f, 0.22f);
+		}
+		else
+		{
+			Colors[V] = FLinearColor(0.42f, 0.40f, 0.38f);
+		}
+	}
+
 	Comp->ClearAllMeshSections();
 	if (Positions.Num() >= 3 && Indices.Num() >= 3)
 	{
@@ -173,13 +208,14 @@ void FGXHorizonClipmap::Update(
 	const FVector& ViewerLocalM,
 	float InnerHoleM,
 	float OuterM,
-	UMaterialInterface* Material)
+	UMaterialInterface* NearMaterial,
+	UMaterialInterface* FarMaterial)
 {
 	if (!Owner || Rings.Num() == 0)
 	{
 		return;
 	}
-	if (FVector::DistSquared(ViewerLocalM, LastViewerLocal) < FMath::Square(80.0f) && bReady)
+	if (FVector::DistSquared(ViewerLocalM, LastViewerLocal) < FMath::Square(90.0f) && bReady)
 	{
 		return;
 	}
@@ -193,17 +229,23 @@ void FGXHorizonClipmap::Update(
 	FVector T, B;
 	CenterDir.FindBestAxisVectors(T, B);
 
-	Rings[0].InnerM = FMath::Max(80.0f, InnerHoleM * 0.75f);
+	// Sit the hole under the voxel stream so L0 always covers the gap.
+	Rings[0].InnerM = FMath::Clamp(InnerHoleM * 0.50f, 80.0f, 220.0f);
 	if (Rings.Num() > 2)
 	{
 		Rings.Last().OuterM = FMath::Max(OuterM, 4000.0f);
 	}
 
-	for (FRing& Ring : Rings)
+	UMaterialInterface* VertexColor = LoadObject<UMaterialInterface>(nullptr,
+		TEXT("/Engine/EngineDebugMaterials/VertexColorMaterial.VertexColorMaterial"));
+	for (int32 I = 0; I < Rings.Num(); ++I)
 	{
+		FRing& Ring = Rings[I];
 		if (UProceduralMeshComponent* C = Ring.Comp.Get())
 		{
-			BuildRing(C, Stamp, CenterDir, T, B, Ring.InnerM, Ring.OuterM, Ring.CellM, Material);
+			UMaterialInterface* Mat = (I == 0 && NearMaterial) ? NearMaterial
+				: (FarMaterial ? FarMaterial : VertexColor);
+			BuildRing(C, Stamp, CenterDir, T, B, Ring.InnerM, Ring.OuterM, Ring.CellM, Mat);
 		}
 	}
 	bReady = true;
