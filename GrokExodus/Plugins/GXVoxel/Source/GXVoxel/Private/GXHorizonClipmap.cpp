@@ -20,9 +20,9 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// Overlap ~150 m so rings never leave a sky gap. Outer rings sit a
 	// little deeper so the shared band does not z-fight.
 	const FSpec Specs[] = {
-		{ 0.0f, 400.0f, 8.0f, 0.0f },
-		{ 360.0f, 2200.0f, 24.0f, 0.0f },
-		{ 2000.0f, 10000.0f, 72.0f, 0.0f },
+		{ 0.0f, 420.0f, 8.0f, 0.0f },
+		{ 390.0f, 2200.0f, 24.0f, 2.0f },
+		{ 2050.0f, 10000.0f, 72.0f, 4.0f },
 	};
 	for (const FSpec& S : Specs)
 	{
@@ -108,10 +108,12 @@ void FGXHorizonClipmap::BuildRing(
 
 	for (int32 J = 0; J < Dim; ++J)
 	{
-		const float V = static_cast<float>(J - Half) * CellM;
+		// Half-cell offset so a grid edge does not run through the pawn
+		// (that was the dark seam down the view in 0.7.31).
+		const float V = (static_cast<float>(J - Half) + 0.5f) * CellM;
 		for (int32 I = 0; I < Dim; ++I)
 		{
-			const float U = static_cast<float>(I - Half) * CellM;
+			const float U = (static_cast<float>(I - Half) + 0.5f) * CellM;
 			const float D2 = U * U + V * V;
 			if (D2 > OuterPad * 1.21f)
 			{
@@ -124,13 +126,9 @@ void FGXHorizonClipmap::BuildRing(
 			}
 			const FVector3f Df(Dir.X, Dir.Y, Dir.Z);
 			const FGXEarthField Field = Stamp.SampleEarthField(Df, false);
-			// Stamp is global. Atlas SampleHeight returns 0 off-atlas (~400 m
-			// from spawn) — that was the visual "end of the world."
-			float HeightM = Field.HeightM;
-			if (Atlas && Atlas->ContainsDir(Dir))
-			{
-				HeightM = Atlas->SampleHeight(Df);
-			}
+			// One height function for every ring. Mixing atlas + stamp made a crease.
+			const float HeightM = Field.HeightM;
+			(void)Atlas;
 			const float SurfR = Stamp.GetParams().Radius + HeightM;
 			const FVector P = Dir * (SurfR - Sink) * 100.0f;
 			const int32 Idx = I + J * Dim;

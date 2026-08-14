@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.31**  
+Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.32**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.7.32** 0.7.31 shots: leftover layering (ring 0 + ring 1 at sink 0 after recenter) and a **seam down the view** (grid vertex under the pawn). Outer rings sink 2 m / 4 m. Grid is half-cell offset. Stamp-only height.
 - **GX 0.7.31** 0.7.30: FPS/layering OK, but **landscape ended** after a walk. Atlas `SampleHeight` is 0 off the ~400 m spawn atlas, and clipmap refused to rebuild until 400 m (the fine ring’s own radius). Clipmap now uses the **global stamp** off-atlas and recenters the inner ring every ~70 m, outers every 350 m.
 - **GX 0.7.30** 0.7.29 shots: stacked sheets (#1) and a **cliff / end of the world** (#2). Voxel PMC was a 41-chunk island; clipmap sat 8 m below as a flat plane. Dual mesh cannot work. **Clipmap is the only crust** (full disk, 8 m cells to 400 m, follows every 80 m). Voxels stay data (snap/dig), `bDrawVoxelVisuals=false`. Fingerprint 16.
 - **GX 0.7.29** 0.7.28: overlay stuck **Cooking collision 92%** flipping with Meshing. `near=25/32`, queue empty, 120 FPS — playable, but warmup was reset every frame until 90% meshed (never). Ready now fires at 2 near meshes. Empty crust stops after 2 retries. Fingerprint 16.
@@ -63,6 +64,12 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 - Live Coding often blocks `Build.bat`. The agent **closes Unreal and rebuilds Development Editor `-NoUBA`** (see `AGENTS.md`). Do not ask the user to do that.
 - **Unreal MCP:** `UnrealMCPython` plugin listens on `127.0.0.1:12029`. Agent **must Start-Process the editor** and confirm a PID before polling the port. Never wait on 12029 with no UnrealEditor process (the user had to launch it by hand). Run Python via `unreal-mcpython__util execute_python`. Unity MCP is disabled.
 - **Plugin GXCore failed to load / GetLastError=4551:** Development `UnrealEditor-GXCore.dll` was an unloadable image (UBA served a bad cached link). DebugGame DLL was fine; the editor loads Development. Fix: delete `Plugins/*/Binaries/Win64/UnrealEditor-GX*.dll` and `Binaries/Win64/UnrealEditor-GrokExodus.dll`, rebuild `GrokExodusEditor Win64 Development -NoUBA`. All six project DLLs now map with `LoadLibraryEx(DONT_RESOLVE)`.
+
+## Verify after 0.7.32
+
+1. Gold `GX 0.7.32`. No stacked sheets on mid hills.
+2. No dark line down the center of the view / underfoot.
+3. Walk 1 km. Hills continue. FPS holds.
 
 ## Verify after 0.7.31
 
