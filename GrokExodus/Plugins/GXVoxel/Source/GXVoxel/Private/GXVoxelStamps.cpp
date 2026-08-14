@@ -98,34 +98,48 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	float Domain = 0.5f + 0.5f * FGXNoise::FBm(
 		Ux * Params.PlateauFreq, Uy * Params.PlateauFreq, Uz * Params.PlateauFreq,
 		Params.Seed + 21u, 2, 2.0f, 0.5f);
-	// Only a 500 m pad is lake-flat. Past that, hills must go UP — spawn was
-	// the roof of a 2 km plateau (player only ever walked downhill).
+	// 500 m pad, then rolling hills. Ranges are elongated spines 8–10 km out
+	// so flanks start past ~4 km (voxel stream never meshes a 2 km cliff).
 	const float ArcM = FMath::Acos(FMath::Clamp(Ux, -1.0f, 1.0f)) * Params.Radius;
 	const float Basin = FGXNoise::Smooth01((500.0f - ArcM) / 200.0f);
 	const float R = FMath::Max(Params.Radius, 1.0f);
 	const FVector3f Here(Ux, Uy, Uz);
-	auto Blob = [&](const FVector3f& C) -> float
+	auto RangeW = [&](FVector3f Mid, FVector3f Along, float HalfLen, float HalfWid, float Flank) -> float
 	{
-		const float Ang = FMath::Acos(FMath::Clamp(FVector3f::DotProduct(Here, C.GetSafeNormal()), -1.0f, 1.0f));
-		const float D = Ang * Params.Radius;
-		// 4.6 km radius, 2.8 km flanks — not a 900 m mesa wall.
-		return FGXNoise::Smooth01((4600.0f - D) / 2800.0f);
+		Mid = Mid.GetSafeNormal();
+		Along = (Along - Mid * FVector3f::DotProduct(Along, Mid)).GetSafeNormal();
+		if (Along.SizeSquared() < 1e-6f)
+		{
+			return 0.0f;
+		}
+		const FVector3f Across = FVector3f::CrossProduct(Mid, Along).GetSafeNormal();
+		const float AlongM = FVector3f::DotProduct(Here - Mid * FVector3f::DotProduct(Here, Mid), Along) * R;
+		const float AcrossM = FVector3f::DotProduct(Here - Mid * FVector3f::DotProduct(Here, Mid), Across) * R;
+		const float Se = AlongM - FMath::Clamp(AlongM, -HalfLen, HalfLen);
+		const float Dist = FMath::Sqrt(Se * Se + AcrossM * AcrossM);
+		return FGXNoise::Smooth01((HalfWid - Dist) / Flank);
 	};
-	const float A = 5500.0f / R;
-	const float B = 7200.0f / R;
-	const float C = 8000.0f / R;
-	const float Blobs = FMath::Max(
-		FMath::Max3(
-			Blob(FVector3f(1.0f, A, 0.10f)),
-			Blob(FVector3f(1.0f, -0.55f * A, A)),
-			Blob(FVector3f(1.0f, -A, -0.25f * A))),
+	auto MidAt = [&](float EastM, float NorthM) -> FVector3f
+	{
+		return FVector3f(1.0f, EastM / R, NorthM / R).GetSafeNormal();
+	};
+	const FVector3f AZ(0, 0, 1);
+	const FVector3f AY(0, 1, 0);
+	const float Spine = FMath::Max3(
+		RangeW(MidAt(8200.0f, 500.0f), AZ, 5200.0f, 1200.0f, 3400.0f),
+		RangeW(MidAt(9600.0f, 2200.0f), AZ, 4000.0f, 1100.0f, 3000.0f),
 		FMath::Max(
-			Blob(FVector3f(1.0f, 0.45f * B, -0.75f * B)),
-			Blob(FVector3f(1.0f, 0.15f * C, C))));
+			RangeW(MidAt(-1800.0f, 8600.0f), AY, 4800.0f, 1200.0f, 3200.0f),
+			RangeW(MidAt(-8000.0f, -2400.0f), AZ, 4500.0f, 1100.0f, 3000.0f)));
+	const float Feet = FMath::Max3(
+		RangeW(MidAt(8200.0f, 500.0f), AZ, 5800.0f, 2600.0f, 2800.0f),
+		RangeW(MidAt(-1800.0f, 8600.0f), AY, 5200.0f, 2400.0f, 2600.0f),
+		RangeW(MidAt(-8000.0f, -2400.0f), AZ, 5000.0f, 2400.0f, 2600.0f));
 	Domain = FMath::Lerp(Domain, 0.22f, Basin * 0.80f);
-	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.90f, Blobs * (1.0f - Basin)));
+	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.50f, Feet * (1.0f - Basin)));
+	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.86f, Spine * (1.0f - Basin)));
 	const float PlainsW = 1.0f - FGXNoise::Smooth01((Domain - 0.34f) / 0.26f);
-	const float MountainW = FGXNoise::Smooth01((Domain - 0.52f) / 0.30f);
+	const float MountainW = FGXNoise::Smooth01((Domain - 0.54f) / 0.26f);
 	const float HillW = FMath::Clamp(1.0f - PlainsW - MountainW, 0.0f, 1.0f);
 	const float RangeMask = 1.0f - PlainsW;
 	const float Highland = Domain;
@@ -138,10 +152,10 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 		Ux * Params.HillFreq, Uy * Params.HillFreq, Uz * Params.HillFreq,
 		Params.Seed + 17u, 2, 2.0f, 0.5f));
 	const float Ridge = FGXNoise::Ridged(
-		Ux * Params.MountainFreq * 2.2f, Uy * Params.MountainFreq * 2.2f, Uz * Params.MountainFreq * 2.2f,
+		Ux * Params.MountainFreq * 2.4f, Uy * Params.MountainFreq * 2.4f, Uz * Params.MountainFreq * 2.4f,
 		Params.Seed + 9u, 3);
-	// 1.0–1.9 km peaks with ridgelines, not a smooth dome.
-	const float PeakH = PlainsH + (0.42f + 0.38f * Ridge) * Mass * MountainW;
+	// 0.8–1.5 km peaks at 8 km (≈6–11°). A 2 km wall at 5 km was not earthly.
+	const float PeakH = PlainsH + (0.30f + 0.32f * Ridge) * Mass * MountainW;
 	const float Orogeny = LandMask * (PlainsW * PlainsH + HillW * HillH + MountainW * PeakH);
 	Out.Orogeny = LandMask * MountainW * 0.22f * Mass;
 
