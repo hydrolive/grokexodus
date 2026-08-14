@@ -76,8 +76,6 @@ void AGXVoxelWorld::SetupDistantSphere()
 	// holes do not show a second grass layer.
 	const float WorldRadiusCm = PlanetRadius * GMetersToUU;
 	DistantPlanetSphere->SetRelativeScale3D(FVector(WorldRadiusCm / 50.0f));
-	DistantPlanetSphere->SetVisibility(true);
-	DistantPlanetSphere->SetHiddenInGame(false);
 	DistantPlanetSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	DistantPlanetSphere->SetCastShadow(false);
 	DistantPlanetSphere->SetVisibleInRayTracing(false);
@@ -93,6 +91,12 @@ void AGXVoxelWorld::SetupDistantSphere()
 		{
 			DistantPlanetSphere->SetMaterial(0, Horizon);
 		}
+		DistantPlanetSphere->SetVisibility(true);
+		DistantPlanetSphere->SetHiddenInGame(false);
+	}
+	else
+	{
+		DistantPlanetSphere->SetVisibility(false);
 	}
 }
 
