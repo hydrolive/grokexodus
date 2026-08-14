@@ -39,6 +39,7 @@ private:
 		float OuterM = 0.0f;
 		float CellM = 24.0f;
 		float SinkM = 3.5f;
+		FVector LastBuild = FVector(1e12f, 0, 0);
 	};
 
 	TArray<FRing> Rings;

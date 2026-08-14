@@ -164,9 +164,9 @@ void AGXVoxelWorld::ApplyEarthPlayDefaults()
 	StreamRadius = 360.0f;
 	UnloadRadius = 500.0f;
 	NearFieldRadius = 110.0f;
-	// 0.7.16: 160 m collision + 360 m mesh. Walk off the cook and you
-	// bounce on the uncollided clipmap (black mountain). Async cook.
-	CollisionRadius = 320.0f;
+	// Walk-floor collision. 320 m cooked too many meshes (77 ms apply).
+	CollisionRadius = 240.0f;
+	StreamInterval = 0.55f;
 	bForceLOD0 = false;
 	HorizonOuterM = 10000.0f;
 	bAsyncMeshing = true;
@@ -868,7 +868,10 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 					// that re-queued the same 6 jobs forever.
 					continue;
 				}
-				if (bNearBusy && Dist > NearFieldRadius)
+				// 0.7.17 deferred everything past 110 m while near was busy.
+				// Walking kept near busy, so the 110–360 m band never meshed
+				// and the player walked off voxels onto the clipmap.
+				if (bNearBusy && Dist > FMath::Max(NearFieldRadius, CollisionRadius + 16.0f))
 				{
 					++DeferredFar;
 					continue;
@@ -917,8 +920,8 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 		const int32 Inf = AsyncInFlight.Num();
 		const int32 Hol = HollowChunks.Num();
 		const double Now = FPlatformTime::Seconds();
-		const bool bChanged = Desired.Num() != PrevW || NearWanted != PrevN || (Qn + Qf) != PrevQ
-			|| Inf != PrevI || Hol != PrevH;
+		const bool bChanged = FMath::Abs(Desired.Num() - PrevW) > 40 || FMath::Abs(NearWanted - PrevN) > 8
+			|| Inf != PrevI;
 		if (bChanged || (Now - LastLog) >= 2.0)
 		{
 			PrevW = Desired.Num();

@@ -76,7 +76,7 @@ struct FGXPlanetStampParams
 		P.CrustDepth = 96.0f;
 		P.Seed = 1337u;
 		P.ContinentFreq = 1.35f;
-		P.MountainFreq = 9.7f;    // fingerprint — 0.7.17 grass plains, rock ranges, POI volcano
+		P.MountainFreq = 9.8f;    // fingerprint — 0.7.18 ridged range-summit, not a cone
 		P.DetailFreq = 900.0f;
 		P.MoistureFreq = 2.4f;
 		P.ScarFreq = 4.5f;

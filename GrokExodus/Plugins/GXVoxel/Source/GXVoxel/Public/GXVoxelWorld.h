@@ -234,7 +234,7 @@ protected:
 
 	FVector CachedViewerWorld = FVector::ZeroVector;
 	FVector LastStreamViewerWorld = FVector(1e12f, 0, 0);
-	float StreamInterval = 0.20f;
+	float StreamInterval = 0.55f;
 	float StreamCooldown = 0.0f;
 
 	struct FPendingMesh

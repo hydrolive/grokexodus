@@ -225,17 +225,18 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 		Params.Seed + 71u, 2);
 	const float Local = LocalRidge * 0.008f - FMath::Pow(FMath::Abs(LocalGully), 3.8f) * 0.004f;
 
-	// One authored stratovolcano on the ENE horizon (~8.3 km).
-	// 0.7.17's 1.2 km core made a teal gumdrop; this is a 5 km apron.
+	// High summit on the east range — warped, ridged, not a radial cone.
 	{
-		const FVector3f VMid = MidAt(7400.0f, 3800.0f);
+		const FVector3f VMid = MidAt(8000.0f, 1600.0f);
 		const FVector3f Off = Here - VMid * FVector3f::DotProduct(Here, VMid);
-		const float VDist = Off.Size() * R;
-		const float Core = FGXNoise::Smooth01((2500.0f - VDist) / 1800.0f);
-		const float Skirt = FGXNoise::Smooth01((5500.0f - VDist) / 3000.0f);
-		const float Caldera = FGXNoise::Smooth01((220.0f - VDist) / 160.0f) * 0.12f;
-		Out.Volcano = FMath::Max(FMath::Pow(Core, 1.18f), Skirt * 0.16f) - Caldera;
-		Out.Volcano = FMath::Max(Out.Volcano, 0.0f);
+		const float Warp = FGXNoise::FBm(
+			Ux * 14.0f, Uy * 14.0f, Uz * 14.0f, Params.Seed + 82u, 3, 2.0f, 0.5f) * 480.0f;
+		const float VDist = FMath::Max(0.0f, Off.Size() * R + Warp);
+		const float Core = FGXNoise::Smooth01((2600.0f - VDist) / 1900.0f);
+		const float Skirt = FGXNoise::Smooth01((5200.0f - VDist) / 2800.0f);
+		const float Ribs = FGXNoise::Ridged(
+			Ux * 22.0f, Uy * 22.0f, Uz * 22.0f, Params.Seed + 83u, 3);
+		Out.Volcano = FMath::Max(0.0f, FMath::Pow(Core, 1.12f) * (0.62f + 0.38f * Ribs) + Skirt * 0.12f);
 	}
 
 	const float Alpine = FGXNoise::Smooth01((Out.Orogeny - 0.32f) / 0.28f);
@@ -260,7 +261,7 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	const float DetailScale = PlainsW * 0.40f + HillW * 0.70f + MountainW;
 	float LandH = 0.01f * LandMask
 		+ Inland * (Shield + Hills + Foothills + Plateau + Orogeny
-			+ Out.Volcano * 0.58f
+			+ Out.Volcano * 0.50f
 			+ Local * 0.45f * DetailScale
 			+ Detail * DetailScale
 			- Out.RiverCarve * PlainsW * 0.35f
@@ -419,9 +420,9 @@ int32 FGXSphereStamp::SampleEarthMaterial(const FVector3d& PlanetLocalM, float D
 
 	// POI volcano: scorched flanks, snow cap. Do this before the grass/sand
 	// tests — 0.7.16 stamped the whole cone as grass hills.
-	if (Field.Volcano > 0.08f)
+	if (Field.Volcano > 0.10f)
 	{
-		if (HeightAboveSea > 1280.0f || (Field.Volcano > 0.72f && HeightAboveSea > 1100.0f))
+		if (HeightAboveSea > 1350.0f)
 		{
 			return static_cast<int32>(EGXVoxelMaterial::SnowIce);
 		}
@@ -446,8 +447,8 @@ int32 FGXSphereStamp::SampleEarthMaterial(const FVector3d& PlanetLocalM, float D
 	}
 
 	// Ranges and steep ground are rock. Gentle grass hills were "mountains".
-	if (Field.Orogeny > 0.12f || Field.SlopeProxy > 0.22f || Field.CanyonCarve > 0.04f
-		|| HeightAboveSea > Relief * 0.22f)
+	if (Field.Orogeny > 0.04f || Field.SlopeProxy > 0.14f || Field.CanyonCarve > 0.04f
+		|| HeightAboveSea > Relief * 0.12f)
 	{
 		return static_cast<int32>(EGXVoxelMaterial::RockyCliff);
 	}

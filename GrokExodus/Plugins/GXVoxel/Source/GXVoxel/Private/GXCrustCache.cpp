@@ -50,8 +50,8 @@ uint64 FGXPlanetStampParams::Fingerprint() const
 	H = MixF(H, CanyonAmp);
 	H = MixF(H, OceanDepthFrac);
 	H = MixF(H, TrenchAmp);
-	// 12 = 0.7.17 wide volcano (11 was a teal gumdrop).
-	H = MixU64(H, 12u);
+	// 13 = 0.7.18 ridged range summit (12 was still a cone).
+	H = MixU64(H, 13u);
 	return H;
 }
 

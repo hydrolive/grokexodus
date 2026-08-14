@@ -451,6 +451,22 @@ def main():
                      sub(slope_c, "", slope_b, "", x0 + 1340, 1240), "", x0 + 1600, 1160),
                  "", x0 + 1860, 1160, "wRock")
 
+    # Stamp id 2/7 is rock/volcanic — do not slope-blend it back to dirt.
+    # id 5 is snow. 1-|id-N| is 1 at that id, 0 half a slot away.
+    def id_gate(target, ox, oy, name):
+        t = const(float(target), ox, oy, name + "T")
+        d = sub(id_clamped, "", t, "", ox + 220, oy)
+        ad = node(unreal.MaterialExpressionAbs, ox + 440, oy, name + "Abs")
+        connect(d, "", ad, "")
+        return sat(sub(one, "", ad, "", ox + 660, oy), "", ox + 880, oy, name)
+
+    w_id_rock = id_gate(2.0, x0 + 2100, 1320, "idRock")
+    w_id_snow = id_gate(5.0, x0 + 2100, 1480, "idSnow")
+    w_id_volc = id_gate(7.0, x0 + 2100, 1640, "idVolc")
+    w_hard = add(add(w_id_rock, "", w_id_volc, "", x0 + 3100, 1400), "", w_id_snow, "", x0 + 3340, 1400, "wHard")
+    w_dirt = mul(w_dirt, "", sub(one, "", sat(w_hard, "", x0 + 3580, 1320), "", x0 + 3820, 1320), "", x0 + 4060, 1320, "wDirtGated")
+    w_rock = sat(add(add(w_rock, "", w_id_rock, "", x0 + 3580, 1480), "", w_id_volc, "", x0 + 3820, 1480), "", x0 + 4060, 1480, "wRockForced")
+
     dirt = dirt_n
     skirt = node(unreal.MaterialExpressionLinearInterpolate, x0 + 9100, -40, "GrassDirt")
     connect(grass, "", skirt, "A")

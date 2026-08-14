@@ -168,7 +168,7 @@ bool FGXVoxelEarthGeomorphology::RunTest(const FString& Parameters)
 	TestTrue(TEXT("east range is a real mountain"), HMax > 700.0f);
 
 	{
-		const FVector3f Volc = FVector3f(1.0f, 7400.0f / Params.Radius, 3800.0f / Params.Radius).GetSafeNormal();
+		const FVector3f Volc = FVector3f(1.0f, 8000.0f / Params.Radius, 1600.0f / Params.Radius).GetSafeNormal();
 		const FGXEarthField VF = Stamp.SampleEarthField(Volc, false);
 		TestTrue(TEXT("POI volcano is a landmark"), VF.HeightM > 1000.0f);
 		TestTrue(TEXT("POI volcano registers"), VF.Volcano > 0.4f);

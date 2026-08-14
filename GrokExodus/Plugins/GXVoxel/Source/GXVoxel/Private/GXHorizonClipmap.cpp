@@ -20,9 +20,9 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// Overlap ~150 m so rings never leave a sky gap. Outer rings sit a
 	// little deeper so the shared band does not z-fight.
 	const FSpec Specs[] = {
-		{ 0.0f, 1680.0f, 12.0f, 12.0f },
-		{ 1520.0f, 4400.0f, 28.0f, 14.0f },
-		{ 4180.0f, 10000.0f, 64.0f, 16.0f },
+		{ 0.0f, 1800.0f, 20.0f, 12.0f },
+		{ 1650.0f, 4800.0f, 40.0f, 14.0f },
+		{ 4500.0f, 10000.0f, 80.0f, 16.0f },
 	};
 	for (const FSpec& S : Specs)
 	{
@@ -122,7 +122,8 @@ void FGXHorizonClipmap::BuildRing(
 				Dir = CenterDir;
 			}
 			const FVector3f Df(Dir.X, Dir.Y, Dir.Z);
-			const float SurfR = Stamp.SampleSurfaceRadius(Df);
+			const FGXEarthField Field = Stamp.SampleEarthField(Df, false);
+			const float SurfR = Stamp.GetParams().Radius + Field.HeightM;
 			// Sit under LOD1/2 MC (2–4 m voxels) so the clipmap never
 			// pokes through as a dark cap. Missing voxels still show crust.
 			const FVector P = Dir * (SurfR - Sink) * 100.0f;
@@ -130,7 +131,16 @@ void FGXHorizonClipmap::BuildRing(
 			IndexOf[Idx] = Positions.Num();
 			Positions.Add(P);
 			Normals.Add(Dir);
-			UV0.Add(FVector2D(1.0f, 0.0f));
+			float Biome = 1.0f;
+			if (Field.Volcano > 0.08f)
+			{
+				Biome = (Field.HeightM > 1280.0f) ? 5.0f : 7.0f;
+			}
+			else if (Field.Orogeny > 0.04f || Field.HeightM > 280.0f || Field.SlopeProxy > 0.18f)
+			{
+				Biome = 2.0f;
+			}
+			UV0.Add(FVector2D(Biome, 0.0f));
 			Colors.Add(FLinearColor(0.38f, 0.48f, 0.28f, 1.0f));
 			FVector T = FVector::CrossProduct(Dir, FVector::ZAxisVector);
 			if (T.SizeSquared() < 1e-6f)
@@ -203,13 +213,18 @@ void FGXHorizonClipmap::BuildRing(
 		const float Slope = 1.0f - FMath::Abs(FVector::DotProduct(N, Radial));
 		const float HeightM = Positions[V].Size() * 0.01f + Sink - R0;
 		const float Alt = HeightM / Relief;
-		if (Alt > 0.58f)
+		const float Biome = UV0[V].X;
+		if (Biome > 4.5f && Biome < 5.5f)
 		{
-			Colors[V] = FLinearColor(0.90f, 0.92f, 0.94f); // snow cap only
+			Colors[V] = FLinearColor(0.90f, 0.92f, 0.94f); // snow
 		}
-		else if (Alt > 0.20f || Slope > 0.16f)
+		else if (Biome > 6.5f)
 		{
-			Colors[V] = FLinearColor(0.62f, 0.50f, 0.42f); // volcanic / rock
+			Colors[V] = FLinearColor(0.42f, 0.32f, 0.28f); // volcanic
+		}
+		else if (Biome > 1.5f || Alt > 0.18f || Slope > 0.16f)
+		{
+			Colors[V] = FLinearColor(0.64f, 0.56f, 0.48f); // rock
 		}
 		else if (Slope > 0.10f)
 		{
@@ -254,7 +269,7 @@ void FGXHorizonClipmap::Update(
 	{
 		return;
 	}
-	if (FVector::DistSquared(ViewerLocalM, LastViewerLocal) < FMath::Square(400.0f) && bReady)
+	if (FVector::DistSquared(ViewerLocalM, LastViewerLocal) < FMath::Square(250.0f) && bReady)
 	{
 		return;
 	}
@@ -295,9 +310,15 @@ void FGXHorizonClipmap::Update(
 	for (int32 I = 0; I < Rings.Num(); ++I)
 	{
 		FRing& Ring = Rings[I];
+		const float RebuildM = FMath::Max(500.0f, Ring.CellM * 18.0f);
+		if (bReady && FVector::DistSquared(ViewerLocalM, Ring.LastBuild) < FMath::Square(RebuildM))
+		{
+			continue;
+		}
 		if (UProceduralMeshComponent* C = Ring.Comp.Get())
 		{
 			BuildRing(C, Stamp, CenterDir, T, B, Ring.InnerM, Ring.OuterM, Ring.CellM, Ring.SinkM, FarLit);
+			Ring.LastBuild = ViewerLocalM;
 		}
 	}
 	bReady = true;
