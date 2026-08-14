@@ -18,6 +18,8 @@
 
 # Local
 *.log
+**/__pycache__/
+*.pyc
 .idea/
 *.VC.db
 *.VC.opendb
