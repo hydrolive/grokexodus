@@ -244,7 +244,7 @@ protected:
 	TSharedPtr<FGXCrustAtlas, ESPMode::ThreadSafe> CrustAtlas;
 
 	float WarmupTimeRemaining = 0.0f;
-	float ActiveStreamRadius = 56.0f;
+	float ActiveStreamRadius = 140.0f;
 	bool bAtlasReady = false;
 	bool bAtlasBuildInFlight = false;
 	bool bWorldReady = false;

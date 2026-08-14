@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-13** · On-disk build stamp: **GX 0.6.1**  
+Last updated: **2026-08-13** · On-disk build stamp: **GX 0.6.2**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.6.2** Wider Earth landforms: mountain wavelength ~90 km (was ~30 km spikes), plains/plateaus are the default, local ridge/gully is gentle fBm not 200 m needles. Stream starts at 140 m so more than a handful of chunks appear. Stamp fingerprint changed — old `crust_*` cache is ignored.
 - **GX 0.6.1** First PIE no longer freezes the editor. BeginPlay does not mesh. Surface query is one stamp sample (not a 6 km ray). Height atlas is baked on a worker (or loaded from `Saved/VoxelWorld/crust_<fingerprint>/`). Chunks mesh async with a 6 ms tick budget and a 12-job cap; workers never capture the world actor. Subsequent PIE loads the atlas + `.gxm` meshes and only regenerates if the stamp / radius / relief / seed changes.
 - **GX 0.6.0** Earth-scale planet: **60 km** radius, **2.4 km** relief. Stamp is a real geomorphology stack (plates, ranges, rivers, canyons, coasts, volcanoes, glaciers, trenches) plus walkable local ridges. GameMode no longer clamps relief to 220 m. SkyAtmosphere is **kept** and re-centered on the planet (`PlanetCenterAtComponentTransform`); Z-up ExponentialHeightFog is disabled. Haze is Mie + aerial perspective and thins with altitude. Foliage: import meshes to `/Game/Foliage/SM_{Grass,Bush,Tree}` (Brushify is fine as meshes; do **not** convert to Landscape).
 - **GX 0.5.9+** Landscape dual-scale triplanar (not fade-to-vertex-color). Near grass ~2 m, macro ~20 m; rock uses a larger tile so mountains keep color without repeating. Horizon sphere still fills the limb.
@@ -30,6 +31,11 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 - Live Coding often blocks `Build.bat`. The agent **closes Unreal and rebuilds Development Editor `-NoUBA`** (see `AGENTS.md`). Do not ask the user to do that.
 - **Unreal MCP:** `UnrealMCPython` plugin listens on `127.0.0.1:12029`. Agent **must Start-Process the editor** and confirm a PID before polling the port. Never wait on 12029 with no UnrealEditor process (the user had to launch it by hand). Run Python via `unreal-mcpython__util execute_python`. Unity MCP is disabled.
 - **Plugin GXCore failed to load / GetLastError=4551:** Development `UnrealEditor-GXCore.dll` was an unloadable image (UBA served a bad cached link). DebugGame DLL was fine; the editor loads Development. Fix: delete `Plugins/*/Binaries/Win64/UnrealEditor-GX*.dll` and `Binaries/Win64/UnrealEditor-GrokExodus.dll`, rebuild `GrokExodusEditor Win64 Development -NoUBA`. All six project DLLs now map with `LoadLibraryEx(DONT_RESOLVE)`.
+
+## Verify after 0.6.2
+
+1. Gold `GX 0.6.2`. More than a handful of chunks. Ground should hold a slope or a plain for tens of meters, not peak–valley–peak every few steps.
+2. Log a new `crust_<hex>/` folder (fingerprint changed). Old 0.6.1 cache is not reused.
 
 ## Verify after 0.6.1
 

@@ -210,7 +210,7 @@ A 4 km ball cannot host 2 km peaks — they become the whole planet. 60 km keeps
 | Hills / foothills | Mid-frequency rolling land |
 | Rivers | Domain-warped inverted ridges |
 | Canyons / rifts | Rare deep cuts; rifts on divergent edges |
-| Local ridges / gullies | ~0.5–1 km wavelength so a 280 m stream actually shows mountains |
+| Local ridges / gullies | Gentle ~5–10 km undulation. Walkable land is mostly flat or a long slope, not a sawtooth. |
 | Volcanoes / calderas | Sparse Worley cones |
 | Glacial U-valleys | High latitude + alpine |
 | Ocean basins / trenches | Negative relief; trenches on convergent ocean edges |

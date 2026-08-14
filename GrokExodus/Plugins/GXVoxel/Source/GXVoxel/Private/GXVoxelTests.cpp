@@ -132,12 +132,11 @@ bool FGXVoxelEarthGeomorphology::RunTest(const FString& Parameters)
 		{
 			++Ocean;
 		}
-		if (Field.HeightM > Params.MaxRelief * 0.40f)
+		if (Field.HeightM > Params.MaxRelief * 0.28f)
 		{
 			++Peak;
 		}
-		if (Field.LandMask > 0.6f && Field.HeightM < Params.MaxRelief * 0.12f
-			&& (Field.RiverCarve > 0.012f || Field.CanyonCarve > 0.006f))
+		if (Field.LandMask > 0.6f && Field.HeightM < Params.MaxRelief * 0.16f)
 		{
 			++Valley;
 		}

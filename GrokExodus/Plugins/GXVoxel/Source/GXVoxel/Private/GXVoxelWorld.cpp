@@ -84,7 +84,7 @@ void AGXVoxelWorld::ResetStreamingState()
 	CrustAtlas.Reset();
 	bAtlasReady = false;
 	bAtlasBuildInFlight = false;
-	ActiveStreamRadius = 56.0f;
+	ActiveStreamRadius = 140.0f;
 	NearMeshQueue.Empty();
 	CacheHits = 0;
 	CacheMisses = 0;
@@ -215,7 +215,7 @@ void AGXVoxelWorld::BeginPlay()
 	MeshMailbox = MakeShared<FGXMeshMailbox, ESPMode::ThreadSafe>();
 	SetupDistantSphere();
 	WarmupTimeRemaining = WarmupSeconds;
-	ActiveStreamRadius = 56.0f;
+	ActiveStreamRadius = 140.0f;
 	LoadStatus = TEXT("Preparing planet…");
 	LoadProgress = 0.03f;
 	TerrainPBR = MakeUnique<FGXTerrainPBR>();
@@ -290,7 +290,7 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 
 	if (bAtlasReady && ActiveStreamRadius < StreamRadius)
 	{
-		ActiveStreamRadius = FMath::Min(StreamRadius, ActiveStreamRadius + FMath::Max(16.0f, StreamRadius * 0.12f));
+		ActiveStreamRadius = FMath::Min(StreamRadius, ActiveStreamRadius + FMath::Max(40.0f, StreamRadius * 0.22f));
 	}
 
 	StreamCooldown -= DeltaSeconds;
@@ -691,13 +691,13 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 	}
 	const FVector Local = WorldToLocalMeters(WorldViewerLocation);
 	const float ChunkM = VoxelSize * FGXVoxelConstants::ChunkSize;
-	const float StreamNow = FMath::Clamp(ActiveStreamRadius, 48.0f, StreamRadius);
+	const float StreamNow = FMath::Clamp(ActiveStreamRadius, 120.0f, StreamRadius);
 	const int32 ChunkRadius = FMath::CeilToInt(StreamNow / ChunkM) + 1;
 	const FGXChunkKey Center = FGXVoxelVolume::VoxelToChunk(
 		FGXVoxelVolume::WorldToVoxel(FVector3d(Local.X, Local.Y, Local.Z), VoxelSize));
 
 	const float ChunkHalf = ChunkM * 0.866f;
-	const float Band = 72.0f + ChunkHalf;
+	const float Band = 160.0f + ChunkHalf;
 
 	int32 NearWanted = 0;
 	TSet<FGXChunkKey> Desired;
@@ -1006,7 +1006,7 @@ bool AGXVoxelWorld::PlacePawnOnSurface(APawn* Pawn, FVector RadialHint)
 	const FVector SpawnLoc = Surface + Up * 180.0f;
 	CachedViewerWorld = SpawnLoc;
 	LastStreamViewerWorld = FVector(1e12f, 0, 0);
-	ActiveStreamRadius = FMath::Max(ActiveStreamRadius, 56.0f);
+	ActiveStreamRadius = FMath::Max(ActiveStreamRadius, 140.0f);
 	EnsureCrustAtlas();
 	if (bAtlasReady)
 	{

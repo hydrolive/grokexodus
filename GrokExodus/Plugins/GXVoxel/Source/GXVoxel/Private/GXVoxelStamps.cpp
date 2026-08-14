@@ -99,30 +99,34 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 
 	const float Mountains = FGXNoise::Ridged(
 		Ux * Params.MountainFreq, Uy * Params.MountainFreq, Uz * Params.MountainFreq,
-		Params.Seed + 7u, 5);
-	const float Belt = FMath::Pow(FMath::Max(Edge, 0.0f), 0.62f) * (0.30f + 0.70f * Converge);
-	const float Orogeny = LandMask * Belt * (0.42f + 0.58f * Mountains);
-	const float InlandRanges = LandMask * Interior * FMath::Pow(Mountains, 2.15f)
-		* (1.0f - PlateAge * 0.68f) * 0.52f;
-	Out.Orogeny = FMath::Max(Orogeny, InlandRanges);
+		Params.Seed + 7u, 4);
+	// Broad range body (kilometers wide) plus a small summit cap — not a spike.
+	const float Massif = FGXNoise::Smooth01((Mountains - 0.22f) / 0.38f);
+	const float Summit = FMath::Pow(FMath::Max(Mountains - 0.62f, 0.0f) / 0.38f, 1.6f);
+	const float Belt = FGXNoise::Smooth01(Edge * 1.15f) * (0.25f + 0.75f * Converge);
+	const float Orogeny = LandMask * Belt * (0.22f * Massif + 0.16f * Summit);
+	// Occasional inland highland, flattened so it stays a mesa not a needle.
+	const float InlandHigh = LandMask * Interior * (1.0f - PlateAge * 0.75f)
+		* FGXNoise::Smooth01((Mountains - 0.55f) / 0.28f) * 0.14f;
+	Out.Orogeny = FMath::Max(Orogeny, InlandHigh);
 
-	const float Foothills = LandMask * FGXNoise::Ridged(
-		Ux * Params.MountainFreq * 0.45f, Uy * Params.MountainFreq * 0.45f, Uz * Params.MountainFreq * 0.45f,
-		Params.Seed + 8u, 3) * (0.10f + 0.16f * Belt);
+	const float Foothills = LandMask * FGXNoise::FBm(
+		Ux * Params.MountainFreq * 0.55f, Uy * Params.MountainFreq * 0.55f, Uz * Params.MountainFreq * 0.55f,
+		Params.Seed + 8u, 3, 2.0f, 0.5f) * (0.04f + 0.08f * Belt);
 
 	const float Hills = LandMask * Interior
-		* (0.50f + 0.50f * FGXNoise::FBm(
+		* FGXNoise::FBm(
 			Ux * Params.HillFreq, Uy * Params.HillFreq, Uz * Params.HillFreq,
-			Params.Seed + 17u, 4, 2.0f, 0.5f))
-		* (0.09f + 0.08f * (1.0f - PlateAge));
+			Params.Seed + 17u, 3, 2.0f, 0.5f)
+		* (0.035f + 0.03f * (1.0f - PlateAge));
 
-	const float Shield = Interior * PlateAge * LandMask * 0.055f;
+	const float Shield = Interior * PlateAge * LandMask * 0.07f;
 
 	const float PlatN = FGXNoise::FBm(
 		Ux * Params.PlateauFreq, Uy * Params.PlateauFreq, Uz * Params.PlateauFreq,
-		Params.Seed + 21u, 4, 2.0f, 0.5f);
-	const float PlateauMask = LandMask * Interior * FGXNoise::Smooth01((PlatN - 0.18f) / 0.32f) * (1.0f - Belt);
-	const float Plateau = PlateauMask * (0.26f + 0.07f * PlatN);
+		Params.Seed + 21u, 3, 2.0f, 0.5f);
+	const float PlateauMask = LandMask * Interior * FGXNoise::Smooth01((PlatN - 0.05f) / 0.28f) * (1.0f - Belt * 0.65f);
+	const float Plateau = PlateauMask * (0.16f + 0.04f * PlatN);
 
 	const float Wx = FGXNoise::FBm(
 		Ux * Params.RiverFreq * 0.32f, Uy * Params.RiverFreq * 0.32f, Uz * Params.RiverFreq * 0.32f,
@@ -133,7 +137,7 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	const float Rivers = FGXNoise::Ridged(
 		Ux * Params.RiverFreq + Wx, Uy * Params.RiverFreq + Wy, Uz * Params.RiverFreq,
 		Params.Seed + 42u, 4);
-	Out.RiverCarve = LandMask * (1.0f - Out.Orogeny * 0.45f) * FMath::Pow(Rivers, 3.4f) * Params.ValleyAmp;
+	Out.RiverCarve = LandMask * (1.0f - Out.Orogeny * 0.70f) * FMath::Pow(Rivers, 4.2f) * Params.ValleyAmp;
 
 	const float Can = FGXNoise::Ridged(
 		Ux * Params.CanyonFreq, Uy * Params.CanyonFreq, Uz * Params.CanyonFreq,
@@ -142,15 +146,15 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 		Ux * 4.2f, Uy * 4.2f, Uz * 4.2f, Params.Seed + 56u, 3, 2.0f, 0.5f) - 0.32f) / 0.28f);
 	Out.CanyonCarve = LandMask * CanyonGate * FMath::Pow(Can, 4.4f) * Params.CanyonAmp;
 
-	const float Rift = Edge * (1.0f - Converge) * LandMask * 0.18f;
+	const float Rift = Edge * (1.0f - Converge) * LandMask * 0.06f;
 
-	const float LocalRidge = LandMask * FGXNoise::Ridged(
+	const float LocalRidge = LandMask * FGXNoise::FBm(
 		Ux * Params.LocalRidgeFreq, Uy * Params.LocalRidgeFreq, Uz * Params.LocalRidgeFreq,
-		Params.Seed + 70u, 3);
+		Params.Seed + 70u, 3, 2.0f, 0.5f);
 	const float LocalGully = LandMask * FGXNoise::Ridged(
 		Ux * Params.LocalGullyFreq, Uy * Params.LocalGullyFreq, Uz * Params.LocalGullyFreq,
-		Params.Seed + 71u, 3);
-	const float Local = LocalRidge * 0.090f - FMath::Pow(LocalGully, 2.7f) * 0.058f;
+		Params.Seed + 71u, 2);
+	const float Local = LocalRidge * 0.018f - FMath::Pow(LocalGully, 3.4f) * 0.012f;
 
 	float VF1 = 0.0f;
 	float VF2 = 0.0f;
@@ -174,11 +178,11 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	const float Polar = FGXNoise::Smooth01((Lat - 0.60f) / 0.24f);
 	const float Glacial = (Polar * 0.75f + Alpine * Polar) * FGXNoise::Ridged(
 		Ux * 18.0f, Uy * 18.0f, Uz * 18.0f, Params.Seed + 90u, 3);
-	const float GlacialCarve = FMath::Pow(Glacial, 2.0f) * 0.10f * LandMask;
+	const float GlacialCarve = FMath::Pow(Glacial, 2.4f) * 0.045f * LandMask;
 
 	const float Detail = FGXNoise::FBm(
 		Ux * Params.DetailFreq, Uy * Params.DetailFreq, Uz * Params.DetailFreq,
-		Params.Seed + 19u, 3, 2.0f, 0.5f) * 0.024f * LandMask;
+		Params.Seed + 19u, 3, 2.0f, 0.5f) * 0.010f * LandMask;
 
 	const float Abyssal = -Params.OceanDepthFrac * (0.55f + 0.45f * (0.5f + 0.5f * FGXNoise::FBm(
 		Ux * 1.55f, Uy * 1.55f, Uz * 1.55f, Params.Seed + 5u, 4, 2.0f, 0.5f)));
@@ -186,14 +190,14 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	const float OceanFloor = OceanMask * (Abyssal - Trench);
 	const float Shelf = OceanMask * Coast * 0.11f;
 
-	float LandH = 0.035f
+	float LandH = 0.09f
 		+ Shield
 		+ Hills
 		+ Foothills
 		+ Plateau
 		+ Orogeny
-		+ InlandRanges
-		+ Out.Volcano
+		+ InlandHigh
+		+ Out.Volcano * 0.55f
 		+ Local
 		+ Detail
 		- Out.RiverCarve
@@ -205,7 +209,7 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	const float NormH = FMath::Lerp(OceanFloor + Shelf, LandH, LandMask);
 	Out.HeightM = NormH * Relief + Params.SeaLevelBias;
 	Out.SlopeProxy = FMath::Clamp(
-		Out.Orogeny * 1.15f + Out.CanyonCarve * 2.4f + LocalRidge * 0.55f + FMath::Abs(Out.Volcano) * 1.4f,
+		Out.Orogeny * 1.35f + Out.CanyonCarve * 2.8f + FMath::Abs(LocalRidge) * 0.20f + FMath::Abs(Out.Volcano) * 1.1f,
 		0.0f, 1.0f);
 
 	if (bNeedMoisture)
