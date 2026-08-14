@@ -101,21 +101,23 @@ def _load_engine_2d():
 
 def _import_texture(abs_path, dest_pkg, dest_name, srgb, clamp):
     dest = dest_pkg + "/" + dest_name
+    # Reuse committed uassets. ImportAssetTasks uses Interchange and asserts
+    # RecursionGuard when run from the UnrealMCPython TCP game-thread callback.
+    if unreal.EditorAssetLibrary.does_asset_exist(dest):
+        tex = unreal.EditorAssetLibrary.load_asset(dest)
+        if tex:
+            unreal.log("[GXPBR] reuse %s" % dest)
+            return tex
+
     if not os.path.isfile(abs_path):
         unreal.log_warning("[GXPBR] missing source %s" % abs_path)
-        return unreal.EditorAssetLibrary.load_asset(dest) if unreal.EditorAssetLibrary.does_asset_exist(dest) else None
+        return None
 
     if not unreal.EditorAssetLibrary.does_directory_exist(dest_pkg):
         unreal.EditorAssetLibrary.make_directory(dest_pkg)
 
-    task = unreal.AssetImportTask()
-    _set(task, "filename", abs_path)
-    _set(task, "destination_path", dest_pkg)
-    _set(task, "destination_name", dest_name)
-    _set(task, "replace_existing", True)
-    _set(task, "automated", True)
-    _set(task, "save", True)
-    unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
+    unreal.log_warning("[GXPBR] skip import of %s (MCP Interchange crash); assign DefaultTexture" % dest)
+    return None
 
     tex = unreal.EditorAssetLibrary.load_asset(dest)
     if not tex:

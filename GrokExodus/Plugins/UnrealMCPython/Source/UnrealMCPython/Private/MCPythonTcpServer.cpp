@@ -15,6 +15,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Misc/ScopeLock.h"
+#include "Containers/Ticker.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogMCPython, Log, All);
 
@@ -363,15 +364,23 @@ void FMCPythonTcpServer::ProcessDataOnGameThread(const FString& Data, FSocket* C
 
             if (IPythonScriptPlugin::Get())
             {
+                // Run on the next slate tick. Executing ImportAssetTasks /
+                // Interchange inline on this TaskGraph callback asserts
+                // RecursionGuard and kills the editor.
+                const FString CodeToRun = CodeField;
+                const FString PreMsg = ResultMsg;
+                FTSTicker::GetCoreTicker().AddTicker(FTickerDelegate::CreateLambda(
+                    [this, CodeToRun, PreMsg, ClientSocket](float)
+                    {
                 UMCPythonHelper::ClearSubmittedResult();
                 LogCapture.Clear();
                 GLog->AddOutputDevice(&LogCapture);
                 
                 FPythonCommandEx PythonCommand;
-                PythonCommand.Command = CodeField;
+                PythonCommand.Command = CodeToRun;
                 PythonCommand.ExecutionMode = EPythonCommandExecutionMode::ExecuteFile;
 
-                bExecSuccess = IPythonScriptPlugin::Get()->ExecPythonCommandEx(PythonCommand);
+                const bool bExecSuccess = IPythonScriptPlugin::Get()->ExecPythonCommandEx(PythonCommand);
                 
                 GLog->RemoveOutputDevice(&LogCapture);
 
@@ -406,9 +415,9 @@ void FMCPythonTcpServer::ProcessDataOnGameThread(const FString& Data, FSocket* C
                 TSharedPtr<FJsonObject> ResponseToClient = MakeShareable(new FJsonObject);
                 ResponseToClient->SetBoolField(TEXT("success"), bExecSuccess); // Overall success of ExecPythonCommandEx
                 
-                if (!ResultMsg.IsEmpty()) // If there was a pre-execution error message (e.g. bad JSON input from client)
+                if (!PreMsg.IsEmpty()) // If there was a pre-execution error message (e.g. bad JSON input from client)
                 {
-                     ResponseToClient->SetStringField(TEXT("message"), ResultMsg);
+                     ResponseToClient->SetStringField(TEXT("message"), PreMsg);
                 }
                 else if (!bExecSuccess) // Python execution itself failed
                 {
@@ -453,6 +462,9 @@ void FMCPythonTcpServer::ProcessDataOnGameThread(const FString& Data, FSocket* C
                     }
                     TotalSent += SentNow;
                 }
+                        return false;
+                    }));
+                return;
             }
             else
             {
