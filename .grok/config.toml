@@ -1,0 +1,24 @@
+# Grok Exodus MCP — no Unity. Unreal-MCPython talks to the editor on 127.0.0.1:12029.
+
+[mcp_servers.unity]
+enabled = false
+
+[mcp_servers.unreal]
+url = "http://127.0.0.1:8000/mcp"
+enabled = true
+startup_timeout_sec = 60
+tool_timeout_sec = 300
+
+[mcp_servers.unreal-mcpython]
+command = "C:/Users/hydro/AppData/Local/Microsoft/WinGet/Packages/astral-sh.uv_Microsoft.Winget.Source_8wekyb3d8bbwe/uv.exe"
+args = [
+    "--directory",
+    "C:/GrokBuild/BL/tools/unreal-mcp/repo/mcp-server",
+    "run",
+    "--python",
+    "3.12",
+    "src/unreal_mcp/main.py",
+]
+enabled = true
+startup_timeout_sec = 120
+tool_timeout_sec = 300

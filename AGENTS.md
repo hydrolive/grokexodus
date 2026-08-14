@@ -100,6 +100,30 @@ Skip this close/rebuild/relaunch loop for docs-only or Python-only changes that 
 
 ---
 
+## Mandatory: Unreal MCP + run editor Python yourself
+
+Do **not** tell the user to run `py "…/create_voxel_pbr_material.py"` or any other Output Log command. The agent runs editor Python.
+
+Unity MCP is **disabled** for this repo. Use **unreal-mcpython** (TCP `127.0.0.1:12029` via the `UnrealMCPython` editor plugin). Epic’s HTTP MCP at `:8000/mcp` is optional backup.
+
+### When a script or MCP tool needs the editor
+
+1. If `UnrealEditor.exe` is not running this project, launch it:
+
+```
+"C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe" "E:\Github\grokexodus\GrokExodus\GrokExodus.uproject" /Game/Voxel/Maps/Lvl_VoxelPlanet -skipcompile
+```
+
+2. Wait until `127.0.0.1:12029` accepts a TCP connection (poll up to ~90 s after splash). The plugin log is `TCP server started at 127.0.0.1:12029`.
+
+3. Call `unreal-mcpython__util` `execute_python` with the script (e.g. `runpy.run_path(r"E:/Github/grokexodus/GrokExodus/Content/Python/create_voxel_pbr_material.py", run_name="__main__")`). Close the material editor tab first via MCP if that asset is open.
+
+4. If MCP still says connection refused after the port is open, the Grok MCP stdio bridge may need a session reconnect — retry `execute_python` once. Do not fall back to “ask the user to paste py …”.
+
+Python-only material/content work does **not** require a C++ rebuild. C++ changes still follow the close/rebuild/relaunch loop above; after relaunch, wait for `:12029` before any MCP Python.
+
+---
+
 ## Product rules
 
 - **Creativity + hard spaceflight.** No bunkers, no walkers, no new work in `Source/GrokExodus/Voxel/` except crash fixes or routing that file onto GX.
@@ -108,6 +132,7 @@ Skip this close/rebuild/relaunch loop for docs-only or Python-only changes that 
 - **Plugins own simulation:** `GXCore`, `GXVoxel`, `GXCelestial`, `GXConstruct`, `GXPresentation`.
 - Hardware ray tracing is **on** (`r.RayTracing=True`, Lumen HW RT). Only **near-field collision** voxel chunks are visible to RT. Do not enable `RayTracingProxies` on every PMC chunk (that was ~2 FPS).
 - The agent closes the editor and rebuilds Development `-NoUBA` (see above). Do not leave those steps to the user.
+- The agent launches the editor and runs Unreal Python over MCP. Never ask the user to execute `py` in the Output Log. Unity MCP is off.
 
 ---
 
