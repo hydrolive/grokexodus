@@ -3,6 +3,19 @@
 
 #include "CoreMinimal.h"
 
+namespace EGXVoxelFlags
+{
+	enum Type : uint8
+	{
+		None         = 0,
+		PlayerPlaced = 1 << 0,
+		Deformed     = 1 << 1,
+		OreVein      = 1 << 2,
+		Scarred      = 1 << 3,
+		Liquid       = 1 << 4,
+	};
+}
+
 /** 4-byte packed cell. Unedited space is not stored. */
 struct FGXVoxelPacked
 {
@@ -14,6 +27,12 @@ struct FGXVoxelPacked
 	static constexpr float MaxAbsDensityM = 32.0f;
 
 	FORCEINLINE bool IsSolid() const { return Density > 0; }
+
+	/** Only brush-edited cells override the procedural stamp. */
+	FORCEINLINE bool IsAuthoritative() const
+	{
+		return (Flags & (EGXVoxelFlags::Deformed | EGXVoxelFlags::PlayerPlaced)) != 0;
+	}
 
 	static FGXVoxelPacked MakeAir()
 	{
@@ -41,19 +60,6 @@ struct FGXVoxelPacked
 };
 
 static_assert(sizeof(FGXVoxelPacked) == 4, "Packed voxel must be 4 bytes");
-
-namespace EGXVoxelFlags
-{
-	enum Type : uint8
-	{
-		None         = 0,
-		PlayerPlaced = 1 << 0,
-		Deformed     = 1 << 1,
-		OreVein      = 1 << 2,
-		Scarred      = 1 << 3,
-		Liquid       = 1 << 4,
-	};
-}
 
 enum class EGXVoxelMaterial : uint8
 {

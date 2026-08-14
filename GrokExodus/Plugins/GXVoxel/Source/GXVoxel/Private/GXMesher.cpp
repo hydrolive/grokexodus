@@ -50,7 +50,7 @@ FGXMeshBuffers FGXMesher::MeshChunk(
 				// Only edited cells override the stamp. Allocating an 8³ page
 				// fills neighbors from the packed stamp; using those for MC
 				// turns a smooth hillside into 1 m stairs around every dig.
-				const bool bEdited = (Packed.Flags & (EGXVoxelFlags::Deformed | EGXVoxelFlags::PlayerPlaced)) != 0;
+				const bool bEdited = Packed.IsAuthoritative();
 				if (bEdited)
 				{
 					Densities[Idx] = Packed.ToDensityMeters();

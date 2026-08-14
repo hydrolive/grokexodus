@@ -73,7 +73,13 @@ FGXVoxelPacked FGXVoxelVolume::Sample(const FVector3d& PlanetLocalM) const
 		const int32 PageIndex = Page.Index();
 		if (Slot->IsValidIndex(PageIndex) && (*Slot)[PageIndex].IsValid())
 		{
-			return (*Slot)[PageIndex]->Get(Local.X, Local.Y, Local.Z);
+			const FGXVoxelPacked Stored = (*Slot)[PageIndex]->Get(Local.X, Local.Y, Local.Z);
+			// Early sessions allocated pages of Density=0 / no flags. Those
+			// look like grass (mesher used the stamp) but dig saw air and no-op'd.
+			if (Stored.IsAuthoritative())
+			{
+				return Stored;
+			}
 		}
 	}
 	return Stamp.SamplePacked(PlanetLocalM);
@@ -300,7 +306,11 @@ FGXVoxelPacked FGXVoxelSnapshot::Sample(const FVector3d& PlanetLocalM) const
 		const int32 PageIndex = Page.Index();
 		if (Slot->IsValidIndex(PageIndex) && (*Slot)[PageIndex].IsValid())
 		{
-			return (*Slot)[PageIndex]->Get(Local.X, Local.Y, Local.Z);
+			const FGXVoxelPacked Stored = (*Slot)[PageIndex]->Get(Local.X, Local.Y, Local.Z);
+			if (Stored.IsAuthoritative())
+			{
+				return Stored;
+			}
 		}
 	}
 	FGXSphereStamp Eval(Params);

@@ -881,6 +881,10 @@ bool AGXVoxelWorld::LoadWorld()
 				for (int32 X = 0; X < FGXVoxelConstants::PageSize; ++X)
 				{
 					const int32 LI = FGXVoxelPage::Index(X, Y, Z);
+					if (!Cells[LI].IsAuthoritative())
+					{
+						continue;
+					}
 					const FIntVector VC(
 						Key.X * FGXVoxelConstants::ChunkSize + PX * FGXVoxelConstants::PageSize + X,
 						Key.Y * FGXVoxelConstants::ChunkSize + PY * FGXVoxelConstants::PageSize + Y,
