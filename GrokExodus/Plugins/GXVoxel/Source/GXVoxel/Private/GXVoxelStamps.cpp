@@ -98,26 +98,34 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	float Domain = 0.5f + 0.5f * FGXNoise::FBm(
 		Ux * Params.PlateauFreq, Uy * Params.PlateauFreq, Uz * Params.PlateauFreq,
 		Params.Seed + 21u, 2, 2.0f, 0.5f);
-	// Flatten the spawn basin. Three compact blobs on the 8 km limb — not an
-	// azimuth wedge (that painted a knife-edge ribbon) and not a 360° ring.
+	// Only a 500 m pad is lake-flat. Past that, hills must go UP — spawn was
+	// the roof of a 2 km plateau (player only ever walked downhill).
 	const float ArcM = FMath::Acos(FMath::Clamp(Ux, -1.0f, 1.0f)) * Params.Radius;
-	const float Basin = FGXNoise::Smooth01((2200.0f - ArcM) / 500.0f);
-	const float A = 7000.0f / FMath::Max(Params.Radius, 1.0f);
+	const float Basin = FGXNoise::Smooth01((500.0f - ArcM) / 200.0f);
+	const float R = FMath::Max(Params.Radius, 1.0f);
 	const FVector3f Here(Ux, Uy, Uz);
 	auto Blob = [&](const FVector3f& C) -> float
 	{
 		const float Ang = FMath::Acos(FMath::Clamp(FVector3f::DotProduct(Here, C.GetSafeNormal()), -1.0f, 1.0f));
 		const float D = Ang * Params.Radius;
-		return FGXNoise::Smooth01((2800.0f - D) / 900.0f);
+		// 4.6 km radius, 2.8 km flanks — not a 900 m mesa wall.
+		return FGXNoise::Smooth01((4600.0f - D) / 2800.0f);
 	};
-	const float Blobs = FMath::Max3(
-		Blob(FVector3f(1.0f, A, 0.15f)),
-		Blob(FVector3f(1.0f, -A * 0.7f, A * 0.8f)),
-		Blob(FVector3f(1.0f, -0.2f * A, -A)));
-	Domain = FMath::Lerp(Domain, 0.16f, Basin * 0.92f);
-	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.92f, Blobs * (1.0f - Basin)));
+	const float A = 5500.0f / R;
+	const float B = 7200.0f / R;
+	const float C = 8000.0f / R;
+	const float Blobs = FMath::Max(
+		FMath::Max3(
+			Blob(FVector3f(1.0f, A, 0.10f)),
+			Blob(FVector3f(1.0f, -0.55f * A, A)),
+			Blob(FVector3f(1.0f, -A, -0.25f * A))),
+		FMath::Max(
+			Blob(FVector3f(1.0f, 0.45f * B, -0.75f * B)),
+			Blob(FVector3f(1.0f, 0.15f * C, C))));
+	Domain = FMath::Lerp(Domain, 0.22f, Basin * 0.80f);
+	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.90f, Blobs * (1.0f - Basin)));
 	const float PlainsW = 1.0f - FGXNoise::Smooth01((Domain - 0.34f) / 0.26f);
-	const float MountainW = FGXNoise::Smooth01((Domain - 0.55f) / 0.28f);
+	const float MountainW = FGXNoise::Smooth01((Domain - 0.52f) / 0.30f);
 	const float HillW = FMath::Clamp(1.0f - PlainsW - MountainW, 0.0f, 1.0f);
 	const float RangeMask = 1.0f - PlainsW;
 	const float Highland = Domain;
@@ -125,12 +133,15 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	const float Mass = 0.5f + 0.5f * FGXNoise::FBm(
 		Ux * Params.MountainFreq, Uy * Params.MountainFreq, Uz * Params.MountainFreq,
 		Params.Seed + 7u, 2, 2.0f, 0.5f);
-	const float PlainsH = 0.044f;
-	const float HillH = PlainsH + 0.028f * (0.4f + 0.6f * FGXNoise::FBm(
+	const float PlainsH = 0.028f;
+	const float HillH = PlainsH + 0.038f * (0.4f + 0.6f * FGXNoise::FBm(
 		Ux * Params.HillFreq, Uy * Params.HillFreq, Uz * Params.HillFreq,
 		Params.Seed + 17u, 2, 2.0f, 0.5f));
-	// ~2 km peaks (0.85 × 2400 m × mass). Walkable flanks via MountainW ramp.
-	const float PeakH = PlainsH + 0.85f * Mass * MountainW;
+	const float Ridge = FGXNoise::Ridged(
+		Ux * Params.MountainFreq * 2.2f, Uy * Params.MountainFreq * 2.2f, Uz * Params.MountainFreq * 2.2f,
+		Params.Seed + 9u, 3);
+	// 1.0–1.9 km peaks with ridgelines, not a smooth dome.
+	const float PeakH = PlainsH + (0.42f + 0.38f * Ridge) * Mass * MountainW;
 	const float Orogeny = LandMask * (PlainsW * PlainsH + HillW * HillH + MountainW * PeakH);
 	Out.Orogeny = LandMask * MountainW * 0.22f * Mass;
 
@@ -138,7 +149,10 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 		Ux * Params.MountainFreq * 0.45f, Uy * Params.MountainFreq * 0.45f, Uz * Params.MountainFreq * 0.45f,
 		Params.Seed + 8u, 3, 2.0f, 0.5f) * 0.012f;
 
-	const float Hills = 0.0f;
+	const float HillGate = 1.0f - FGXNoise::Smooth01((350.0f - ArcM) / 180.0f);
+	const float Hills = LandMask * (0.010f + HillGate * 0.048f * (0.40f + 0.60f * FGXNoise::FBm(
+		Ux * Params.HillFreq, Uy * Params.HillFreq, Uz * Params.HillFreq,
+		Params.Seed + 18u, 3, 2.0f, 0.5f)));
 	const float Shield = LandMask * PlainsW * 0.004f;
 	const float Plateau = 0.0f;
 
@@ -207,7 +221,7 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 
 	// Inland weight ramps after the beach so coasts are beaches, not 1 km cliffs.
 	const float Inland = FGXNoise::Smooth01((LandMask - 0.35f) / 0.50f);
-	const float DetailScale = PlainsW * 0.15f + HillW * 0.55f + MountainW;
+	const float DetailScale = PlainsW * 0.40f + HillW * 0.70f + MountainW;
 	float LandH = 0.01f * LandMask
 		+ Inland * (Shield + Hills + Foothills + Plateau + Orogeny
 			+ Out.Volcano * 0.15f * MountainW

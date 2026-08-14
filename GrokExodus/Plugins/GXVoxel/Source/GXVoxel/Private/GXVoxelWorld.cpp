@@ -166,7 +166,7 @@ void AGXVoxelWorld::ApplyEarthPlayDefaults()
 	NearFieldRadius = 110.0f;
 	CollisionRadius = 160.0f;
 	bForceLOD0 = false;
-	HorizonOuterM = 8000.0f;
+	HorizonOuterM = 10000.0f;
 	bAsyncMeshing = true;
 	WarmupSeconds = 1.0f;
 	WarmupMeshBuildsPerFrame = 4;

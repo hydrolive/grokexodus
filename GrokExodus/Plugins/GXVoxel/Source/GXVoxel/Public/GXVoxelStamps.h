@@ -76,7 +76,7 @@ struct FGXPlanetStampParams
 		P.CrustDepth = 96.0f;
 		P.Seed = 1337u;
 		P.ContinentFreq = 1.35f;
-		P.MountainFreq = 12.0f;   // fingerprint bump — 3 limb blobs, not wedges
+		P.MountainFreq = 11.0f;   // fingerprint — wide flanks, near hills, ridges
 		P.DetailFreq = 900.0f;
 		P.MoistureFreq = 2.4f;
 		P.ScarFreq = 4.5f;
@@ -86,7 +86,7 @@ struct FGXPlanetStampParams
 		P.OreThreshold = 0.74f;
 		P.SeaLevelBias = 0.0f;
 		P.PlateFreq = 2.2f;
-		P.HillFreq = 220.0f;
+		P.HillFreq = 380.0f;      // ~1 km near hills, not 2 km-away rolls
 		P.RiverFreq = 140.0f;
 		P.CanyonFreq = 55.0f;
 		P.PlateauFreq = 12.0f;   // ~31 km plains vs range domains

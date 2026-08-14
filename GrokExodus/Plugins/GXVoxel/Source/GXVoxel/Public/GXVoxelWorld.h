@@ -135,7 +135,7 @@ public:
 
 	/** Far clipmap outer radius (meters). Independent of voxel stream. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	float HorizonOuterM = 8000.0f;
+	float HorizonOuterM = 10000.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rendering")
 	TObjectPtr<UMaterialInterface> TerrainMaterial;

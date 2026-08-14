@@ -18,9 +18,9 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 
 	struct FSpec { float Inner; float Outer; float Cell; };
 	const FSpec Specs[] = {
-		{ 160.0f, 1152.0f, 12.0f },
-		{ 1080.0f, 3240.0f, 36.0f },
-		{ 3168.0f, 8000.0f, 72.0f },
+		{ 16.0f, 1600.0f, 12.0f },
+		{ 900.0f, 4200.0f, 28.0f },
+		{ 2800.0f, 10000.0f, 64.0f },
 	};
 	for (const FSpec& S : Specs)
 	{
@@ -157,7 +157,7 @@ void FGXHorizonClipmap::BuildRing(
 			const float CU = (static_cast<float>(I - Half) + 0.5f) * CellM;
 			const float CV = (static_cast<float>(J - Half) + 0.5f) * CellM;
 			const float CD2 = CU * CU + CV * CV;
-			if (CD2 < InnerPad || CD2 > OuterPad)
+			if (CD2 < InnerPad * 0.82f || CD2 > OuterPad * 1.10f)
 			{
 				continue;
 			}
