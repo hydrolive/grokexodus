@@ -124,6 +124,10 @@ bool FGXCrustCache::IsHollow(const FString& Path)
 
 bool FGXCrustCache::LoadMesh(const FString& Path, int32& OutLOD, FGXMeshBuffers& OutMesh)
 {
+	if (!IFileManager::Get().FileExists(*Path))
+	{
+		return false;
+	}
 	TArray<uint8> Buf;
 	if (!FFileHelper::LoadFileToArray(Buf, *Path) || Buf.Num() < 20)
 	{

@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-13** · On-disk build stamp: **GX 0.7.0**  
+Last updated: **2026-08-13** · On-disk build stamp: **GX 0.7.1**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state

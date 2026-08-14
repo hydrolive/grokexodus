@@ -16,9 +16,9 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 
 	struct FSpec { float Inner; float Outer; float Cell; };
 	const FSpec Specs[] = {
-		{ 160.0f, 1200.0f, 20.0f },
-		{ 1100.0f, 3500.0f, 48.0f },
-		{ 3300.0f, 8000.0f, 96.0f },
+		{ 180.0f, 1100.0f, 12.0f },
+		{ 1000.0f, 3200.0f, 36.0f },
+		{ 3000.0f, 8000.0f, 72.0f },
 	};
 	for (const FSpec& S : Specs)
 	{
