@@ -76,7 +76,7 @@ struct FGXPlanetStampParams
 		P.CrustDepth = 96.0f;
 		P.Seed = 1337u;
 		P.ContinentFreq = 1.35f;
-		P.MountainFreq = 10.0f;   // fingerprint — earthly spines at 8–10 km
+		P.MountainFreq = 9.5f;    // fingerprint — domain cap, spines only for peaks
 		P.DetailFreq = 900.0f;
 		P.MoistureFreq = 2.4f;
 		P.ScarFreq = 4.5f;

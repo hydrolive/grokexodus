@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.14**  
+Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.15**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.7.15** 0.7.14 shots: hills OK, but Domain FBm still made a **sky wall** (and voxel stairs). Cap Domain at hills; only the 8–10 km spines may be mountains.
 - **GX 0.7.14** 0.7.13: near hills good, but blobs at 5.5 km + 4.6 km radius made a **sky wall** and voxel **stair towers**. Earthly spines at 8–10 km (3 km flanks, 0.8–1.5 km ridged peaks, a second range behind). Voxel stream stays on rolling ground.
 - **GX 0.7.13** 0.7.12: grass OK, one mesa, **only walked downhill** (2 km plateau), no near hills, hole at the mountain base, nothing behind the first peak. Spawn pad 500 m; hills rise from 350 m (up to ~120 m). Blobs have 2.8 km flanks + ridged crests. Five massifs out to 8 km. Clipmap rings overlap more and draw to 10 km.
 - **GX 0.7.12** 0.7.11 shots: grass OK, walked, but mountains were a **floating ribbon** (azimuth wedges = knife-edge walls). Three compact blobs on the 8 km limb instead. Collision cook is async again (14 FPS hitch). Clipmap sink 0.4 m.

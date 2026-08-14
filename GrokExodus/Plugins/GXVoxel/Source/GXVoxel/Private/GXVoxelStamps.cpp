@@ -136,6 +136,9 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 		RangeW(MidAt(-1800.0f, 8600.0f), AY, 5200.0f, 2400.0f, 2600.0f),
 		RangeW(MidAt(-8000.0f, -2400.0f), AZ, 5000.0f, 2400.0f, 2600.0f));
 	Domain = FMath::Lerp(Domain, 0.22f, Basin * 0.80f);
+	// Cap the raw field at "hills". Uncapped FBm was a 2 km wall in the
+	// first kilometre (0.7.13–0.7.14 shots). Mountains come only from spines.
+	Domain = FMath::Min(Domain, 0.46f);
 	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.50f, Feet * (1.0f - Basin)));
 	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.86f, Spine * (1.0f - Basin)));
 	const float PlainsW = 1.0f - FGXNoise::Smooth01((Domain - 0.34f) / 0.26f);
