@@ -199,16 +199,22 @@ void FGXTerrainPBR::SetEditHoles(const TArray<FVector4>& HolesLocalM)
 	{
 		const FString Name = FString::Printf(TEXT("EditHole%d"), I);
 		FLinearColor V(0.f, 0.f, 0.f, 0.f);
+		const FString RadName = FString::Printf(TEXT("EditRadius%d"), I);
+		float RadiusCm = 0.0f;
 		const int32 Src = HolesLocalM.Num() - 8 + I;
 		if (Src >= 0 && Src < HolesLocalM.Num())
 		{
 			const FVector4& H = HolesLocalM[Src];
-			V = FLinearColor(H.X * 100.0f, H.Y * 100.0f, H.Z * 100.0f, FMath::Abs(H.W) * 100.0f);
+			V = FLinearColor(H.X * 100.0f, H.Y * 100.0f, H.Z * 100.0f, 1.0f);
+			// +30 cm so the clipmap is gone under the whole cap, not just the core.
+			RadiusCm = FMath::Abs(H.W) * 100.0f + 30.0f;
 		}
 		Mid->SetVectorParameterValue(*Name, V);
+		Mid->SetScalarParameterValue(*RadName, RadiusCm);
 		if (PatchMid)
 		{
-			PatchMid->SetVectorParameterValue(*Name, FLinearColor(0.f, 0.f, 0.f, 0.f));
+			PatchMid->SetVectorParameterValue(*Name, FLinearColor(0.f, 0.f, 0.f, 1.f));
+			PatchMid->SetScalarParameterValue(*RadName, 0.0f);
 		}
 	}
 }

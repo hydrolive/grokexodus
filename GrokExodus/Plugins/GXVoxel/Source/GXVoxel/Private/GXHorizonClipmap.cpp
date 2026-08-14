@@ -162,7 +162,9 @@ void FGXHorizonClipmap::BuildRing(
 	const float Relief = FMath::Max(Stamp.GetParams().MaxRelief, 1.0f);
 	const float InnerPad = InnerM * InnerM;
 	const float OuterPad = OuterM * OuterM;
-	const float Sink = FMath::Max(SinkM, 0.5f);
+	// Ring 0 must sit on the stamp. Max(., 0.5) put the walk surface 50 cm
+	// under the brush patch — add/remove floated above the grass.
+	const float Sink = (InnerM < 1.0f) ? 0.0f : FMath::Max(SinkM, 0.5f);
 
 	TArray<FVector> Positions;
 	TArray<FVector> Normals;

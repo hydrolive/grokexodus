@@ -533,27 +533,25 @@ def main():
 
     # Clipmap discards pixels inside recent brush spheres so the circular
     # patch is the surface (no second sheet, no 140 m remesh wobble).
-    fade_cm = const(8.0, x0 + 9880, 700, "holeFadeCm")
+    fade_cm = const(12.0, x0 + 9880, 700, "holeFadeCm")
     keep_all = const(1.0, x0 + 9880, 760, "keepAll")
     for i in range(8):
-        hp = node(unreal.MaterialExpressionVectorParameter, x0 + 7500, 1800 + i * 160, "EditHole%d" % i)
+        hp = node(unreal.MaterialExpressionVectorParameter, x0 + 7500, 1800 + i * 180, "EditHole%d" % i)
         _set(hp, "parameter_name", "EditHole%d" % i)
-        _set(hp, "default_value", unreal.LinearColor(0.0, 0.0, 0.0, 0.0))
+        _set(hp, "default_value", unreal.LinearColor(0.0, 0.0, 0.0, 1.0))
         _set(hp, "group", "Edits")
-        center = mask(hp, "", True, True, True, x0 + 7760, 1800 + i * 160, "hC%d" % i)
-        rad = node(unreal.MaterialExpressionComponentMask, x0 + 8000, 1800 + i * 160, "hR%d" % i)
-        _set(rad, "r", False)
-        _set(rad, "g", False)
-        _set(rad, "b", False)
-        _set(rad, "a", True)
-        connect(hp, "", rad, "")
-        dist_h = node(unreal.MaterialExpressionDistance, x0 + 8240, 1800 + i * 160, "hD%d" % i)
+        rs = node(unreal.MaterialExpressionScalarParameter, x0 + 7760, 1800 + i * 180, "EditRadius%d" % i)
+        _set(rs, "parameter_name", "EditRadius%d" % i)
+        _set(rs, "default_value", 0.0)
+        _set(rs, "group", "Edits")
+        dist_h = node(unreal.MaterialExpressionDistance, x0 + 8020, 1800 + i * 180, "hD%d" % i)
         connect(wp, "", dist_h, "A")
-        connect(center, "", dist_h, "B")
-        keep_i = sat(div(sub(dist_h, "", rad, "", x0 + 8480, 1800 + i * 160), "",
-                         fade_cm, "", x0 + 8720, 1800 + i * 160),
-                     "", x0 + 8960, 1800 + i * 160, "keep%d" % i)
-        kn = node(unreal.MaterialExpressionMin, x0 + 9200, 1800 + i * 160, "kmin%d" % i)
+        if not connect(hp, "RGB", dist_h, "B"):
+            connect(hp, "", dist_h, "B")
+        keep_i = sat(div(sub(dist_h, "", rs, "", x0 + 8260, 1800 + i * 180), "",
+                         fade_cm, "", x0 + 8500, 1800 + i * 180),
+                     "", x0 + 8740, 1800 + i * 180, "keep%d" % i)
+        kn = node(unreal.MaterialExpressionMin, x0 + 8980, 1800 + i * 180, "kmin%d" % i)
         connect(keep_all, "", kn, "A")
         connect(keep_i, "", kn, "B")
         keep_all = kn
