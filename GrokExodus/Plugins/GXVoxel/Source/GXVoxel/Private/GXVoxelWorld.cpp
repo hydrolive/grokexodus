@@ -165,16 +165,16 @@ void AGXVoxelWorld::ApplyEarthPlayDefaults()
 	StreamRadius = 360.0f;
 	UnloadRadius = 580.0f;
 	NearFieldRadius = 110.0f;
-	CollisionRadius = 200.0f;
-	StreamInterval = 0.55f;
+	CollisionRadius = 90.0f;
+	StreamInterval = 0.40f;
 	bForceLOD0 = false;
 	HorizonOuterM = 10000.0f;
 	bAsyncMeshing = true;
 	WarmupSeconds = 1.0f;
-	WarmupMeshBuildsPerFrame = 4;
-	MaxMeshBuildsPerFrame = 6;
-	MeshTimeBudgetMs = 6.0f;
-	MaxAsyncInFlight = 12;
+	WarmupMeshBuildsPerFrame = 8;
+	MaxMeshBuildsPerFrame = 10;
+	MeshTimeBudgetMs = 8.0f;
+	MaxAsyncInFlight = 16;
 	bAutoLoadOnBeginPlay = false;
 	ConfigurePlanet(E.Radius, E.MaxRelief, StreamRadius, static_cast<int32>(E.Seed));
 }
@@ -1088,8 +1088,23 @@ void AGXVoxelWorld::DrainPendingMeshes(int32 Budget)
 		}
 		MeshMailbox->Pending.RemoveAt(0, N, EAllowShrinking::No);
 	}
-	for (FGXMeshMailbox::FItem& P : Local)
+	const double Deadline = FPlatformTime::Seconds() + FMath::Max(MeshTimeBudgetMs, 2.0f) * 0.001;
+	for (int32 I = 0; I < Local.Num(); ++I)
 	{
+		FGXMeshMailbox::FItem& P = Local[I];
+		if (I > 0 && FPlatformTime::Seconds() >= Deadline)
+		{
+			// Put leftover applies back — do not spend 81 ms * 6 in one tick.
+			if (MeshMailbox.IsValid())
+			{
+				FScopeLock Lock(&MeshMailbox->CS);
+				for (int32 J = Local.Num() - 1; J >= I; --J)
+				{
+					MeshMailbox->Pending.Insert(MoveTemp(Local[J]), 0);
+				}
+			}
+			break;
+		}
 		AsyncInFlight.Remove(P.Coord);
 		if (RemeshWhenIdle.Remove(P.Coord))
 		{
@@ -1151,9 +1166,9 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 	Proxy->LOD = LOD;
 	const FVector ViewerLocal = WorldToLocalMeters(CachedViewerWorld.IsNearlyZero() ? GetPrimaryInvokerLocation() : CachedViewerWorld);
 	const FVector CenterM = OriginM + FVector(ChunkM * 0.5f);
-	// Cook collision on first mesh for the whole stream so walking in does
-	// not recreate the section. Shadows / RT still use CollisionRadius.
-	const bool bCollision = FVector::Dist(CenterM, ViewerLocal) <= StreamRadius;
+	// Visual first. Collision on the whole 360 m stream was the 81 ms /
+	// 11 FPS walk hitch (0.7.19). Only the 90 m pad cooks collision.
+	const bool bCollision = FVector::Dist(CenterM, ViewerLocal) <= CollisionRadius;
 	Proxy->ApplyMesh(MeshData, OriginM, GMetersToUU, TerrainMaterial, bCollision);
 	if (Proxy->Mesh)
 	{

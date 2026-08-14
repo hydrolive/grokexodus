@@ -20,7 +20,7 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// Overlap ~150 m so rings never leave a sky gap. Outer rings sit a
 	// little deeper so the shared band does not z-fight.
 	const FSpec Specs[] = {
-		{ 0.0f, 1800.0f, 20.0f, 2.0f },
+		{ 140.0f, 1800.0f, 20.0f, 2.0f },
 		{ 1650.0f, 4800.0f, 40.0f, 2.5f },
 		{ 4500.0f, 10000.0f, 80.0f, 3.0f },
 	};
@@ -221,7 +221,7 @@ void FGXHorizonClipmap::BuildRing(
 		}
 		else
 		{
-			Colors[V] = FLinearColor(0.44f, 0.56f, 0.30f); // grass plains
+			Colors[V] = FLinearColor(0.50f, 0.58f, 0.32f); // grass — not a black pond
 		}
 	}
 
@@ -273,12 +273,11 @@ void FGXHorizonClipmap::Update(
 	FVector T, B;
 	CenterDir.FindBestAxisVectors(T, B);
 
-	// Full disk, sunk ~12 m. A 280 m hole (0.7.17) was the teal void;
-	// a 3.5 m sink was the dig-pond. Voxels win underfoot; clipmap fills gaps.
-	(void)InnerHoleM;
+	// Hole under the voxel disk so chocolate clipmap is not the walk surface.
+	// Voxels cover 360 m; hole ~140 m leaves a wide overlap.
 	if (Rings.Num() > 0)
 	{
-		Rings[0].InnerM = 0.0f;
+		Rings[0].InnerM = FMath::Clamp(InnerHoleM * 0.40f, 100.0f, 160.0f);
 	}
 	if (Rings.Num() > 2)
 	{

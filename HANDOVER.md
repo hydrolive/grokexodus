@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.19**  
+Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.20**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.7.20** 0.7.19 shots: still walked onto chocolate clipmap (near 21/48). Collision on every new chunk was **81 ms apply / 11 FPS**, so the stream never kept up. Visuals first; collision only in 90 m. Airborne snap 0.35 s (not 4 s) so a late chunk does not drop you through. Apply drain is time-budgeted. Clipmap hole ~140 m so you do not walk on the far sheet. No stamp fingerprint change.
 - **GX 0.7.19** 0.7.18 shots: 12 m clipmap sink made a **floating voxel slab** + black void; `Volcano*0.50` still stacked a **teal cone**; remesh-for-collision was the **81 ms** walk hitch; LOD1/2 cracks. Sink is 2–3 m. No cone add. Collision cooks on first mesh (no remesh while walking). LOD0 to 220 m. Jagged east-range summits, rock clipmap (no snow-white). Unload +220 m. Fingerprint 14.
 - **GX 0.7.18** 0.7.17 play: walk far and **voxels stop** (near-busy deferred the 110–360 m band), everything grass, fake cone peak, FPS hitches (clipmap 460 ms, stream every 200 ms). Stream no longer defers the walk floor. Clipmap rings are coarser and rebuild independently. Summit is a warped/ridged peak on the east range, not a cone. Rock stamps at 280 m / orogeny 0.04; PBR keeps rock/snow ids. Stream 0.55 s. Collision 240 m. Fingerprint 13.
 - **GX 0.7.17** 0.7.16 shots: walked onto a **black clipmap mountain** (collision only 160 m), dug a **pond** (clipmap disk under the crater), grainy sand plains, grass “mountains”, stretched dirt UVs. Inland plains are grass. Ranges are rock. One ENE stratovolcano (5 km apron, snow only on the cap — the first cone was a teal gumdrop). Clipmap is a full disk sunk 12–16 m (no hole, no pond). Collision cooks async to 320 m. Dirt is triplanar. Far mesh has an 18% fill so back-slopes are not chocolate. Fingerprint 12 — first PIE rebakes.
@@ -51,6 +52,13 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 - Live Coding often blocks `Build.bat`. The agent **closes Unreal and rebuilds Development Editor `-NoUBA`** (see `AGENTS.md`). Do not ask the user to do that.
 - **Unreal MCP:** `UnrealMCPython` plugin listens on `127.0.0.1:12029`. Agent **must Start-Process the editor** and confirm a PID before polling the port. Never wait on 12029 with no UnrealEditor process (the user had to launch it by hand). Run Python via `unreal-mcpython__util execute_python`. Unity MCP is disabled.
 - **Plugin GXCore failed to load / GetLastError=4551:** Development `UnrealEditor-GXCore.dll` was an unloadable image (UBA served a bad cached link). DebugGame DLL was fine; the editor loads Development. Fix: delete `Plugins/*/Binaries/Win64/UnrealEditor-GX*.dll` and `Binaries/Win64/UnrealEditor-GrokExodus.dll`, rebuild `GrokExodusEditor Win64 Development -NoUBA`. All six project DLLs now map with `LoadLibraryEx(DONT_RESOLVE)`.
+
+## Verify after 0.7.20
+
+1. Gold `GX 0.7.20`. Cache from 0.7.19 fingerprint 14 is reused.
+2. Walk 400 m — textured voxels stay underfoot. You should not step onto a chocolate sheet.
+3. No black ponds in the mid hills. Walking FPS should stay near stand-still (apply << 81 ms).
+4. Jump still works (2.5 s snap ignore). If you fall in a hole, snap back in ~0.35 s, not 4 s.
 
 ## Verify after 0.7.19
 
