@@ -90,4 +90,68 @@ struct FGXNoise
 		}
 		return (Norm > 0.0f) ? (Sum / Norm) : 0.0f;
 	}
+
+	static FORCEINLINE float Smooth01(float T)
+	{
+		T = FMath::Clamp(T, 0.0f, 1.0f);
+		return T * T * (3.0f - 2.0f * T);
+	}
+
+	/** First and second nearest feature distances in a 3-D Worley cell. */
+	static void WorleyF1F2(float X, float Y, float Z, uint32 Seed, float& OutF1, float& OutF2)
+	{
+		const int32 X0 = FMath::FloorToInt(X);
+		const int32 Y0 = FMath::FloorToInt(Y);
+		const int32 Z0 = FMath::FloorToInt(Z);
+		OutF1 = 8.0f;
+		OutF2 = 8.0f;
+		for (int32 Dz = -1; Dz <= 1; ++Dz)
+		{
+			for (int32 Dy = -1; Dy <= 1; ++Dy)
+			{
+				for (int32 Dx = -1; Dx <= 1; ++Dx)
+				{
+					const int32 Cx = X0 + Dx;
+					const int32 Cy = Y0 + Dy;
+					const int32 Cz = Z0 + Dz;
+					const uint32 H1 = Hash(Cx, Cy, Cz, Seed);
+					const uint32 H2 = Hash(Cx, Cy, Cz, Seed ^ 0x9E3779B9u);
+					const uint32 H3 = Hash(Cx, Cy, Cz, Seed ^ 0x85EBCA6Bu);
+					const float Fx = static_cast<float>(Cx) + HashToFloat(H1);
+					const float Fy = static_cast<float>(Cy) + HashToFloat(H2);
+					const float Fz = static_cast<float>(Cz) + HashToFloat(H3);
+					const float Ddx = Fx - X;
+					const float Ddy = Fy - Y;
+					const float Ddz = Fz - Z;
+					const float Dist = FMath::Sqrt(Ddx * Ddx + Ddy * Ddy + Ddz * Ddz);
+					if (Dist < OutF1)
+					{
+						OutF2 = OutF1;
+						OutF1 = Dist;
+					}
+					else if (Dist < OutF2)
+					{
+						OutF2 = Dist;
+					}
+				}
+			}
+		}
+	}
+
+	static float WorleyF1(float X, float Y, float Z, uint32 Seed)
+	{
+		float F1 = 0.0f;
+		float F2 = 0.0f;
+		WorleyF1F2(X, Y, Z, Seed, F1, F2);
+		return F1;
+	}
+
+	/** Cellular edge strength: 0 deep inside a cell, 1 on the shared face. */
+	static float WorleyEdge(float X, float Y, float Z, uint32 Seed)
+	{
+		float F1 = 0.0f;
+		float F2 = 0.0f;
+		WorleyF1F2(X, Y, Z, Seed, F1, F2);
+		return FMath::Clamp(F2 - F1, 0.0f, 1.0f);
+	}
 };

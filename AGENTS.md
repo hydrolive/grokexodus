@@ -148,7 +148,8 @@ Required bar:
 
 - **Terrain is a landscape.** Near detail plus a larger **macro** scale so color and form remain at distance without wallpaper repeats. Rock / mountain layers tile coarser than grass (scaled-up rock, not more grass repeats).
 - **Planets stay body-fixed.** Lighting, materials, and streaming must work at that scale (dual-layer ephemeris, not spinning the actor).
-- Prefer a real subsystem (dual-scale triplanar, ephemeris sky, authored horizon) over a one-line lerp that papers over the bug.
+- Prefer a real subsystem (dual-scale triplanar, ephemeris sky, authored horizon, Earth geomorphology, spherical SkyAtmosphere) over a one-line lerp that papers over the bug.
+- **Do not replace the voxel planet with a UE Landscape** to get grass. Foliage is HISM scatter from the stamp (`/Game/Foliage/SM_*`). Import Brushify (or any pack) as meshes, not as a landscape actor.
 
 ---
 

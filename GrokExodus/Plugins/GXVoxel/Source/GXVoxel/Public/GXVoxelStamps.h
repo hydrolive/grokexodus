@@ -5,8 +5,20 @@
 #include "CoreMinimal.h"
 #include "GXVoxelTypes.h"
 
+enum class EGXStampProfile : uint8
+{
+	/** Bit-identical to the original 4 km continent+ridge mapper (tests). */
+	Legacy = 0,
+	/** Layered Earth geomorphology: plates, ranges, valleys, coasts, volcanoes. */
+	Earth = 1,
+	/** Airless highlands, maria, and impact scars. */
+	Moon = 2,
+};
+
 struct FGXPlanetStampParams
 {
+	EGXStampProfile Profile = EGXStampProfile::Legacy;
+
 	float Radius = 60000.0f;
 	float MaxRelief = 180.0f;
 	float CrustDepth = 12.0f;
@@ -24,10 +36,27 @@ struct FGXPlanetStampParams
 	float ScarThreshold = 0.78f;
 	float OreThreshold = 0.72f;
 
+	/** Unit-sphere frequencies for the Earth profile. Wavelength ≈ 2πR / f. */
+	float PlateFreq = 3.6f;
+	float HillFreq = 28.0f;
+	float RiverFreq = 48.0f;
+	float CanyonFreq = 22.0f;
+	float PlateauFreq = 6.5f;
+	float LocalRidgeFreq = 320.0f;
+	float LocalGullyFreq = 720.0f;
+	float VolcanoFreq = 16.0f;
+
+	/** Fractions of MaxRelief. */
+	float ValleyAmp = 0.20f;
+	float CanyonAmp = 0.16f;
+	float OceanDepthFrac = 0.30f;
+	float TrenchAmp = 0.50f;
+
 	/** Defaults matching the current Earth-like prototype mapper (4 km). */
 	static FGXPlanetStampParams LegacyPrototype()
 	{
 		FGXPlanetStampParams P;
+		P.Profile = EGXStampProfile::Legacy;
 		P.Radius = 4000.0f;
 		P.MaxRelief = 180.0f;
 		P.CrustDepth = 12.0f;
@@ -38,26 +67,66 @@ struct FGXPlanetStampParams
 	static FGXPlanetStampParams Earth()
 	{
 		FGXPlanetStampParams P;
+		P.Profile = EGXStampProfile::Earth;
 		P.Radius = 60000.0f;
-		P.MaxRelief = 420.0f;
-		P.CrustDepth = 24.0f;
+		P.MaxRelief = 2400.0f;
+		P.CrustDepth = 96.0f;
 		P.Seed = 1337u;
+		P.ContinentFreq = 2.15f;
+		P.MountainFreq = 12.0f;
+		P.DetailFreq = 64.0f;
+		P.MoistureFreq = 3.2f;
+		P.ScarFreq = 7.0f;
+		P.ScarMaxDepth = 180.0f;
+		P.ScarThreshold = 0.84f;
+		P.OreFreq = 20.0f;
+		P.OreThreshold = 0.74f;
+		P.SeaLevelBias = 0.0f;
+		P.PlateFreq = 3.6f;
+		P.HillFreq = 28.0f;
+		P.RiverFreq = 48.0f;
+		P.CanyonFreq = 22.0f;
+		P.PlateauFreq = 6.5f;
+		P.LocalRidgeFreq = 320.0f;
+		P.LocalGullyFreq = 720.0f;
+		P.VolcanoFreq = 16.0f;
+		P.ValleyAmp = 0.20f;
+		P.CanyonAmp = 0.16f;
+		P.OceanDepthFrac = 0.30f;
+		P.TrenchAmp = 0.50f;
 		return P;
 	}
 
 	static FGXPlanetStampParams Moon()
 	{
 		FGXPlanetStampParams P;
+		P.Profile = EGXStampProfile::Moon;
 		P.Radius = 16000.0f;
-		P.MaxRelief = 280.0f;
-		P.CrustDepth = 18.0f;
+		P.MaxRelief = 900.0f;
+		P.CrustDepth = 48.0f;
 		P.Seed = 9001u;
-		P.ScarThreshold = 0.55f;
-		P.ScarMaxDepth = 80.0f;
+		P.ContinentFreq = 3.0f;
+		P.MountainFreq = 10.0f;
+		P.DetailFreq = 40.0f;
+		P.ScarThreshold = 0.52f;
+		P.ScarMaxDepth = 220.0f;
 		P.OreThreshold = 0.68f;
 		P.SeaLevelBias = 0.0f;
 		return P;
 	}
+};
+
+/** Cached Earth-field sample so height and material share one evaluation. */
+struct FGXEarthField
+{
+	float HeightM = 0.0f;
+	float LandMask = 0.0f;
+	float Orogeny = 0.0f;
+	float RiverCarve = 0.0f;
+	float CanyonCarve = 0.0f;
+	float Volcano = 0.0f;
+	float Moisture = 0.0f;
+	float SlopeProxy = 0.0f;
 };
 
 /**
@@ -81,9 +150,17 @@ public:
 	float SampleDensity(const FVector3d& PlanetLocalM) const;
 	int32 SampleMaterial(const FVector3d& PlanetLocalM, float Density) const;
 	FGXVoxelPacked SamplePacked(const FVector3d& PlanetLocalM) const;
+	FGXEarthField SampleEarthField(const FVector3f& UnitDir, bool bNeedMoisture) const;
+
+	/** Approximate slope in degrees from a 3-point height stencil (foliage). */
+	float SampleSlopeDegrees(const FVector3f& UnitDir, float OffsetMeters = 4.0f) const;
 
 	static FVector3f UnitDir(const FVector3d& P, double& OutR);
 
 private:
+	float SampleLegacyHeight(const FVector3f& UnitDir) const;
+	float SampleMoonHeight(const FVector3f& UnitDir) const;
+	int32 SampleEarthMaterial(const FVector3d& PlanetLocalM, float Density) const;
+
 	FGXPlanetStampParams Params;
 };

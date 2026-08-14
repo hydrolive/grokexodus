@@ -6,6 +6,7 @@
 #include "Voxel/VoxelSunSetup.h"
 #include "GXExodusCharacter.h"
 #include "GXVoxelWorld.h"
+#include "GXPlanetAtmosphere.h"
 #include "GXHUDLayout.h"
 #include "GXVersion.h"
 #include "Engine/DirectionalLight.h"
@@ -50,30 +51,22 @@ void AVoxelGameMode::BeginPlay()
 		It->Destroy();
 	}
 
-	bool bHaveGX = false;
+	AGXVoxelWorld* WorldActor = nullptr;
 	for (TActorIterator<AGXVoxelWorld> It(GetWorld()); It; ++It)
 	{
-		bHaveGX = true;
+		WorldActor = *It;
 		break;
 	}
-	if (!bHaveGX && GetWorld())
+	if (!WorldActor && GetWorld())
 	{
 		FActorSpawnParameters SP;
 		SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		if (AGXVoxelWorld* W = GetWorld()->SpawnActor<AGXVoxelWorld>(FVector::ZeroVector, FRotator::ZeroRotator, SP))
-		{
-			W->PlanetRadius = 4000.0f;
-			W->StreamRadius = 140.0f;
-			W->UnloadRadius = 190.0f;
-			W->NearFieldRadius = 80.0f;
-			W->MaxRelief = 180.0f;
-			W->bForceLOD0 = true;
-			W->bAsyncMeshing = true;
-			W->WarmupSeconds = 2.0f;
-			W->WarmupMeshBuildsPerFrame = 24;
-			W->MaxMeshBuildsPerFrame = 4;
-			W->bAutoLoadOnBeginPlay = false;
-		}
+		WorldActor = GetWorld()->SpawnActor<AGXVoxelWorld>(FVector::ZeroVector, FRotator::ZeroRotator, SP);
+	}
+	if (WorldActor)
+	{
+		WorldActor->ApplyEarthPlayDefaults();
+		FGXPlanetAtmosphere::EnsureForPlanet(GetWorld(), WorldActor->PlanetRadius, 18000.0);
 	}
 
 	PlacePlayerOnSurface();

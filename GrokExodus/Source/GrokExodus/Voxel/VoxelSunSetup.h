@@ -9,8 +9,9 @@
 
 /**
  * Place in a level or spawn from game mode.
- * Creates DirectionalLight (Sun), SkyAtmosphere, SkyLight, and light fog
- * if they are missing — so lighting is correct even on empty maps.
+ * Creates DirectionalLight (Sun), SkyAtmosphere, and SkyLight if missing.
+ * SkyAtmosphere is configured as a sphere around the origin (see FGXPlanetAtmosphere).
+ * ExponentialHeightFog is planar Z-up and is disabled on this planet.
  */
 UCLASS(Blueprintable)
 class AVoxelSunSetup : public AActor
@@ -57,8 +58,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Atmosphere")
 	bool bSpawnSkyLightIfMissing = true;
 
+	/** ExponentialHeightFog is planar Z-up and fights a sphere. Leave off. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Atmosphere")
-	bool bSpawnHeightFogIfMissing = true;
+	bool bSpawnHeightFogIfMissing = false;
 
 	/** Rebuild / ensure lighting actors. Safe to call multiple times. */
 	UFUNCTION(BlueprintCallable, Category = "Sun")

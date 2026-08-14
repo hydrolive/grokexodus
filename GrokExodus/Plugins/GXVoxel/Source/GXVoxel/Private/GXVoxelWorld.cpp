@@ -60,9 +60,96 @@ void AGXVoxelWorld::RebuildParams()
 	P.MaxRelief = MaxRelief;
 	P.VoxelSize = VoxelSize;
 	P.Seed = static_cast<uint32>(Seed);
-	P.CrustDepth = FMath::Max(12.0f, MaxRelief * 0.12f);
+	P.CrustDepth = FMath::Max(24.0f, MaxRelief * 0.04f);
 	Volume = MakeUnique<FGXVoxelVolume>(P);
 	Jobs = MakeUnique<FGXJobGraph>();
+}
+
+void AGXVoxelWorld::ResetStreamingState()
+{
+	if (Jobs)
+	{
+		Jobs->BumpStamp();
+	}
+	for (auto& Pair : ChunkActors)
+	{
+		if (AGXVoxelChunkProxy* Proxy = Pair.Value.Get())
+		{
+			Proxy->Destroy();
+		}
+	}
+	ChunkActors.Empty();
+	MeshQueue.Empty();
+	MeshQueued.Empty();
+	AsyncInFlight.Empty();
+	HollowChunks.Empty();
+	RemeshWhenIdle.Empty();
+	BrushForceLOD0.Empty();
+	{
+		FScopeLock Lock(&PendingCS);
+		PendingMeshes.Empty();
+	}
+	LastStreamViewerWorld = FVector(1e12f, 0, 0);
+	WarmupTimeRemaining = WarmupSeconds;
+	bWorldReady = false;
+	LoadProgress = 0.0f;
+	LoadStatus = TEXT("Rebuilding planet…");
+}
+
+void AGXVoxelWorld::ConfigurePlanet(float InRadius, float InRelief, float InStream, int32 InSeed)
+{
+	const bool bChanged =
+		!FMath::IsNearlyEqual(PlanetRadius, InRadius)
+		|| !FMath::IsNearlyEqual(MaxRelief, InRelief)
+		|| !FMath::IsNearlyEqual(StreamRadius, InStream)
+		|| (InSeed != 0 && Seed != InSeed)
+		|| !Volume;
+
+	PlanetRadius = InRadius;
+	MaxRelief = InRelief;
+	StreamRadius = FMath::Clamp(InStream, 220.0f, 420.0f);
+	UnloadRadius = StreamRadius + 120.0f;
+	NearFieldRadius = FMath::Clamp(NearFieldRadius, 80.0f, StreamRadius * 0.5f);
+	CollisionRadius = FMath::Max(CollisionRadius, NearFieldRadius);
+	if (InSeed != 0)
+	{
+		Seed = InSeed;
+	}
+
+	if (!bChanged && Volume)
+	{
+		return;
+	}
+
+	if (HasActorBegunPlay())
+	{
+		ResetStreamingState();
+		RebuildParams();
+		SetupDistantSphere();
+		if (Foliage)
+		{
+			Foliage->Clear();
+		}
+		UE_LOG(LogGXVoxel, Warning,
+			TEXT("GX-%s ConfigurePlanet R=%.0f relief=%.0f stream=%.0f"),
+			GX_VERSION_STRING, PlanetRadius, MaxRelief, StreamRadius);
+	}
+}
+
+void AGXVoxelWorld::ApplyEarthPlayDefaults()
+{
+	const FGXPlanetStampParams E = FGXPlanetStampParams::Earth();
+	StreamRadius = 280.0f;
+	UnloadRadius = 400.0f;
+	NearFieldRadius = 96.0f;
+	CollisionRadius = 96.0f;
+	bForceLOD0 = true;
+	bAsyncMeshing = true;
+	WarmupSeconds = 2.5f;
+	WarmupMeshBuildsPerFrame = 24;
+	MaxMeshBuildsPerFrame = 4;
+	bAutoLoadOnBeginPlay = false;
+	ConfigurePlanet(E.Radius, E.MaxRelief, StreamRadius, static_cast<int32>(E.Seed));
 }
 
 void AGXVoxelWorld::SetupDistantSphere()
@@ -110,6 +197,8 @@ void AGXVoxelWorld::BeginPlay()
 	WarmupTimeRemaining = WarmupSeconds;
 	TerrainPBR = MakeUnique<FGXTerrainPBR>();
 	TerrainPBR->Initialize(this);
+	Foliage = MakeUnique<FGXFoliageScatter>();
+	Foliage->Initialize(this);
 	if (UMaterialInterface* PBR = TerrainPBR->GetMaterial())
 	{
 		TerrainMaterial = PBR;
@@ -137,6 +226,11 @@ void AGXVoxelWorld::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (bAutoSaveOnEndPlay)
 	{
 		SaveWorld();
+	}
+	if (Foliage)
+	{
+		Foliage->Shutdown();
+		Foliage.Reset();
 	}
 	if (TerrainPBR)
 	{
@@ -182,6 +276,10 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	const int32 QueueBefore = MeshQueue.Num();
 	ProcessMeshQueue(Budget);
 	const double MeshMs = (FPlatformTime::Seconds() - M0) * 1000.0;
+	if (Foliage && Volume && WarmupTimeRemaining <= 0.0f)
+	{
+		Foliage->Sync(this, Volume->GetStamp(), CachedViewerWorld, PlanetRadius);
+	}
 	RefreshLoadState();
 
 	const double TickMs = (FPlatformTime::Seconds() - T0) * 1000.0;
@@ -869,6 +967,13 @@ bool AGXVoxelWorld::LoadWorld()
 	int32 FileSeed = 0;
 	float R = 0, Rel = 0, VS = 0;
 	Read(&FileSeed, 4); Read(&R, 4); Read(&Rel, 4); Read(&VS, 4);
+	if (FMath::Abs(R - PlanetRadius) > FMath::Max(PlanetRadius * 0.05f, 50.0f))
+	{
+		UE_LOG(LogGXVoxel, Warning,
+			TEXT("Skipping save %s (file R=%.0f current R=%.0f) — old 4 km pages would punch the new crust"),
+			*GetSavePath(), R, PlanetRadius);
+		return false;
+	}
 	int32 PageCount = 0;
 	if (!Read(&PageCount, 4))
 	{

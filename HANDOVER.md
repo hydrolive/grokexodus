@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-14** · On-disk build stamp: **GX 0.5.9**  
+Last updated: **2026-08-13** · On-disk build stamp: **GX 0.6.0**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.6.0** Earth-scale planet: **60 km** radius, **2.4 km** relief. Stamp is a real geomorphology stack (plates, ranges, rivers, canyons, coasts, volcanoes, glaciers, trenches) plus walkable local ridges. GameMode no longer clamps relief to 220 m. SkyAtmosphere is **kept** and re-centered on the planet (`PlanetCenterAtComponentTransform`); Z-up ExponentialHeightFog is disabled. Haze is Mie + aerial perspective and thins with altitude. Foliage: import meshes to `/Game/Foliage/SM_{Grass,Bush,Tree}` (Brushify is fine as meshes; do **not** convert to Landscape).
 - **GX 0.5.9+** Landscape dual-scale triplanar (not fade-to-vertex-color). Near grass ~2 m, macro ~20 m; rock uses a larger tile so mountains keep color without repeating. Horizon sphere still fills the limb.
 - **GX 0.5.9** Distant voxel wallpaper fades to vertex color by 150 m. A mean-radius `M_VoxelHorizon` sphere fills the limb past the stream; near pixels are masked so holes are not a second grass layer. Stream ~180–200 m.
 - **GX 0.5.8** Dig ignored early “infected” pages (Density=0, no flags) while the mesh still showed stamp grass. Sample/raycast/load now treat only Deformed/PlayerPlaced cells as real edits. Place already overwrote them; dig now carves that grass.
@@ -28,6 +29,13 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 - Live Coding often blocks `Build.bat`. The agent **closes Unreal and rebuilds Development Editor `-NoUBA`** (see `AGENTS.md`). Do not ask the user to do that.
 - **Unreal MCP:** `UnrealMCPython` plugin listens on `127.0.0.1:12029`. Agent **must Start-Process the editor** and confirm a PID before polling the port. Never wait on 12029 with no UnrealEditor process (the user had to launch it by hand). Run Python via `unreal-mcpython__util execute_python`. Unity MCP is disabled.
 - **Plugin GXCore failed to load / GetLastError=4551:** Development `UnrealEditor-GXCore.dll` was an unloadable image (UBA served a bad cached link). DebugGame DLL was fine; the editor loads Development. Fix: delete `Plugins/*/Binaries/Win64/UnrealEditor-GX*.dll` and `Binaries/Win64/UnrealEditor-GrokExodus.dll`, rebuild `GrokExodusEditor Win64 Development -NoUBA`. All six project DLLs now map with `LoadLibraryEx(DONT_RESOLVE)`.
+
+## Verify after 0.6.0
+
+1. Gold `GX 0.6.0`. Spawn is on a **60 km** crust (`PlacePawnOnSurface r≈60000`). Log: `GXPlanetAtmosphere: spherical R=60.00km` and `mode=PlanetCenter`.
+2. Look at the horizon: sky/limb should match the local ground plane, not sit sideways. Surface haze that thins if you climb.
+3. Terrain should show ridges, gullies, and real elevation — not the old 180 m rolling blob. Distant sphere still fills the limb.
+4. No grass/trees until `/Game/Foliage/SM_*` meshes exist. Log will say so.
 
 ## Next work
 

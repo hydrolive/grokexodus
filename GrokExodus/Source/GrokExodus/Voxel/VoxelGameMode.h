@@ -26,11 +26,11 @@ public:
 
 	/** Full design-scale radius (meters). Working set is StreamRadius, not this. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel")
-	float PlanetRadius = 4000.0f;
+	float PlanetRadius = 60000.0f;
 
 	/** Viewer stream radius (meters). Tune for FPS; planet stays large. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel")
-	float StreamRadius = 160.0f;
+	float StreamRadius = 280.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Voxel")
 	bool bSpawnPlanetIfMissing = true;

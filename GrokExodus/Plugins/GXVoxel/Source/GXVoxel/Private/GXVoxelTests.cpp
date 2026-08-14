@@ -4,6 +4,7 @@
 #include "GXVoxelVolume.h"
 #include "GXMesher.h"
 #include "GXNoise.h"
+#include "GXVoxelStamps.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGXVoxelDensityIdentity, "GX.Voxel.DensityIdentity",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -86,5 +87,71 @@ bool FGXVoxelMeshWatertight::RunTest(const FString& Parameters)
 	const FGXMeshBuffers Mesh = FGXMesher::MeshChunk(*Snap, Key, FGXMesher::FSettings());
 	TestTrue(TEXT("mesh has tris"), Mesh.Indices.Num() >= 3 && (Mesh.Indices.Num() % 3) == 0);
 	TestTrue(TEXT("mesh has verts"), Mesh.Positions.Num() > 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGXVoxelEarthGeomorphology, "GX.Voxel.EarthGeomorphology",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGXVoxelEarthGeomorphology::RunTest(const FString& Parameters)
+{
+	const FGXPlanetStampParams Params = FGXPlanetStampParams::Earth();
+	TestEqual(TEXT("Earth profile"), static_cast<int32>(Params.Profile), static_cast<int32>(EGXStampProfile::Earth));
+	TestTrue(TEXT("60 km radius"), FMath::IsNearlyEqual(Params.Radius, 60000.0f));
+	TestTrue(TEXT("km-scale relief"), Params.MaxRelief >= 2000.0f);
+
+	const FGXSphereStamp Stamp(Params);
+	const FVector3f PlusX(1, 0, 0);
+	const float SpawnH = Stamp.SampleHeightDisplacement(PlusX);
+	TestTrue(TEXT("+X spawn is land"), SpawnH > 20.0f);
+
+	const FVector3d Inside = FVector3d(Params.Radius - 40.0, 0, 0);
+	const FVector3d Above = FVector3d(Params.Radius + Params.MaxRelief + 20.0, 0, 0);
+	TestTrue(TEXT("inside crust solid"), Stamp.SampleDensity(Inside) > 0.0f);
+	TestTrue(TEXT("above peaks air"), Stamp.SampleDensity(Above) < 0.0f);
+
+	float HMin = 1.0e9f;
+	float HMax = -1.0e9f;
+	int32 Ocean = 0;
+	int32 Peak = 0;
+	int32 Valley = 0;
+	for (int32 I = 0; I < 512; ++I)
+	{
+		const float T = static_cast<float>(I) / 511.0f;
+		const float Lon = T * 2.0f * PI * 3.7f;
+		const float Lat = (T - 0.5f) * PI * 0.92f;
+		const FVector3f Dir(
+			FMath::Cos(Lat) * FMath::Cos(Lon),
+			FMath::Cos(Lat) * FMath::Sin(Lon),
+			FMath::Sin(Lat));
+		const FGXEarthField Field = Stamp.SampleEarthField(Dir, false);
+		HMin = FMath::Min(HMin, Field.HeightM);
+		HMax = FMath::Max(HMax, Field.HeightM);
+		if (Field.HeightM < 0.0f)
+		{
+			++Ocean;
+		}
+		if (Field.HeightM > Params.MaxRelief * 0.40f)
+		{
+			++Peak;
+		}
+		if (Field.LandMask > 0.6f && Field.HeightM < Params.MaxRelief * 0.12f
+			&& (Field.RiverCarve > 0.012f || Field.CanyonCarve > 0.006f))
+		{
+			++Valley;
+		}
+	}
+
+	TestTrue(TEXT("oceans exist"), Ocean > 8);
+	TestTrue(TEXT("high peaks exist"), Peak > 4);
+	TestTrue(TEXT("carved valleys exist"), Valley > 4);
+	TestTrue(TEXT("relief spans kilometres"), (HMax - HMin) > 1500.0f);
+	TestTrue(TEXT("peaks approach MaxRelief"), HMax > Params.MaxRelief * 0.45f);
+
+	float F1 = 0.0f;
+	float F2 = 0.0f;
+	FGXNoise::WorleyF1F2(1.3f, -0.4f, 2.1f, 1337u, F1, F2);
+	TestTrue(TEXT("Worley F1 <= F2"), F1 <= F2 + KINDA_SMALL_NUMBER);
+	TestTrue(TEXT("Worley F1 finite"), F1 >= 0.0f && F1 < 4.0f);
 	return true;
 }

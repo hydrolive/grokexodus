@@ -8,6 +8,8 @@
 #include "GXVersion.h"
 #include "Voxel/VoxelPlayerController.h"
 #include "Voxel/VoxelSunSetup.h"
+#include "GXPlanetAtmosphere.h"
+#include "GXVoxelStamps.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/Engine.h"
 #include "EngineUtils.h"
@@ -36,6 +38,10 @@ void AGXGameMode::BeginPlay()
 	}
 	EnsureLighting();
 	EnsureWorld();
+	if (GetWorld() && VoxelWorld)
+	{
+		FGXPlanetAtmosphere::EnsureForPlanet(GetWorld(), VoxelWorld->PlanetRadius, 18000.0);
+	}
 	PlacePlayerOnSurface();
 
 	FTimerHandle H1, H2;
@@ -67,24 +73,21 @@ void AGXGameMode::EnsureWorld()
 	for (TActorIterator<AGXVoxelWorld> It(GetWorld()); It; ++It)
 	{
 		VoxelWorld = *It;
-		return;
+		break;
 	}
-	FActorSpawnParameters SP;
-	SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	VoxelWorld = GetWorld()->SpawnActor<AGXVoxelWorld>(FVector::ZeroVector, FRotator::ZeroRotator, SP);
+	if (!VoxelWorld)
+	{
+		FActorSpawnParameters SP;
+		SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		VoxelWorld = GetWorld()->SpawnActor<AGXVoxelWorld>(FVector::ZeroVector, FRotator::ZeroRotator, SP);
+	}
 	if (VoxelWorld)
 	{
-		VoxelWorld->PlanetRadius = PlanetRadius;
-		VoxelWorld->StreamRadius = FMath::Clamp(StreamRadius, 160.0f, 220.0f);
-		VoxelWorld->UnloadRadius = VoxelWorld->StreamRadius + 80.0f;
-		VoxelWorld->NearFieldRadius = 80.0f;
-		VoxelWorld->MaxRelief = FMath::Clamp(PlanetRadius * 0.045f, 80.0f, 220.0f);
-		VoxelWorld->bForceLOD0 = true;
-		VoxelWorld->bAsyncMeshing = true;
-		VoxelWorld->WarmupSeconds = 2.0f;
-		VoxelWorld->WarmupMeshBuildsPerFrame = 24;
-		VoxelWorld->MaxMeshBuildsPerFrame = 4;
-		VoxelWorld->bAutoLoadOnBeginPlay = false;
+		VoxelWorld->ApplyEarthPlayDefaults();
+		if (!FMath::IsNearlyEqual(PlanetRadius, 60000.0f) || !FMath::IsNearlyEqual(StreamRadius, 280.0f))
+		{
+			VoxelWorld->ConfigurePlanet(PlanetRadius, FGXPlanetStampParams::Earth().MaxRelief, StreamRadius);
+		}
 	}
 }
 

@@ -154,9 +154,10 @@ Plugins/GXCore/Source/GXCore/
   GXSaveTypes.h            GXS1 header
 
 Plugins/GXVoxel/Source/GXVoxel/
-  GXNoise.h                port of FVoxelNoise (identity)
+  GXNoise.h                fBm / ridged / Worley (plates, volcanoes)
   GXVoxelTypes.h           packed cell, chunk/page keys
-  GXVoxelStamps.*          sphere SDF + biomes / ores / scars
+  GXVoxelStamps.*          Earth geomorphology + Moon + legacy mapper
+  GXFoliage.*              near-field HISM scatter from stamp biome
   GXVoxelVolume.*          pages, brush, snapshot
   GXMesher.*               Marching Cubes
   GXVoxelInvokerComponent.*
@@ -170,6 +171,7 @@ Plugins/GXCelestial/Source/GXCelestial/
   GXBodyFrame.*            inertial ↔ body-fixed
   GXCelestialBodyAsset.*   Earth / Moon defaults
   GXBodyMovement.*         character movement
+  GXPlanetAtmosphere.*     spherical SkyAtmosphere (not Z-up height fog)
 
 Plugins/GXConstruct/       item stacks, recipes, UGXBlockDef, grid data
 Plugins/GXPresentation/    AGXHUDLayout
@@ -184,10 +186,51 @@ Source/GrokExodus/
 
 ## Default scale
 
-| Body | Radius | Surface g | Atmo | μ = g R² |
-|---|---|---|---|---|
-| Earth | 60 000 m | 9.81 | 18 000 m | 3.5316×10¹⁰ |
-| Moon (data only) | 16 000 m | 1.62 | none | 4.147×10⁸ |
+| Body | Radius | Max relief | Surface g | Atmo | μ = g R² |
+|---|---|---|---|---|---|
+| Earth | 60 000 m | **2 400 m** | 9.81 | 18 000 m | 3.5316×10¹⁰ |
+| Moon (data only) | 16 000 m | 900 m | 1.62 | none | 4.147×10⁸ |
+
+A 4 km ball cannot host 2 km peaks — they become the whole planet. 60 km keeps Everest-class relief at ~4 % of R so valleys and ranges read as terrain, not as a lumpy star. Stream is still ~280 m (near play); you walk *on* a range and discover the next one.
+
+### Earth stamp (`EGXStampProfile::Earth`)
+
+`FGXSphereStamp` is a layered geomorphology stack on the unit sphere, not a single fBm:
+
+| Layer | How |
+|---|---|
+| Tectonic plates | Worley cells; age + convergent/divergent hash |
+| Continents / shelves | 6-octave fBm + plate bias; **+X spawn continent** so PIE is never ocean |
+| Orogeny | Ridged mountains along convergent plate edges + inland ranges |
+| Cratons / plateaus | Old interiors stay low and flat; plateaus are high and flat |
+| Hills / foothills | Mid-frequency rolling land |
+| Rivers | Domain-warped inverted ridges |
+| Canyons / rifts | Rare deep cuts; rifts on divergent edges |
+| Local ridges / gullies | ~0.5–1 km wavelength so a 280 m stream actually shows mountains |
+| Volcanoes / calderas | Sparse Worley cones |
+| Glacial U-valleys | High latitude + alpine |
+| Ocean basins / trenches | Negative relief; trenches on convergent ocean edges |
+| Impacts | Existing scar bowls |
+
+`LegacyPrototype()` is bit-identical to the old 4 km mapper (automation). Moon is highlands / maria / scars.
+
+### Sky / fog
+
+**Keep `SkyAtmosphere_Planet`.** It is the only engine atmosphere that works on a sphere.
+
+It looked sideways because the default transform is `PlanetTopAtAbsoluteWorldOrigin` (Z-up ground at the origin). The player stands on the **+X** crust, so the limb was 90° off the local horizon.
+
+`FGXPlanetAtmosphere` sets `PlanetCenterAtComponentTransform`, actor at the origin, `BottomRadius = R/1000` km, 18 km atmosphere. Mie scale height ~0.7 km so haze is thick on the beach and almost gone on a 2 km ridge. Aerial perspective handles distance. **Do not use `ExponentialHeightFog`** — it is planar Z-up and will fog the wrong hemisphere.
+
+### Foliage (grass / trees)
+
+Do **not** convert the voxel planet to a UE Landscape. Brushify Forest (or any pack) is useful as **static meshes**, not as a landscape material.
+
+1. Import the pack.
+2. Copy / rename three meshes to `/Game/Foliage/SM_Grass`, `SM_Bush`, `SM_Tree`.
+3. `FGXFoliageScatter` instances them as HISMs on the near crust from stamp biome, slope, and altitude (planet-up, not Z-up).
+
+Without those meshes the scatter logs and stays idle. A marketplace Landscape pack will not stream, dig, or orbit with this planet.
 
 Moon SMA (authored) ≈ 280 km. Sidereal day (authored) 24 min so ground tracks happen in a session.
 
@@ -243,6 +286,7 @@ Automation (editor): `Automation RunTests GX`
 | `GX.Voxel.DensityIdentity` | unedited volume = stamp |
 | `GX.Voxel.PageSparseRoundTrip` | one dig → one 8³ page |
 | `GX.Voxel.MeshSphere` | MC emits tris |
+| `GX.Voxel.EarthGeomorphology` | 60 km Earth: +X land, oceans, peaks, valleys |
 | `GX.Celestial.ClosedOrbit` | 10-period Kepler close |
 | `GX.Celestial.EciBodyInvertible` | point + velocity invert |
 | `GX.Celestial.DragAndHeat` | heat grows with v; surface g |
@@ -266,7 +310,7 @@ Automation (editor): `Automation RunTests GX`
 
 - Mesher is CPU MC; transvoxel skirts and Dual Contouring are still upgrade paths.
 - PBR is a 4×2 atlas sampled by a native material graph (no Custom HLSL). Vertex color still tints if the atlas is unbound.
-- Sky is still the old `AVoxelSunSetup` directional. Ephemeris is not driving the lamp.
+- Sky lamp is still `AVoxelSunSetup` (not ephemeris). Atmosphere *orientation* is now spherical via `FGXPlanetAtmosphere`.
 - 60 km surface is 6×10⁶ UU from origin — LWC is on; Chaos is acceptable at that range but not at Earth–Moon span (hence body frames).
 - Single-player only.
 - Legacy `AVoxelPlanetActor` path still compiles but is not the product.

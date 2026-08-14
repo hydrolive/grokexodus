@@ -10,6 +10,7 @@
 #include "GXMesher.h"
 #include "GXVoxelVolume.h"
 #include "GXTerrainPBR.h"
+#include "GXFoliage.h"
 #include "GXVoxelWorld.generated.h"
 
 class AGXVoxelChunkProxy;
@@ -76,12 +77,12 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
-	/** Playable radius in meters. 4 km is the walkable default; 60 km is the flight-scale target. */
+	/** Playable radius in meters. Earth default is 60 km so 2 km peaks stay a small fraction of R. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
-	float PlanetRadius = 4000.0f;
+	float PlanetRadius = 60000.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
-	float MaxRelief = 420.0f;
+	float MaxRelief = 2400.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Planet")
 	float SurfaceG = 9.81f;
@@ -93,17 +94,17 @@ public:
 	int32 Seed = 1337;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	float StreamRadius = 140.0f;
+	float StreamRadius = 280.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	float UnloadRadius = 240.0f;
+	float UnloadRadius = 400.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	float NearFieldRadius = 72.0f;
+	float NearFieldRadius = 96.0f;
 
 	/** Collision cooked only inside this radius (meters). */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	float CollisionRadius = 80.0f;
+	float CollisionRadius = 96.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
 	int32 MaxMeshBuildsPerFrame = 4;
@@ -131,7 +132,7 @@ public:
 	FString SaveFileName = TEXT("earth_default.gxsav");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Persistence")
-	bool bAutoLoadOnBeginPlay = true;
+	bool bAutoLoadOnBeginPlay = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Persistence")
 	bool bAutoSaveOnEndPlay = true;
@@ -172,6 +173,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GX|Stream")
 	bool PlacePawnOnSurface(APawn* Pawn, FVector RadialHint = FVector(1, 0, 0));
 
+	/** Apply Earth playable scale (60 km, 2.4 km relief) and rebuild if already playing. */
+	UFUNCTION(BlueprintCallable, Category = "GX|Planet")
+	void ApplyEarthPlayDefaults();
+
+	UFUNCTION(BlueprintCallable, Category = "GX|Planet")
+	void ConfigurePlanet(float InRadius, float InRelief, float InStream, int32 InSeed = 0);
+
 	UFUNCTION(BlueprintCallable, Category = "GX|Persist")
 	bool SaveWorld();
 
@@ -196,6 +204,7 @@ protected:
 	TUniquePtr<FGXVoxelVolume> Volume;
 	TUniquePtr<FGXJobGraph> Jobs;
 	TUniquePtr<FGXTerrainPBR> TerrainPBR;
+	TUniquePtr<FGXFoliageScatter> Foliage;
 
 	TMap<FGXChunkKey, TWeakObjectPtr<AGXVoxelChunkProxy>> ChunkActors;
 	TArray<FGXChunkKey> MeshQueue;
@@ -229,6 +238,7 @@ protected:
 	int32 LastMeshedNear = 0;
 
 	void RebuildParams();
+	void ResetStreamingState();
 	void RefreshLoadState();
 	void EnqueueRemesh(const FGXChunkKey& Coord);
 	void EnqueueRemeshNeighborhood(const FGXChunkKey& Coord);

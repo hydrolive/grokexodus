@@ -10,6 +10,7 @@
 #include "Components/SkyAtmosphereComponent.h" // declares ASkyAtmosphere
 #include "EngineUtils.h"
 #include "GXVoxelWorld.h"
+#include "GXPlanetAtmosphere.h"
 
 AVoxelSunSetup::AVoxelSunSetup()
 {
@@ -132,6 +133,13 @@ void AVoxelSunSetup::EnsurePlanetLighting()
 				SkyAtmosphereActor->SetActorLabel(TEXT("SkyAtmosphere_Planet"));
 			}
 		}
+		double RadiusM = 60000.0;
+		for (TActorIterator<AGXVoxelWorld> It(World); It; ++It)
+		{
+			RadiusM = It->PlanetRadius;
+			break;
+		}
+		FGXPlanetAtmosphere::ConfigureSphericalSky(SkyAtmosphereActor, RadiusM, 18000.0);
 	}
 
 	if (bSpawnSkyLightIfMissing && !SkyLightActor)
@@ -173,32 +181,22 @@ void AVoxelSunSetup::EnsurePlanetLighting()
 		}
 	}
 
+	for (TActorIterator<AExponentialHeightFog> It(World); It; ++It)
+	{
+		HeightFogActor = *It;
+		FGXPlanetAtmosphere::DisablePlanarHeightFog(*It);
+	}
 	if (bSpawnHeightFogIfMissing && !HeightFogActor)
 	{
-		for (TActorIterator<AExponentialHeightFog> It(World); It; ++It)
+		// Kept only as an escape hatch. Planar Z-fog is wrong on a sphere.
+		FActorSpawnParameters SP;
+		SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		HeightFogActor = World->SpawnActor<AExponentialHeightFog>(
+			AExponentialHeightFog::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, SP);
+		if (HeightFogActor)
 		{
-			HeightFogActor = *It;
-			break;
-		}
-		if (!HeightFogActor)
-		{
-			FActorSpawnParameters SP;
-			SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-			HeightFogActor = World->SpawnActor<AExponentialHeightFog>(
-				AExponentialHeightFog::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, SP);
-			if (HeightFogActor)
-			{
-				HeightFogActor->SetActorLabel(TEXT("HeightFog_Planet"));
-				if (UExponentialHeightFogComponent* FC = HeightFogActor->GetComponent())
-				{
-					FC->SetFogDensity(0.008f);
-					FC->SetFogHeightFalloff(0.12f);
-					FC->SetFogInscatteringColor(FLinearColor(0.45f, 0.55f, 0.75f));
-					FC->SetVolumetricFog(true);
-					FC->VolumetricFogExtinctionScale = 0.6f;
-					FC->MarkRenderStateDirty();
-				}
-			}
+			HeightFogActor->SetActorLabel(TEXT("HeightFog_Planet"));
+			FGXPlanetAtmosphere::DisablePlanarHeightFog(HeightFogActor);
 		}
 	}
 
