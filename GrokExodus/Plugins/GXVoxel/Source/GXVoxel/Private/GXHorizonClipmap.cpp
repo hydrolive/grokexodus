@@ -85,7 +85,8 @@ void FGXHorizonClipmap::BuildRing(
 	float SinkM,
 	UMaterialInterface* Material,
 	const FGXCrustAtlas* Atlas,
-	const TArray<FVector>* EditHolesLocalM)
+	const TArray<FVector>* EditHolesLocalM,
+	const TFunction<float(const FVector&)>& DensityAt)
 {
 	if (!Comp)
 	{
@@ -139,26 +140,46 @@ void FGXHorizonClipmap::BuildRing(
 			// One height function for every ring. Mixing atlas + stamp made a crease.
 			const float HeightM = Field.HeightM;
 			(void)Atlas;
-			const float SurfR = Stamp.GetParams().Radius + HeightM;
-			const FVector P = Dir * (SurfR - Sink) * 100.0f;
-			const int32 Idx = I + J * Dim;
-			if (EditHolesLocalM)
+			float SurfR = Stamp.GetParams().Radius + HeightM;
+			// Dig/place must displace the height field — never drop verts.
+			// 0.7.33 skipped a 30 m disk and the crust vanished (teal void).
+			if (EditHolesLocalM && EditHolesLocalM->Num() > 0)
 			{
-				const FVector PM = Dir * SurfR;
-				bool bHole = false;
+				const FVector Guess = Dir * SurfR;
+				const float Infl = FMath::Max(24.0f, CellM * 3.0f);
+				const float Infl2 = Infl * Infl;
+				bool bNearEdit = false;
 				for (const FVector& Hole : *EditHolesLocalM)
 				{
-					if (FVector::DistSquared(PM, Hole) < 900.0f)
+					if (FVector::DistSquared(Guess, Hole) < Infl2)
 					{
-						bHole = true;
+						bNearEdit = true;
 						break;
 					}
 				}
-				if (bHole)
+				if (bNearEdit && DensityAt)
 				{
-					continue;
+					// Density > 0 is solid. Walk the radial until air so a
+					// subtract becomes a crater and a place becomes a mound.
+					float Lo = SurfR - 12.0f;
+					float Hi = SurfR + 6.0f;
+					for (int32 K = 0; K < 12; ++K)
+					{
+						const float Mid = 0.5f * (Lo + Hi);
+						if (DensityAt(Dir * Mid) >= 0.0f)
+						{
+							Lo = Mid;
+						}
+						else
+						{
+							Hi = Mid;
+						}
+					}
+					SurfR = Hi;
 				}
 			}
+			const FVector P = Dir * (SurfR - Sink) * 100.0f;
+			const int32 Idx = I + J * Dim;
 			IndexOf[Idx] = Positions.Num();
 			Positions.Add(P);
 			Normals.Add(Dir);
@@ -290,7 +311,8 @@ void FGXHorizonClipmap::Update(
 	UMaterialInterface* NearMaterial,
 	UMaterialInterface* FarMaterial,
 	const FGXCrustAtlas* Atlas,
-	const TArray<FVector>* EditHolesLocalM)
+	const TArray<FVector>* EditHolesLocalM,
+	TFunction<float(const FVector&)> DensityAt)
 {
 	if (!Owner || Rings.Num() == 0)
 	{
@@ -320,16 +342,25 @@ void FGXHorizonClipmap::Update(
 		Rings.Last().OuterM = FMath::Max(OuterM, 4000.0f);
 	}
 
+	UMaterialInterface* NearLit = NearMaterial;
 	UMaterialInterface* FarLit = FarMaterial;
+	if (!FarLit)
+	{
+		FarLit = NearLit;
+	}
+	if (!FarLit)
+	{
+		FarLit = LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Game/Voxel/Materials/M_VoxelTerrain_PBR.M_VoxelTerrain_PBR"));
+	}
 	if (!FarLit)
 	{
 		FarLit = LoadObject<UMaterialInterface>(nullptr,
 			TEXT("/Game/Voxel/Materials/M_VoxelHorizonFar.M_VoxelHorizonFar"));
 	}
-	if (!FarLit)
+	if (!NearLit)
 	{
-		FarLit = LoadObject<UMaterialInterface>(nullptr,
-			TEXT("/Engine/EngineDebugMaterials/VertexColorMaterial.VertexColorMaterial"));
+		NearLit = FarLit;
 	}
 
 	const double T0 = FPlatformTime::Seconds();
@@ -348,7 +379,8 @@ void FGXHorizonClipmap::Update(
 		}
 		if (UProceduralMeshComponent* C = Ring.Comp.Get())
 		{
-			BuildRing(C, Stamp, CenterDir, T, B, Ring.InnerM, Ring.OuterM, Ring.CellM, Ring.SinkM, FarLit, Atlas, EditHolesLocalM);
+			UMaterialInterface* UseMat = (I == 0) ? NearLit : FarLit;
+			BuildRing(C, Stamp, CenterDir, T, B, Ring.InnerM, Ring.OuterM, Ring.CellM, Ring.SinkM, UseMat, Atlas, EditHolesLocalM, DensityAt);
 			Ring.LastBuild = ViewerLocalM;
 			++Built;
 		}

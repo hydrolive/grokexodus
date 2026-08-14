@@ -180,8 +180,20 @@ def main():
         return
 
     mat = None
-    if unreal.EditorAssetLibrary.does_asset_exist(ASSET):
-        mat = unreal.EditorAssetLibrary.load_asset(ASSET)
+    # PIE/MCP often reports does_asset_exist=False for committed uassets.
+    for path in (ASSET, ASSET + "." + NAME):
+        try:
+            mat = unreal.load_asset(path)
+        except Exception:
+            mat = None
+        if not mat:
+            try:
+                mat = unreal.EditorAssetLibrary.load_asset(path)
+            except Exception:
+                mat = None
+        if mat:
+            break
+    if mat:
         _close_editors(mat)
     else:
         if not unreal.EditorAssetLibrary.does_directory_exist(PACKAGE):
@@ -363,21 +375,14 @@ def main():
     radial = node(unreal.MaterialExpressionNormalize, x0 + 560, 800, "radial")
     connect(wp, "", radial, "")
 
-    # Sphere lon/lat * R — world XYZ planar UVs put a seam on every axis
-    # (Y=0 / Z=0 planes through the planet). Date line is on the far -X side.
-    lon = node(unreal.MaterialExpressionArctangent2, x0 + 820, -200, "lon")
-    connect(py, "", lon, "A")
-    connect(px, "", lon, "B")
-    nzp = mask(radial, "", False, False, True, x0 + 820, -80, "Nz")
-    lat = node(unreal.MaterialExpressionArcsine, x0 + 1080, -80, "lat")
-    connect(nzp, "", lat, "")
-    origin = node(unreal.MaterialExpressionConstant3Vector, x0 + 560, 40, "origin")
-    _set(origin, "constant", unreal.LinearColor(0.0, 0.0, 0.0, 0.0))
-    rlen = node(unreal.MaterialExpressionDistance, x0 + 820, 40, "Rcm")
-    connect(wp, "", rlen, "A")
-    connect(origin, "", rlen, "B")
-    lon_u = mul(lon, "", rlen, "", x0 + 1340, -200, "lonU")
-    lat_v = mul(lat, "", rlen, "", x0 + 1340, -80, "latV")
+    # Rotate YZ 32° so wrap planes are not world Y=0 / Z=0 under the pawn.
+    # (lon/lat Atan2/Asin in 0.7.33 compiled to a black/brown untextured crust.)
+    c32 = const(0.8480, x0 + 820, -200, "c32")
+    s32 = const(0.5299, x0 + 820, -120, "s32")
+    rot_u = sub(mul(py, "", c32, "", x0 + 1080, -200), "",
+                mul(pz, "", s32, "", x0 + 1080, -120), "", x0 + 1340, -200, "rotU")
+    rot_v = add(mul(py, "", s32, "", x0 + 1080, -40), "",
+                mul(pz, "", c32, "", x0 + 1080, 40), "", x0 + 1340, -40, "rotV")
 
     def atlas_sample_axes(param, texture, tnode, cell_u, cell_v, ua, va, ox, oy, linear):
         fu = frac(mul(ua, "", tnode, "", ox, oy), "", ox + 240, oy)
@@ -390,7 +395,7 @@ def main():
         return tex(param, uv, texture, ox + 1680, oy, linear)
 
     def atlas_sample(param, texture, tnode, cell_u, cell_v, ox, oy, linear):
-        return atlas_sample_axes(param, texture, tnode, cell_u, cell_v, lon_u, lat_v, ox, oy, linear)
+        return atlas_sample_axes(param, texture, tnode, cell_u, cell_v, rot_u, rot_v, ox, oy, linear)
 
     nx = mask(vn, "", True, False, False, x0 + 560, 1180, "Nx")
     ny = mask(vn, "", False, True, False, x0 + 560, 1260, "Ny")
@@ -407,7 +412,7 @@ def main():
     wz = div(az, "", wsum, "", x0 + 1520, 1340, "wZ")
 
     def triplanar_albedo(param, texture, tnode, cell_u, cell_v, ox, oy):
-        s_yz = atlas_sample_axes(param, texture, tnode, cell_u, cell_v, lon_u, lat_v, ox, oy, False)
+        s_yz = atlas_sample_axes(param, texture, tnode, cell_u, cell_v, rot_u, rot_v, ox, oy, False)
         s_xz = atlas_sample_axes(param, texture, tnode, cell_u, cell_v, px, pz, ox, oy + 220, False)
         s_xy = atlas_sample_axes(param, texture, tnode, cell_u, cell_v, px, py, ox, oy + 440, False)
         a = add(mul(s_yz, "", wx, "", ox + 2000, oy), "", mul(s_xz, "", wy, "", ox + 2000, oy + 220), "", ox + 2300, oy)
@@ -513,6 +518,18 @@ def main():
 
     plug(albedo, "", unreal.MaterialProperty.MP_BASE_COLOR)
     plug(lerp_r, "", unreal.MaterialProperty.MP_ROUGHNESS)
+    # Back-lit / sky-facing hills were pitch black (0.7.33 #1). 18% of the
+    # albedo plus a tiny ambient so auto-exposure against the sky cannot
+    # crush the crust to a silhouette — still textured, not a flat tint.
+    fill_k = const(0.18, x0 + 9880, 200, "fillK")
+    amb_r = const(0.022, x0 + 9880, 260, "ambR")
+    amb_g = const(0.028, x0 + 9880, 320, "ambG")
+    amb_b = const(0.016, x0 + 9880, 380, "ambB")
+    amb = append(append(amb_r, "", amb_g, "", x0 + 10140, 280, "ambRG"),
+                 "", amb_b, "", x0 + 10380, 280, "amb")
+    fill = add(mul(albedo, "", fill_k, "", x0 + 10140, 200, "fillA"), "",
+               amb, "", x0 + 10620, 200, "fill")
+    plug(fill, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     # Leave Normal unconnected so the mesh uses tangent-space vertex normals.
     # Plugging VertexNormalWS into Normal while tangent-space is on makes the crust black.
 
@@ -553,8 +570,19 @@ def _create_horizon():
     tools = unreal.AssetToolsHelpers.get_asset_tools()
     mel = unreal.MaterialEditingLibrary
     mat = None
-    if unreal.EditorAssetLibrary.does_asset_exist(asset):
-        mat = unreal.EditorAssetLibrary.load_asset(asset)
+    for path in (asset, asset + "." + name):
+        try:
+            mat = unreal.load_asset(path)
+        except Exception:
+            mat = None
+        if not mat:
+            try:
+                mat = unreal.EditorAssetLibrary.load_asset(path)
+            except Exception:
+                mat = None
+        if mat:
+            break
+    if mat:
         _close_editors(mat)
     else:
         mat = tools.create_asset(name, PACKAGE, unreal.Material, unreal.MaterialFactoryNew())
@@ -628,8 +656,19 @@ def _create_horizon_far():
     tools = unreal.AssetToolsHelpers.get_asset_tools()
     mel = unreal.MaterialEditingLibrary
     mat = None
-    if unreal.EditorAssetLibrary.does_asset_exist(asset):
-        mat = unreal.EditorAssetLibrary.load_asset(asset)
+    for path in (asset, asset + "." + name):
+        try:
+            mat = unreal.load_asset(path)
+        except Exception:
+            mat = None
+        if not mat:
+            try:
+                mat = unreal.EditorAssetLibrary.load_asset(path)
+            except Exception:
+                mat = None
+        if mat:
+            break
+    if mat:
         _close_editors(mat)
     else:
         mat = tools.create_asset(name, PACKAGE, unreal.Material, unreal.MaterialFactoryNew())

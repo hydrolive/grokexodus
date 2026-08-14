@@ -371,7 +371,11 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			TerrainMaterial,
 			TerrainMaterial,
 			CrustAtlas.Get(),
-			&EditHolesLocalM);
+			&EditHolesLocalM,
+			[this](const FVector& LocalM)
+			{
+				return SampleDensityMeters(FVector3d(LocalM.X, LocalM.Y, LocalM.Z));
+			});
 	}
 	if (Foliage && Volume && bWorldReady)
 	{
@@ -603,14 +607,16 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	Out.YieldAmount = Brush.VolumeChanged * 0.7f * RecoveryMul;
 	Out.ToolWear = Brush.VolumeChanged * WearMul;
 	if (Jobs) Jobs->BumpStamp();
-	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
 		BrushForceLOD0.Add(C);
-		EnqueueRemesh(C, true);
-		EditHolesLocalM.Add(FVector((C.X + 0.5f) * ChunkM, (C.Y + 0.5f) * ChunkM, (C.Z + 0.5f) * ChunkM));
+		if (bDrawVoxelVisuals)
+		{
+			EnqueueRemesh(C, true);
+		}
 	}
+	EditHolesLocalM.Add(L);
 	if (EditHolesLocalM.Num() > 48)
 	{
 		EditHolesLocalM.RemoveAt(0, EditHolesLocalM.Num() - 48, EAllowShrinking::No);
@@ -619,7 +625,12 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	{
 		HorizonClipmap->Invalidate();
 	}
-	FlushMeshQueue(2);
+	GX_PERF(1, TEXT("GX-dig clipmap hole local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d"),
+		L.X, L.Y, L.Z, RadiusM * DigSpeedMul, Brush.DirtyChunks.Num());
+	if (bDrawVoxelVisuals)
+	{
+		FlushMeshQueue(2);
+	}
 	return Out;
 }
 
@@ -636,14 +647,16 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	Out.bSuccess = Brush.VolumeChanged > 0.0f;
 	Out.MaterialId = MaterialId;
 	if (Jobs) Jobs->BumpStamp();
-	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
 		BrushForceLOD0.Add(C);
-		EnqueueRemesh(C, true);
-		EditHolesLocalM.Add(FVector((C.X + 0.5f) * ChunkM, (C.Y + 0.5f) * ChunkM, (C.Z + 0.5f) * ChunkM));
+		if (bDrawVoxelVisuals)
+		{
+			EnqueueRemesh(C, true);
+		}
 	}
+	EditHolesLocalM.Add(L);
 	if (EditHolesLocalM.Num() > 48)
 	{
 		EditHolesLocalM.RemoveAt(0, EditHolesLocalM.Num() - 48, EAllowShrinking::No);
@@ -652,7 +665,12 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	{
 		HorizonClipmap->Invalidate();
 	}
-	FlushMeshQueue(2);
+	GX_PERF(1, TEXT("GX-place clipmap mound local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d"),
+		L.X, L.Y, L.Z, RadiusM, Brush.DirtyChunks.Num());
+	if (bDrawVoxelVisuals)
+	{
+		FlushMeshQueue(2);
+	}
 	return Out;
 }
 

@@ -30,7 +30,8 @@ public:
 		UMaterialInterface* NearMaterial,
 		UMaterialInterface* FarMaterial = nullptr,
 		const FGXCrustAtlas* Atlas = nullptr,
-		const TArray<FVector>* EditHolesLocalM = nullptr);
+		const TArray<FVector>* EditHolesLocalM = nullptr,
+		TFunction<float(const FVector&)> DensityAt = nullptr);
 
 	void Invalidate();
 	bool IsReady() const { return bReady; }
@@ -62,5 +63,6 @@ private:
 		float SinkM,
 		UMaterialInterface* Material,
 		const FGXCrustAtlas* Atlas,
-		const TArray<FVector>* EditHolesLocalM);
+		const TArray<FVector>* EditHolesLocalM,
+		const TFunction<float(const FVector&)>& DensityAt);
 };
