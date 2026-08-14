@@ -101,8 +101,7 @@ void FGXHorizonClipmap::BuildRing(
 		{
 			const float U = static_cast<float>(I - Half) * CellM;
 			const float D2 = U * U + V * V;
-			// Keep verts past the inner hole so the first annulus of quads is complete.
-			if (D2 > OuterPad * 1.21f || D2 < InnerPad * 0.49f)
+			if (D2 > OuterPad * 1.21f)
 			{
 				continue;
 			}
@@ -148,6 +147,13 @@ void FGXHorizonClipmap::BuildRing(
 			const int32 C = Vert(I, J + 1);
 			const int32 D = Vert(I + 1, J + 1);
 			if (A == INDEX_NONE || B == INDEX_NONE || C == INDEX_NONE || D == INDEX_NONE)
+			{
+				continue;
+			}
+			const float CU = (static_cast<float>(I - Half) + 0.5f) * CellM;
+			const float CV = (static_cast<float>(J - Half) + 0.5f) * CellM;
+			const float CD2 = CU * CU + CV * CV;
+			if (CD2 < InnerPad || CD2 > OuterPad)
 			{
 				continue;
 			}
@@ -215,7 +221,7 @@ void FGXHorizonClipmap::Update(
 	{
 		return;
 	}
-	if (FVector::DistSquared(ViewerLocalM, LastViewerLocal) < FMath::Square(90.0f) && bReady)
+	if (FVector::DistSquared(ViewerLocalM, LastViewerLocal) < FMath::Square(400.0f) && bReady)
 	{
 		return;
 	}
@@ -231,7 +237,7 @@ void FGXHorizonClipmap::Update(
 
 	// Start just inside the voxel stream. Drawing clipmap over L0 caused the
 	// lattice seams in the screenshots (12 m grid z-fighting 1 m voxels).
-	Rings[0].InnerM = FMath::Clamp(InnerHoleM * 0.90f, 200.0f, 400.0f);
+	Rings[0].InnerM = FMath::Clamp(InnerHoleM * 0.98f, 240.0f, 420.0f);
 	if (Rings.Num() > 2)
 	{
 		Rings.Last().OuterM = FMath::Max(OuterM, 4000.0f);

@@ -980,10 +980,22 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 			Existing->Destroy();
 			ChunkActors.Remove(Coord);
 		}
-		HollowChunks.Add(Coord);
-		if (Volume && !Volume->ChunkHasEdits(Coord))
+		const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
+		const FVector Center((Coord.X + 0.5f) * ChunkM, (Coord.Y + 0.5f) * ChunkM, (Coord.Z + 0.5f) * ChunkM);
+		const float CR = Center.Size();
+		float SurfaceR = PlanetRadius;
+		if (Volume)
 		{
-			FGXCrustCache::SaveHollow(FGXCrustCache::ChunkPath(Volume->GetStamp().GetParams(), Coord));
+			const FVector3f Dir = (CR > 1.0f)
+				? FVector3f(Center.X / CR, Center.Y / CR, Center.Z / CR)
+				: FVector3f(1, 0, 0);
+			SurfaceR = Volume->GetStamp().SampleSurfaceRadius(Dir);
+		}
+		// Only remember "hollow" for air/interior. Near-surface empties are
+		// false negatives (LOD/atlas) and must be allowed to remesh.
+		if (FMath::Abs(CR - SurfaceR) > ChunkM * 1.5f + 48.0f)
+		{
+			HollowChunks.Add(Coord);
 		}
 		return;
 	}

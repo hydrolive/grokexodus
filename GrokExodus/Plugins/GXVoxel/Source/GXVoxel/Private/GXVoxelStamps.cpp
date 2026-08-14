@@ -93,27 +93,30 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	const float Coast = 4.0f * LandMask * OceanMask;
 	Out.LandMask = LandMask;
 
-	// ~12 km cells. Three belts: mountains | foothills | lake-flat plains.
-	const float Domain = 0.5f + 0.5f * FGXNoise::FBm(
+	// Most land is plains. Mountains are the high tail of a 2-octave field
+	// so flanks are kilometres wide (no 80° walls).
+	float Domain = 0.5f + 0.5f * FGXNoise::FBm(
 		Ux * Params.PlateauFreq, Uy * Params.PlateauFreq, Uz * Params.PlateauFreq,
-		Params.Seed + 21u, 3, 2.0f, 0.5f);
-	const float RangeMask = FGXNoise::Smooth01((Domain - 0.46f) / 0.18f);
+		Params.Seed + 21u, 2, 2.0f, 0.5f);
+	const float SpawnPlain = FGXNoise::Smooth01((Ux - 0.55f) / 0.35f);
+	Domain = FMath::Lerp(Domain, 0.22f, SpawnPlain * 0.75f);
+	const float PlainsW = 1.0f - FGXNoise::Smooth01((Domain - 0.34f) / 0.26f);
+	const float MountainW = FGXNoise::Smooth01((Domain - 0.70f) / 0.22f);
+	const float HillW = FMath::Clamp(1.0f - PlainsW - MountainW, 0.0f, 1.0f);
+	const float RangeMask = 1.0f - PlainsW;
 	const float Highland = Domain;
-	const float MountainW = FGXNoise::Smooth01((RangeMask - 0.55f) / 0.20f);
-	const float PlainsW = 1.0f - FGXNoise::Smooth01((RangeMask - 0.10f) / 0.22f);
-	const float HillW = FMath::Clamp(1.0f - MountainW - PlainsW, 0.0f, 1.0f);
 
-	const float Mountains = FGXNoise::Ridged(
+	const float Mass = 0.5f + 0.5f * FGXNoise::FBm(
 		Ux * Params.MountainFreq, Uy * Params.MountainFreq, Uz * Params.MountainFreq,
-		Params.Seed + 7u, 3);
-	// Lake-bed plains: almost constant. Foothills only next to the range.
-	const float PlainsH = 0.046f;
-	const float HillH = PlainsH + 0.028f * (0.45f + 0.55f * FGXNoise::FBm(
+		Params.Seed + 7u, 2, 2.0f, 0.5f);
+	const float PlainsH = 0.044f;
+	const float HillH = PlainsH + 0.018f * (0.4f + 0.6f * FGXNoise::FBm(
 		Ux * Params.HillFreq, Uy * Params.HillFreq, Uz * Params.HillFreq,
-		Params.Seed + 17u, 3, 2.0f, 0.5f));
-	const float PeakH = PlainsH + (0.10f + 0.40f * Mountains) * FMath::Pow(MountainW, 1.25f);
+		Params.Seed + 17u, 2, 2.0f, 0.5f));
+	// Soft rise: 500 m over several km, not a cliff.
+	const float PeakH = PlainsH + 0.22f * Mass * MountainW;
 	const float Orogeny = LandMask * (PlainsW * PlainsH + HillW * HillH + MountainW * PeakH);
-	Out.Orogeny = LandMask * MountainW * (0.15f + 0.40f * Mountains);
+	Out.Orogeny = LandMask * MountainW * 0.22f * Mass;
 
 	const float Foothills = LandMask * HillW * FGXNoise::FBm(
 		Ux * Params.MountainFreq * 0.45f, Uy * Params.MountainFreq * 0.45f, Uz * Params.MountainFreq * 0.45f,

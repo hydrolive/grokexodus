@@ -76,8 +76,8 @@ struct FGXPlanetStampParams
 		P.CrustDepth = 96.0f;
 		P.Seed = 1337u;
 		P.ContinentFreq = 1.35f;
-		P.MountainFreq = 42.0f;   // ~9 km ridges, only inside the range mask
-		P.DetailFreq = 1800.0f;
+		P.MountainFreq = 22.0f;   // ~17 km soft masses
+		P.DetailFreq = 900.0f;
 		P.MoistureFreq = 2.4f;
 		P.ScarFreq = 4.5f;
 		P.ScarMaxDepth = 80.0f;
@@ -89,9 +89,9 @@ struct FGXPlanetStampParams
 		P.HillFreq = 220.0f;
 		P.RiverFreq = 140.0f;
 		P.CanyonFreq = 55.0f;
-		P.PlateauFreq = 32.0f;   // ~12 km range-vs-valley cells
-		P.LocalRidgeFreq = 1400.0f;
-		P.LocalGullyFreq = 2400.0f;
+		P.PlateauFreq = 18.0f;   // ~21 km plains vs range
+		P.LocalRidgeFreq = 700.0f;
+		P.LocalGullyFreq = 1100.0f;
 		P.VolcanoFreq = 8.0f;
 		P.ValleyAmp = 0.04f;
 		P.CanyonAmp = 0.03f;

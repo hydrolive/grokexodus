@@ -318,7 +318,7 @@ def main():
 
     # Landscape-grade dual scale (cm). Near grass ~2.2 m. Macro ~20 m.
     # Rock tiles coarser than grass so mountains keep color without wallpaper.
-    tile = scalar("TileScale", 0.0045, x0, 600)
+    tile = scalar("TileScale", 0.0028, x0, 600)
     macro = scalar("MacroScale", 0.12, x0, 720)
     rock_mul = scalar("RockTileMul", 0.28, x0, 840)
     rock_mac = scalar("RockMacroMul", 0.07, x0, 960)
@@ -333,8 +333,8 @@ def main():
     py = mask(wp, "", False, True, False, x0 + 280, -40, "Py")
     pz = mask(wp, "", False, False, True, x0 + 280, 40, "Pz")
 
-    c_096 = const(0.96, x0 + 280, 200, "0.96")
-    c_002 = const(0.02, x0 + 280, 260, "0.02")
+    c_096 = const(0.82, x0 + 280, 200, "0.82")
+    c_002 = const(0.09, x0 + 280, 260, "0.09")
     c_0 = const(0.0, x0 + 280, 400, "0")
     c_2 = const(2.0, x0 + 280, 460, "2")
     c_4 = const(4.0, x0 + 280, 520, "4")
