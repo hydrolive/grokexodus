@@ -15,6 +15,7 @@
 #include "EngineUtils.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "UObject/ConstructorHelpers.h"
@@ -70,13 +71,28 @@ void AGXVoxelWorld::SetupDistantSphere()
 	{
 		return;
 	}
-	const float WorldRadiusCm = PlanetRadius * GMetersToUU * 0.97f;
+	// Engine sphere mesh radius is 50 cm. Scale to mean planet radius so the
+	// limb matches the crust. Near pixels are clipped in M_VoxelHorizon so
+	// holes do not show a second grass layer.
+	const float WorldRadiusCm = PlanetRadius * GMetersToUU;
 	DistantPlanetSphere->SetRelativeScale3D(FVector(WorldRadiusCm / 50.0f));
-	// Hidden at walkable scale — it reads as a second uneditable grass layer under holes.
-	DistantPlanetSphere->SetVisibility(false);
-	if (UMaterial* DefaultMat = UMaterial::GetDefaultMaterial(MD_Surface))
+	DistantPlanetSphere->SetVisibility(true);
+	DistantPlanetSphere->SetHiddenInGame(false);
+	DistantPlanetSphere->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	DistantPlanetSphere->SetCastShadow(false);
+	DistantPlanetSphere->SetVisibleInRayTracing(false);
+	if (UMaterialInterface* Horizon = LoadObject<UMaterialInterface>(nullptr,
+		TEXT("/Game/Voxel/Materials/M_VoxelHorizon.M_VoxelHorizon")))
 	{
-		DistantPlanetSphere->SetMaterial(0, DefaultMat);
+		if (UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(Horizon, this))
+		{
+			MID->SetScalarParameterValue(TEXT("HorizonNearCm"), StreamRadius * 100.0f * 0.8f);
+			DistantPlanetSphere->SetMaterial(0, MID);
+		}
+		else
+		{
+			DistantPlanetSphere->SetMaterial(0, Horizon);
+		}
 	}
 }
 
@@ -144,10 +160,6 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	}
 
 	CachedViewerWorld = GetPrimaryInvokerLocation();
-	if (DistantPlanetSphere)
-	{
-		DistantPlanetSphere->SetVisibility(false);
-	}
 	StreamCooldown -= DeltaSeconds;
 	double StreamMs = 0.0;
 	const float MovedSq = FVector::DistSquared(CachedViewerWorld, LastStreamViewerWorld);

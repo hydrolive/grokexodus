@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-14** · On-disk build stamp: **GX 0.5.8**  
+Last updated: **2026-08-14** · On-disk build stamp: **GX 0.5.9**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.5.9** Distant voxel wallpaper fades to vertex color by 150 m. A mean-radius `M_VoxelHorizon` sphere fills the limb past the stream; near pixels are masked so holes are not a second grass layer. Stream ~180–200 m.
 - **GX 0.5.8** Dig ignored early “infected” pages (Density=0, no flags) while the mesh still showed stamp grass. Sample/raycast/load now treat only Deformed/PlayerPlaced cells as real edits. Place already overwrote them; dig now carves that grass.
 - **GX 0.5.7** PBR UVs are **planar World YZ** (spawn is +X). Planet-tangent frames warped every MC triangle. TileScale 0.0045 on centimetres again. MCP re-ran the material script.
 - **GX 0.5.6** Crust winding flipped to I0,I1,I2 (PBR is single-sided; I0,I2,I1 showed only the underside). Space jumps along planet-up; airborne snap ignores the next 2.5 s so the jump is not yanked back.

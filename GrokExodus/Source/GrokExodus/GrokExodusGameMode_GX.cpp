@@ -75,8 +75,8 @@ void AGXGameMode::EnsureWorld()
 	if (VoxelWorld)
 	{
 		VoxelWorld->PlanetRadius = PlanetRadius;
-		VoxelWorld->StreamRadius = FMath::Min(StreamRadius, 140.0f);
-		VoxelWorld->UnloadRadius = VoxelWorld->StreamRadius + 50.0f;
+		VoxelWorld->StreamRadius = FMath::Clamp(StreamRadius, 160.0f, 220.0f);
+		VoxelWorld->UnloadRadius = VoxelWorld->StreamRadius + 80.0f;
 		VoxelWorld->NearFieldRadius = 80.0f;
 		VoxelWorld->MaxRelief = FMath::Clamp(PlanetRadius * 0.045f, 80.0f, 220.0f);
 		VoxelWorld->bForceLOD0 = true;

@@ -386,6 +386,29 @@ def main():
     connect(rgh_r, "R", lerp_r, "B")
     connect(w_rock, "", lerp_r, "Alpha")
 
+    # Flatten tiling before the stream edge so far chunks do not look like
+    # wallpaper. Vertex color is the biome tint without repeats.
+    cam = node(unreal.MaterialExpressionCameraPositionWS, x0 + 3480, -80, "Cam")
+    dist = node(unreal.MaterialExpressionDistance, x0 + 3740, -80, "CamDist")
+    connect(wp, "", dist, "A")
+    connect(cam, "", dist, "B")
+    fade_a = scalar("DistanceFadeStart", 5000.0, x0 + 3480, -200)
+    fade_b = scalar("DistanceFadeEnd", 15000.0, x0 + 3480, -320)
+    fade_w = sat(div(sub(dist, "", fade_a, "", x0 + 4000, -80), "",
+                     sub(fade_b, "", fade_a, "", x0 + 4000, 0), "", x0 + 4260, -80),
+                 "", x0 + 4520, -80, "fadeW")
+    far_alb = node(unreal.MaterialExpressionLinearInterpolate, x0 + 4780, 80, "FarAlbedo")
+    connect(albedo, "", far_alb, "A")
+    connect(vc, "RGB", far_alb, "B")
+    connect(fade_w, "", far_alb, "Alpha")
+    far_r = node(unreal.MaterialExpressionLinearInterpolate, x0 + 4780, 500, "FarRough")
+    connect(lerp_r, "", far_r, "A")
+    far_rv = const(0.88, x0 + 4520, 560, "farR")
+    connect(far_rv, "", far_r, "B")
+    connect(fade_w, "", far_r, "Alpha")
+    albedo = far_alb
+    lerp_r = far_r
+
     def plug(src, src_out, prop):
         try:
             mel.connect_material_property(src, src_out, prop)
@@ -423,6 +446,82 @@ def main():
            ALBEDO_ATLAS if albedo_tex else "none",
            ROUGH_ATLAS if rough_tex else "none")
     )
+    _create_horizon()
+
+
+def _create_horizon():
+    """Smooth planet limb past the voxel stream. Clips near the camera."""
+    asset = "/Game/Voxel/Materials/M_VoxelHorizon"
+    name = "M_VoxelHorizon"
+    tools = unreal.AssetToolsHelpers.get_asset_tools()
+    mel = unreal.MaterialEditingLibrary
+    mat = None
+    if unreal.EditorAssetLibrary.does_asset_exist(asset):
+        mat = unreal.EditorAssetLibrary.load_asset(asset)
+        _close_editors(mat)
+    else:
+        mat = tools.create_asset(name, PACKAGE, unreal.Material, unreal.MaterialFactoryNew())
+    if not mat:
+        unreal.log_error("[GXPBR] horizon create failed")
+        return
+    try:
+        mel.delete_all_material_expressions(mat)
+    except Exception as err:
+        unreal.log_error("[GXPBR] horizon wipe: %s" % err)
+        return
+
+    lit = _shading_lit()
+    if lit is not None:
+        _set(mat, "shading_model", lit)
+    _set(mat, "blend_mode", unreal.BlendMode.BLEND_MASKED)
+    _set(mat, "two_sided", False)
+    _set(mat, "used_with_static_mesh", True)
+    _set(mat, "b_used_with_static_mesh", True)
+
+    def node(cls, px, py, desc=""):
+        n = mel.create_material_expression(mat, cls, px, py)
+        if desc:
+            _set(n, "desc", desc)
+        return n
+
+    grass = node(unreal.MaterialExpressionConstant3Vector, -400, 0, "horizon")
+    _set(grass, "constant", unreal.LinearColor(0.27, 0.38, 0.20, 1.0))
+    wp = node(unreal.MaterialExpressionWorldPosition, -800, 200, "WP")
+    cam = node(unreal.MaterialExpressionCameraPositionWS, -800, 320, "Cam")
+    dist = node(unreal.MaterialExpressionDistance, -400, 260, "Dist")
+    try:
+        mel.connect_material_expressions(wp, "", dist, "A")
+        mel.connect_material_expressions(cam, "", dist, "B")
+    except Exception:
+        pass
+    near = node(unreal.MaterialExpressionScalarParameter, -800, 440, "HorizonNearCm")
+    _set(near, "parameter_name", "HorizonNearCm")
+    _set(near, "default_value", 12000.0)
+    _set(near, "group", "Horizon")
+    width = node(unreal.MaterialExpressionConstant, -800, 560, "fadeW")
+    _set(width, "r", 4000.0)
+    subn = node(unreal.MaterialExpressionSubtract, -200, 260)
+    mel.connect_material_expressions(dist, "", subn, "A")
+    mel.connect_material_expressions(near, "", subn, "B")
+    divn = node(unreal.MaterialExpressionDivide, 0, 260)
+    mel.connect_material_expressions(subn, "", divn, "A")
+    mel.connect_material_expressions(width, "", divn, "B")
+    maskv = node(unreal.MaterialExpressionSaturate, 200, 260)
+    mel.connect_material_expressions(divn, "", maskv, "")
+    try:
+        mel.connect_material_property(grass, "", unreal.MaterialProperty.MP_BASE_COLOR)
+        mel.connect_material_property(maskv, "", unreal.MaterialProperty.MP_OPACITY_MASK)
+    except Exception as err:
+        unreal.log_warning("[GXPBR] horizon plug: %s" % err)
+    rough = node(unreal.MaterialExpressionConstant, 200, 400)
+    _set(rough, "r", 0.9)
+    try:
+        mel.connect_material_property(rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
+    except Exception:
+        pass
+    mel.recompile_material(mat)
+    unreal.EditorAssetLibrary.save_asset(asset)
+    unreal.log("[GXPBR] OK horizon " + asset)
 
 
 if __name__ == "__main__":
