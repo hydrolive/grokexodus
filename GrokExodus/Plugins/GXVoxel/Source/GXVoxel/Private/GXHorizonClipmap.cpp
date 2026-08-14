@@ -29,7 +29,7 @@ namespace
 		return PMC;
 	}
 
-	/** Sphere centered on the surface. W<0 digs, W>0 places. Only inside |W|. */
+	/** W<0 digs a bowl. W>0 places a shallow cap (center sunk so it is not a gumdrop). */
 	float ApplyEditSpheres(float SurfR, const FVector& Guess, const TArray<FVector4>* Edits)
 	{
 		if (!Edits || Edits->Num() == 0)
@@ -43,7 +43,17 @@ namespace
 			{
 				continue;
 			}
-			const FVector C(E.X, E.Y, E.Z);
+			FVector C(E.X, E.Y, E.Z);
+			FVector Radial = C.GetSafeNormal();
+			if (Radial.IsNearlyZero())
+			{
+				Radial = FVector(1, 0, 0);
+			}
+			if (E.W > 0.0f)
+			{
+				// Sink the place sphere so only a cap pokes out of the crust.
+				C = C - Radial * (Rad * 0.55f);
+			}
 			const float D2 = FVector::DistSquared(Guess, C);
 			if (D2 >= Rad * Rad)
 			{
@@ -65,9 +75,7 @@ namespace
 
 	float EditCoverM(const FVector4& E)
 	{
-		// Skirt one fine cell past the brush — not the 8 m clipmap cell
-		// (that painted a 20 m disk of "other" material around every dig).
-		return FMath::Abs(E.W) + 1.2f;
+		return FMath::Abs(E.W) + 0.8f;
 	}
 }
 
@@ -119,6 +127,10 @@ void FGXHorizonClipmap::Invalidate()
 void FGXHorizonClipmap::NotifyEdits()
 {
 	bEditsDirty = true;
+	if (Rings.Num() > 0)
+	{
+		Rings[0].LastBuild = FVector(1e12f, 0, 0);
+	}
 }
 
 void FGXHorizonClipmap::Shutdown()
@@ -434,7 +446,6 @@ void FGXHorizonClipmap::BuildEditPatch(
 				float SurfR = R0 + Field.HeightM;
 				const FVector Guess = Dir * SurfR;
 				SurfR = ApplyEditSpheres(SurfR, Guess, EditHolesLocalM);
-				SurfR += 0.02f; // sit 2 cm above the opened clipmap rim
 				const FVector Pos = Dir * SurfR * 100.0f;
 				IndexOf[I + J * Dim] = Positions.Num();
 				Positions.Add(Pos);
@@ -559,17 +570,9 @@ void FGXHorizonClipmap::Update(
 		NearLit = FarLit;
 	}
 
-	if (bEditsDirty)
-	{
-		if (UProceduralMeshComponent* Patch = EditPatch.Get())
-		{
-			BuildEditPatch(Patch, Stamp, ViewerLocalM, NearLit, EditHolesLocalM);
-		}
-		bEditsDirty = false;
-	}
-
-	// 400 m early-out meant the 400 m fine ring never followed the pawn.
-	if (FVector::DistSquared(ViewerLocalM, LastViewerLocal) < FMath::Square(60.0f) && bReady)
+	// Dig/place must rebuild ring 0 so the crust itself moves. 0.7.36 only
+	// rebuilt the patch, so a mound sat on undeformed grass.
+	if (FVector::DistSquared(ViewerLocalM, LastViewerLocal) < FMath::Square(60.0f) && bReady && !bEditsDirty)
 	{
 		return;
 	}
@@ -618,6 +621,7 @@ void FGXHorizonClipmap::Update(
 	{
 		BuildEditPatch(Patch, Stamp, ViewerLocalM, NearLit, EditHolesLocalM);
 	}
+	bEditsDirty = false;
 	LastViewerLocal = ViewerLocalM;
 	bReady = true;
 	if (Built == 0)

@@ -211,8 +211,7 @@ void UGXTerrainToolComponent::ApplyTool()
 			}
 			return;
 		}
-		const FVector PlaceAt = Hit.Location + Hit.Normal * (BrushRadiusM * 25.0f);
-		const FGXDigOutcome R = World->PlaceSphere(PlaceAt, BrushRadiusM, PlaceMaterialId);
+		const FGXDigOutcome R = World->PlaceSphere(Hit.Location, BrushRadiusM, PlaceMaterialId);
 		if (R.bSuccess)
 		{
 			Stock = FMath::Max(0.0f, Stock - Need);

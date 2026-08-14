@@ -157,9 +157,10 @@ def _import_all():
     src = _source_dir()
     albedo = _import_texture(os.path.join(src, "T_VoxelAtlas_A.png"), TEX_PKG, "T_VoxelAlbedoAtlas", True, True)
     rough = _import_texture(os.path.join(src, "T_VoxelAtlas_R.png"), TEX_PKG, "T_VoxelRoughAtlas", False, True)
+    layers = {}
     for layer in LAYERS:
-        _import_texture(os.path.join(src, layer + "_A.jpg"), TEX_PKG, layer + "_A", True, False)
-        _import_texture(os.path.join(src, layer + "_R.jpg"), TEX_PKG, layer + "_R", False, False)
+        layers[layer + "_A"] = _import_texture(os.path.join(src, layer + "_A.jpg"), TEX_PKG, layer + "_A", True, False)
+        layers[layer + "_R"] = _import_texture(os.path.join(src, layer + "_R.jpg"), TEX_PKG, layer + "_R", False, False)
     fallback = _load_engine_2d()
     if not albedo:
         albedo = fallback
@@ -167,17 +168,22 @@ def _import_all():
     if not rough:
         rough = fallback
         unreal.log_warning("[GXPBR] rough atlas missing — using engine DefaultTexture")
-    return albedo, rough
+    return albedo, rough, layers
 
 
 def main():
     tools = unreal.AssetToolsHelpers.get_asset_tools()
     mel = unreal.MaterialEditingLibrary
 
-    albedo_tex, rough_tex = _import_all()
+    albedo_tex, rough_tex, layers = _import_all()
     if not albedo_tex:
         unreal.log_error("[GXPBR] no 2D albedo texture at all — aborting (would become DefaultTextureCube)")
         return
+    grass_tex = layers.get("T_TemperateGrass_A") or albedo_tex
+    rock_tex = layers.get("T_RockyCliff_A") or albedo_tex
+    dirt_tex = layers.get("T_DryDirt_A") or albedo_tex
+    grass_r_tex = layers.get("T_TemperateGrass_R") or rough_tex
+    rock_r_tex = layers.get("T_RockyCliff_R") or rough_tex
 
     mat = None
     # PIE/MCP often reports does_asset_exist=False for committed uassets.
@@ -355,8 +361,6 @@ def main():
     py = mask(wp, "", False, True, False, x0 + 280, -40, "Py")
     pz = mask(wp, "", False, False, True, x0 + 280, 40, "Pz")
 
-    # 2% atlas inset. 16%/68% made a wrap cross; dual-frame blend went
-    # black/reflective at corners where both weights hit 0.
     c_096 = const(0.96, x0 + 280, 200, "0.96")
     c_002 = const(0.02, x0 + 280, 260, "0.02")
     c_0 = const(0.0, x0 + 280, 400, "0")
@@ -399,6 +403,13 @@ def main():
     def atlas_sample(param, texture, tnode, cell_u, cell_v, ox, oy, linear):
         return atlas_sample_axes(param, texture, tnode, cell_u, cell_v, rot_u, rot_v, ox, oy, linear)
 
+    # Wrap-addressed layer textures. Atlas+frac jumps 0.98→0.02 inside a
+    # cell and draws a hard tile edge even when the source photo tiles.
+    def wrap_sample(param, texture, ua, va, tnode, ox, oy, linear):
+        uv = append(mul(ua, "", tnode, "", ox, oy), "",
+                    mul(va, "", tnode, "", ox, oy + 70), "", ox + 240, oy)
+        return tex(param, uv, texture, ox + 480, oy, linear)
+
     nx = mask(vn, "", True, False, False, x0 + 560, 1180, "Nx")
     ny = mask(vn, "", False, True, False, x0 + 560, 1260, "Ny")
     nz = mask(vn, "", False, False, True, x0 + 560, 1340, "Nz")
@@ -413,23 +424,22 @@ def main():
     wy = div(ay, "", wsum, "", x0 + 1520, 1260, "wY")
     wz = div(az, "", wsum, "", x0 + 1520, 1340, "wZ")
 
-    def triplanar_albedo(param, texture, tnode, cell_u, cell_v, ox, oy):
-        s_yz = atlas_sample_axes(param, texture, tnode, cell_u, cell_v, rot_u, rot_v, ox, oy, False)
-        s_xz = atlas_sample_axes(param, texture, tnode, cell_u, cell_v, px, pz, ox, oy + 220, False)
-        s_xy = atlas_sample_axes(param, texture, tnode, cell_u, cell_v, px, py, ox, oy + 440, False)
-        a = add(mul(s_yz, "", wx, "", ox + 2000, oy), "", mul(s_xz, "", wy, "", ox + 2000, oy + 220), "", ox + 2300, oy)
-        return add(a, "", mul(s_xy, "", wz, "", ox + 2000, oy + 440), "", ox + 2600, oy, "tri")
+    def wrap_triplanar(param, texture, tnode, ox, oy):
+        s_yz = wrap_sample(param, texture, rot_u, rot_v, tnode, ox, oy, False)
+        s_xz = wrap_sample(param, texture, px, pz, tnode, ox, oy + 180, False)
+        s_xy = wrap_sample(param, texture, px, py, tnode, ox, oy + 360, False)
+        a = add(mul(s_yz, "", wx, "", ox + 800, oy), "", mul(s_xz, "", wy, "", ox + 800, oy + 180), "", ox + 1040, oy)
+        return add(a, "", mul(s_xy, "", wz, "", ox + 800, oy + 360), "", ox + 1280, oy, "tri")
 
     far_tile = mul(tile, "", macro, "", x0 + 560, 0, "FarTile")
     rock_near = mul(tile, "", rock_mul, "", x0 + 560, 80, "RockNear")
     rock_far = mul(tile, "", rock_mac, "", x0 + 560, 160, "RockFar")
 
-    grass_n = triplanar_albedo("AlbedoAtlas", albedo_tex, tile, col, row, x0 + 1900, -80)
-    grass_f = atlas_sample("AlbedoAtlas", albedo_tex, far_tile, col, row, x0 + 1900, 160, False)
-    rock_n = triplanar_albedo("AlbedoAtlas", albedo_tex, rock_near, c_2, c_0, x0 + 1900, 400)
-    rock_f = atlas_sample("AlbedoAtlas", albedo_tex, rock_far, c_2, c_0, x0 + 1900, 640, False)
-    dirt_col = const(3.0, x0 + 1700, 800, "dirtCol")
-    dirt_n = triplanar_albedo("AlbedoAtlas", albedo_tex, tile, dirt_col, c_0, x0 + 1900, 800)
+    grass_n = wrap_triplanar("GrassAlbedo", grass_tex, tile, x0 + 1900, -80)
+    grass_f = wrap_sample("GrassAlbedo", grass_tex, rot_u, rot_v, far_tile, x0 + 1900, 160, False)
+    rock_n = wrap_triplanar("RockAlbedo", rock_tex, rock_near, x0 + 1900, 400)
+    rock_f = wrap_sample("RockAlbedo", rock_tex, rot_u, rot_v, rock_far, x0 + 1900, 640, False)
+    dirt_n = wrap_triplanar("DirtAlbedo", dirt_tex, tile, x0 + 1900, 800)
 
     # Macro as variation up close (breaks repeats) then take over with distance.
     half = const(0.5, x0 + 7500, -200, "0.5")
@@ -505,8 +515,8 @@ def main():
                "", const(0.82, x0 + 9100, 340), "", x0 + 9620, 280, "tint")
     albedo = mul(albedo, "", tint, "", x0 + 9880, 80, "Albedo*Tint")
 
-    rgh_n = atlas_sample("RoughAtlas", rough_tex, tile, col, row, x0 + 1900, 880, True)
-    rgh_rn = atlas_sample("RoughAtlas", rough_tex, rock_near, c_2, c_0, x0 + 1900, 1100, True)
+    rgh_n = wrap_sample("GrassRough", grass_r_tex, rot_u, rot_v, tile, x0 + 1900, 880, True)
+    rgh_rn = wrap_sample("RockRough", rock_r_tex, rot_u, rot_v, rock_near, x0 + 1900, 1100, True)
     lerp_r = node(unreal.MaterialExpressionLinearInterpolate, x0 + 9100, 500, "Rough")
     connect(rgh_n, "", lerp_r, "A")
     connect(rgh_rn, "", lerp_r, "B")
