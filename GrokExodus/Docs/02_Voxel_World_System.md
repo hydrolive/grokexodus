@@ -90,8 +90,8 @@ Unedited space is **not stored**. Mesh jobs sample the stamp + overlay.
 
 | Band | Default |
 |---|---|
-| Collision / LOD0 | full stream (360 m) until transvoxel skirts |
-| Mesh stream | 360 m |
+| Collision / LOD0 | full stream (260 m) until transvoxel skirts |
+| Mesh stream | 260 m |
 | Unload hysteresis | stream + 220 m |
 | Visual banks | 120×8 sections on the planet actor (grows to 200). One Create per tick. |
 | Crust shell | radius ± relief; core is not meshed |
@@ -135,7 +135,7 @@ Path: `Saved/VoxelWorld/<SaveFileName>` (default `earth_default.gxsav`).
 
 Unedited crust meshes and the height atlas live in `Saved/VoxelWorld/crust_<fingerprint>/`. First PIE bakes them; later PIE loads them. Changing seed, radius, relief, or stamp params makes a new folder. Digs invalidate only the dirty chunk files.
 
-Empty remesh retries **four times** inside ~200 m / crust-overlap before settling (LOD>0 always retries at LOD0). Same-frame LIFO re-pops are deferred a tick. Evict never drops a visual inside UnloadRadius. Stream enqueues chunks whose 8 corners + center + 6 face centers straddle the isosurface (±½ chunk). Clipmap is a 3-ring disk (hole ~80 m, sink 2–3 m) with **outward** winding and the **same PBR material** as the near crust (atlas ids on UV0.X). Rings overlap ~150 m; outer rings sit deeper to avoid z-fight. Spawn is a ~280 m walkable pad, then rolling hills; elongated spines at 8–11 km with a wide foothill ramp so the land rises toward the range. `gx.perf.trace 1` logs `GX-stream` on change and a 1 Hz `GX-<ver> perf` line.
+Empty remesh never **settles** a crust-overlapping chunk (that vanished loaded ground). Air-only empties settle after one LOD0 retry. Crust misses retry every 1.25 s. Evict never drops a visual inside UnloadRadius. Stream enqueues chunks whose 8 corners + center + 6 face centers straddle the isosurface (±½ chunk). Clipmap starts at **0.88× stream** (no stacked mesh on the walk floor), sunk 5–6 m, same PBR as the near crust. Rock stamps only on ranges / steep slopes / >1 km peaks. Spawn is a ~280 m walkable pad, then rolling grass hills; elongated spines at 8–11 km. `gx.perf.trace 1` logs `GX-stream` on change and a 1 Hz `GX-<ver> perf` line.
 
 ```text
 GXV1 header  (seed, radius, relief, voxel size)

@@ -111,6 +111,7 @@ void AGXVoxelWorld::ResetStreamingState()
 	AsyncInFlight.Empty();
 	HollowChunks.Empty();
 	EmptyRetries.Empty();
+	NextEmptyRetryAt.Empty();
 	LastSettledEmpty = 0;
 	LastHollowNear = 0;
 	StallSeconds = 0;
@@ -170,8 +171,8 @@ void AGXVoxelWorld::ConfigurePlanet(float InRadius, float InRelief, float InStre
 void AGXVoxelWorld::ApplyEarthPlayDefaults()
 {
 	const FGXPlanetStampParams E = FGXPlanetStampParams::Earth();
-	StreamRadius = 360.0f;
-	UnloadRadius = 580.0f;
+	StreamRadius = 260.0f;
+	UnloadRadius = 480.0f;
 	NearFieldRadius = 110.0f;
 	CollisionRadius = 90.0f;
 	StreamInterval = 0.40f;
@@ -742,6 +743,7 @@ void AGXVoxelWorld::InvalidateHollow(const FGXChunkKey& Coord)
 {
 	HollowChunks.Remove(Coord);
 	EmptyRetries.Remove(Coord);
+	NextEmptyRetryAt.Remove(Coord);
 }
 
 void AGXVoxelWorld::MarkChunkEmpty(const FGXChunkKey& Coord, int32 LOD, const TCHAR* Reason)
@@ -761,22 +763,38 @@ void AGXVoxelWorld::MarkChunkEmpty(const FGXChunkKey& Coord, int32 LOD, const TC
 	const FVector Local = WorldToLocalMeters(CachedViewerWorld.IsNearlyZero() ? GetPrimaryInvokerLocation() : CachedViewerWorld);
 	const FVector Center((Coord.X + 0.5f) * ChunkM, (Coord.Y + 0.5f) * ChunkM, (Coord.Z + 0.5f) * ChunkM);
 	const float Dist = FVector::Dist(Center, Local);
-	const bool bNear = Dist <= FMath::Max(200.0f, NearFieldRadius * 1.5f);
 	const bool bOnCrust = ChunkOverlapsSurface(Coord, ChunkM);
+
+	// 0.7.25 settled crust-overlap empties after 4 fast retries. Loaded ground
+	// vanished (near=0/2, hollow=800) and the player fell into the void.
+	// A crust-straddling chunk that meshed empty is a miss, not air.
+	if (bOnCrust)
+	{
+		const double Now = FPlatformTime::Seconds();
+		const double* Next = NextEmptyRetryAt.Find(Coord);
+		if (Next && Now < *Next)
+		{
+			return;
+		}
+		NextEmptyRetryAt.Add(Coord, Now + 1.25);
+		GX_PERF(2, TEXT("GX-empty crust-hold %d_%d_%d d=%.0f %s"),
+			Coord.X, Coord.Y, Coord.Z, Dist, Reason ? Reason : TEXT("?"));
+		BrushForceLOD0.Add(Coord);
+		EnqueueRemesh(Coord, Dist <= NearFieldRadius);
+		return;
+	}
+
 	int32& Retries = EmptyRetries.FindOrAdd(Coord);
-	const int32 MaxRetry = (bNear || bOnCrust) ? 4 : 1;
-	if (Retries < MaxRetry)
+	if (Retries < 1)
 	{
 		++Retries;
-		GX_PERF(1, TEXT("GX-empty near-retry %d/%d %d_%d_%d d=%.0f crust=%d %s"),
-			Retries, MaxRetry, Coord.X, Coord.Y, Coord.Z, Dist, bOnCrust ? 1 : 0,
-			Reason ? Reason : TEXT("?"));
 		BrushForceLOD0.Add(Coord);
-		EnqueueRemesh(Coord, true);
+		EnqueueRemesh(Coord, Dist <= NearFieldRadius);
 		return;
 	}
 
 	EmptyRetries.Remove(Coord);
+	NextEmptyRetryAt.Remove(Coord);
 	if (HollowChunks.Contains(Coord))
 	{
 		return;
@@ -785,11 +803,10 @@ void AGXVoxelWorld::MarkChunkEmpty(const FGXChunkKey& Coord, int32 LOD, const TC
 	++LastSettledEmpty;
 	if (ChunkVisuals.Contains(Coord))
 	{
-		// Do not keep-last-empty (that shortcut hid a failed remesh). Drop it.
 		ReleaseVisual(Coord);
 	}
-	GX_PERF(2, TEXT("GX-empty settle %d_%d_%d d=%.0f crust=%d %s"),
-		Coord.X, Coord.Y, Coord.Z, Dist, bOnCrust ? 1 : 0, Reason ? Reason : TEXT("?"));
+	GX_PERF(2, TEXT("GX-empty settle %d_%d_%d d=%.0f air %s"),
+		Coord.X, Coord.Y, Coord.Z, Dist, Reason ? Reason : TEXT("?"));
 }
 
 bool AGXVoxelWorld::ChunkOverlapsSurface(const FGXChunkKey& Coord, float ChunkM) const
@@ -943,6 +960,11 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 				}
 				if (!ChunkVisuals.Contains(CC))
 				{
+					const double* Next = NextEmptyRetryAt.Find(CC);
+					if (Next && FPlatformTime::Seconds() < *Next)
+					{
+						continue;
+					}
 					EnqueueRemesh(CC, Dist <= NearFieldRadius);
 				}
 			}
@@ -1227,6 +1249,7 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 	}
 	HollowChunks.Remove(Coord);
 	EmptyRetries.Remove(Coord);
+	NextEmptyRetryAt.Remove(Coord);
 	EnsureMeshBanks();
 
 	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);

@@ -20,9 +20,9 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// Overlap ~150 m so rings never leave a sky gap. Outer rings sit a
 	// little deeper so the shared band does not z-fight.
 	const FSpec Specs[] = {
-		{ 140.0f, 1800.0f, 20.0f, 2.0f },
-		{ 1650.0f, 4800.0f, 40.0f, 2.5f },
-		{ 4500.0f, 10000.0f, 80.0f, 3.0f },
+		{ 220.0f, 1800.0f, 20.0f, 5.0f },
+		{ 1650.0f, 4800.0f, 40.0f, 5.5f },
+		{ 4500.0f, 10000.0f, 80.0f, 6.0f },
 	};
 	for (const FSpec& S : Specs)
 	{
@@ -133,11 +133,11 @@ void FGXHorizonClipmap::BuildRing(
 			Normals.Add(Dir);
 			// Same atlas ids the near PBR reads from UV0.X (1 grass, 3 dirt, 2 rock).
 			float AtlasId = 1.0f;
-			if (Field.Orogeny > 0.04f || Field.Volcano > 0.12f || Field.HeightM > 260.0f || Field.SlopeProxy > 0.14f)
+			if (Field.Orogeny > 0.22f || Field.Volcano > 0.18f || Field.HeightM > 1000.0f || Field.SlopeProxy > 0.32f)
 			{
 				AtlasId = 2.0f;
 			}
-			else if (Field.SlopeProxy > 0.09f)
+			else if (Field.SlopeProxy > 0.18f)
 			{
 				AtlasId = 3.0f;
 			}
@@ -278,11 +278,11 @@ void FGXHorizonClipmap::Update(
 	FVector T, B;
 	CenterDir.FindBestAxisVectors(T, B);
 
-	// Small hole underfoot so a missed voxel shows textured clipmap, not a
-	// black pond. PBR on the rings matches the near crust.
+	// Start past the voxel disk. 80 m hole + PBR clipmap stacked two meshes
+	// (hex stone plates, floating slab). Overlap is a 30 m sunk skirt only.
 	if (Rings.Num() > 0)
 	{
-		Rings[0].InnerM = FMath::Clamp(InnerHoleM * 0.22f, 56.0f, 96.0f);
+		Rings[0].InnerM = FMath::Clamp(InnerHoleM * 0.88f, 200.0f, 340.0f);
 	}
 	if (Rings.Num() > 2)
 	{
