@@ -135,7 +135,7 @@ Path: `Saved/VoxelWorld/<SaveFileName>` (default `earth_default.gxsav`).
 
 Unedited crust meshes and the height atlas live in `Saved/VoxelWorld/crust_<fingerprint>/`. First PIE bakes them; later PIE loads them. Changing seed, radius, relief, or stamp params makes a new folder. Digs invalidate only the dirty chunk files.
 
-Empty remesh never **settles** a crust-overlapping chunk (that vanished loaded ground). Air-only empties settle after one LOD0 retry. Crust misses retry every 1.25 s. Evict never drops a visual inside UnloadRadius. Stream enqueues chunks whose 8 corners + center + 6 face centers straddle the isosurface (±½ chunk). Clipmap starts at **0.88× stream** (no stacked mesh on the walk floor), sunk 5–6 m, same PBR as the near crust. Rock stamps only on ranges / steep slopes / >1 km peaks. Spawn is a ~280 m walkable pad, then rolling grass hills; elongated spines at 8–11 km. `gx.perf.trace 1` logs `GX-stream` on change and a 1 Hz `GX-<ver> perf` line.
+Empty remesh never drops an existing visual. Slack-only overlaps settle as air; true crust (center near the isosurface) retries every 2 s and is never hollowed. In-flight and deferred chunks are not re-queued (that remesh storm tanked FPS). Clipmap starts at **stream+40 m**. Grass tiles ~26 m; slope rock on hill sides (0.09–0.30). Stamp snap searches 80 m+ so a fall is recovered. `gx.perf.trace 1` logs `GX-stream` on change and a 1 Hz `GX-<ver> perf` line.
 
 ```text
 GXV1 header  (seed, radius, relief, voxel size)

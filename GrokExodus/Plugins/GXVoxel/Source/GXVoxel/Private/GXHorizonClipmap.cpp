@@ -133,7 +133,7 @@ void FGXHorizonClipmap::BuildRing(
 			Normals.Add(Dir);
 			// Same atlas ids the near PBR reads from UV0.X (1 grass, 3 dirt, 2 rock).
 			float AtlasId = 1.0f;
-			if (Field.Orogeny > 0.22f || Field.Volcano > 0.18f || Field.HeightM > 1000.0f || Field.SlopeProxy > 0.32f)
+			if (Field.SlopeProxy > 0.16f || Field.Orogeny > 0.15f || Field.Volcano > 0.18f)
 			{
 				AtlasId = 2.0f;
 			}
@@ -278,11 +278,10 @@ void FGXHorizonClipmap::Update(
 	FVector T, B;
 	CenterDir.FindBestAxisVectors(T, B);
 
-	// Start past the voxel disk. 80 m hole + PBR clipmap stacked two meshes
-	// (hex stone plates, floating slab). Overlap is a 30 m sunk skirt only.
+	// Strictly outside the voxel stream. Any overlap is a second mesh.
 	if (Rings.Num() > 0)
 	{
-		Rings[0].InnerM = FMath::Clamp(InnerHoleM * 0.88f, 200.0f, 340.0f);
+		Rings[0].InnerM = FMath::Max(InnerHoleM + 40.0f, 280.0f);
 	}
 	if (Rings.Num() > 2)
 	{

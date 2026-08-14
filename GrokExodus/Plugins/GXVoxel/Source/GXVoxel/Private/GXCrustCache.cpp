@@ -50,8 +50,8 @@ uint64 FGXPlanetStampParams::Fingerprint() const
 	H = MixF(H, CanyonAmp);
 	H = MixF(H, OceanDepthFrac);
 	H = MixF(H, TrenchAmp);
-	// 15 = 0.7.26 rock only on real ranges (cached UV mat ids change).
-	H = MixU64(H, 15u);
+	// 16 = 0.7.27 slope-side rock, no height-as-rock.
+	H = MixU64(H, 16u);
 	return H;
 }
 

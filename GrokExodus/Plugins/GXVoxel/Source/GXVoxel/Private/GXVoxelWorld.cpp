@@ -696,7 +696,7 @@ void AGXVoxelWorld::RefreshLoadState()
 			: TEXT("Preparing planet…");
 		LoadProgress = bAtlasBuildInFlight ? 0.08f : 0.03f;
 	}
-	else if (LastMeshedNear == 0 && Resolved == 0)
+	else if (!bWorldReady && LastMeshedNear == 0 && Resolved == 0)
 	{
 		LoadStatus = CacheHits + CacheMisses > 0
 			? TEXT("Streaming cached crust…")
@@ -765,10 +765,30 @@ void AGXVoxelWorld::MarkChunkEmpty(const FGXChunkKey& Coord, int32 LOD, const TC
 	const float Dist = FVector::Dist(Center, Local);
 	const bool bOnCrust = ChunkOverlapsSurface(Coord, ChunkM);
 
-	// 0.7.25 settled crust-overlap empties after 4 fast retries. Loaded ground
-	// vanished (near=0/2, hollow=800) and the player fell into the void.
-	// A crust-straddling chunk that meshed empty is a miss, not air.
-	if (bOnCrust)
+	// Keep an existing visual. Releasing it was "ground disappeared".
+	if (ChunkVisuals.Contains(Coord))
+	{
+		return;
+	}
+
+	// Slack-only overlap (center far from the isosurface) is air. Real crust
+	// (center near the surface) is never hollowed.
+	float CenterSigned = 0.0f;
+	{
+		const FVector3f Dir(Center.GetSafeNormal());
+		float Surf = PlanetRadius;
+		if (CrustAtlas.IsValid())
+		{
+			Surf = PlanetRadius + CrustAtlas->SampleHeight(Dir);
+		}
+		else if (Volume)
+		{
+			Surf = Volume->GetStamp().SampleSurfaceRadius(Dir);
+		}
+		CenterSigned = Center.Size() - Surf;
+	}
+	const bool bReallyCrust = bOnCrust && FMath::Abs(CenterSigned) <= ChunkM * 0.45f;
+	if (bReallyCrust)
 	{
 		const double Now = FPlatformTime::Seconds();
 		const double* Next = NextEmptyRetryAt.Find(Coord);
@@ -776,9 +796,9 @@ void AGXVoxelWorld::MarkChunkEmpty(const FGXChunkKey& Coord, int32 LOD, const TC
 		{
 			return;
 		}
-		NextEmptyRetryAt.Add(Coord, Now + 1.25);
-		GX_PERF(2, TEXT("GX-empty crust-hold %d_%d_%d d=%.0f %s"),
-			Coord.X, Coord.Y, Coord.Z, Dist, Reason ? Reason : TEXT("?"));
+		NextEmptyRetryAt.Add(Coord, Now + 2.0);
+		GX_PERF(2, TEXT("GX-empty crust-hold %d_%d_%d d=%.0f s=%.1f %s"),
+			Coord.X, Coord.Y, Coord.Z, Dist, CenterSigned, Reason ? Reason : TEXT("?"));
 		BrushForceLOD0.Add(Coord);
 		EnqueueRemesh(Coord, Dist <= NearFieldRadius);
 		return;
@@ -944,10 +964,10 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 				{
 					continue;
 				}
-				if (AsyncInFlight.Contains(CC))
+				if (AsyncInFlight.Contains(CC) || MeshQueued.Contains(CC))
 				{
-					// Already meshing. Do not stamp RemeshWhenIdle every 200 ms —
-					// that re-queued the same 6 jobs forever.
+					// Already meshing or waiting on a deferred Create. Re-queueing
+					// here was the 0.7.26 remesh storm (thousands of cache misses).
 					continue;
 				}
 				// 0.7.17 deferred everything past 110 m while near was busy.
@@ -1082,6 +1102,20 @@ void AGXVoxelWorld::ProcessMeshQueue(int32 Budget)
 			++CacheHits;
 			++Built;
 			continue;
+		}
+		const int32 CreateCap = (WarmupTimeRemaining > 0.0f) ? 3 : FMath::Max(1, MaxMeshCreatesPerTick);
+		if (MeshCreatesThisTick >= CreateCap)
+		{
+			MeshQueued.Add(Coord);
+			if (FVector::Dist(Center, Local) <= NearFieldRadius)
+			{
+				NearMeshQueue.Insert(Coord, 0);
+			}
+			else
+			{
+				MeshQueue.Insert(Coord, 0);
+			}
+			break;
 		}
 		++CacheMisses;
 
@@ -1325,6 +1359,7 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 			{
 				ReleaseVisual(Coord);
 			}
+			MeshQueued.Add(Coord);
 			DeferMeshApply(Coord, LOD, MoveTemp(MeshData));
 			return false;
 		}
@@ -1345,6 +1380,7 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 		V->IndexCount = MeshData.Indices.Num();
 	}
 
+	MeshQueued.Remove(Coord);
 	// No per-chunk actor. Stamp snap is the floor. PMC collision on 600
 	// actors was the 81 ms walk hitch.
 	(void)CollisionRadius;

@@ -441,9 +441,9 @@ int32 FGXSphereStamp::SampleEarthMaterial(const FVector3d& PlanetLocalM, float D
 		return static_cast<int32>(EGXVoxelMaterial::SandCoastal);
 	}
 
-	// Rock is ranges / cliffs / high peaks — not every 300 m grass hill.
-	if (Field.Orogeny > 0.22f || Field.SlopeProxy > 0.32f || Field.CanyonCarve > 0.10f
-		|| HeightAboveSea > Relief * 0.42f)
+	// Rock on mountain *sides* (slope) and real ranges. Not flat hilltops.
+	if (Field.SlopeProxy > 0.16f || Field.Orogeny > 0.15f || Field.CanyonCarve > 0.08f
+		|| Field.Volcano > 0.18f)
 	{
 		return static_cast<int32>(EGXVoxelMaterial::RockyCliff);
 	}

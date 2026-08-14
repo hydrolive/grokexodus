@@ -133,21 +133,25 @@ bool UGXBodyMovement::FindStampSurface(const FVector& CapsuleLocation, FVector& 
 		return Q->SampleDensityMeters(FVector3d(L.X * 0.01, L.Y * 0.01, L.Z * 0.01));
 	};
 
-	// Solid > 0, air < 0. Search inward first so a fallen pawn still finds the crust.
-	const FVector Low = CapsuleLocation - Up * 1200.0f;
-	const FVector High = CapsuleLocation + Up * 800.0f;
+	// Solid > 0, air < 0. Search far enough that a fall into the planet still
+	// finds the crust (0.7.26 only looked 12 m and gave up).
+	const FVector Low = CapsuleLocation - Up * 8000.0f;
+	FVector High = CapsuleLocation + Up * 8000.0f;
 	const float DLow = DensAt(Low);
-	const float DHigh = DensAt(High);
-	if (DLow <= 0.0f)
+	const float DHere = DensAt(CapsuleLocation);
+	if (DLow <= 0.0f && DHere <= 0.0f)
 	{
 		return false;
 	}
 
-	FVector Solid = Low;
+	FVector Solid = (DLow > 0.0f) ? Low : CapsuleLocation;
 	FVector Air = High;
-	if (DHigh > 0.0f)
+	if (DensAt(Air) > 0.0f)
 	{
-		Air = High + Up * 1200.0f;
+		for (int32 Climb = 0; Climb < 40 && DensAt(Air) > 0.0f; ++Climb)
+		{
+			Air += Up * 800.0f;
+		}
 		if (DensAt(Air) > 0.0f)
 		{
 			return false;
@@ -240,7 +244,7 @@ void UGXBodyMovement::StickToStampFloor()
 	const FVector Up = GetUpDir();
 	const float Err = FVector::DotProduct(Desired - Loc, Up);
 	constexpr float DeadCm = 2.0f;
-	constexpr float StickCm = 80.0f;
+	constexpr float StickCm = 25000.0f;
 	if (FMath::Abs(Err) > DeadCm && FMath::Abs(Err) <= StickCm)
 	{
 		UpdatedComponent->SetWorldLocation(Loc + Up * Err, false, nullptr, ETeleportType::TeleportPhysics);
@@ -397,13 +401,13 @@ void UGXBodyMovement::UnstickIfBuried(float DeltaSeconds)
 		return;
 	}
 	FVector Pos = Loc;
-	for (int32 Step = 0; Step < 24; ++Step)
+	for (int32 Step = 0; Step < 80; ++Step)
 	{
 		if (Dens(Pos) <= 0.0f)
 		{
 			break;
 		}
-		Pos += Up * 8.0f;
+		Pos += Up * 20.0f;
 	}
 	UpdatedComponent->SetWorldLocation(Pos, false, nullptr, ETeleportType::TeleportPhysics);
 	const float Into = FVector::DotProduct(Velocity, -Up);

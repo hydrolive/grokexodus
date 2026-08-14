@@ -34,7 +34,7 @@ public:
 	bool bSnapWhenAirborne = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GX|Gravity")
-	float AirborneSnapSeconds = 1.50f;
+	float AirborneSnapSeconds = 0.40f;
 
 	virtual void FindFloor(const FVector& CapsuleLocation, FFindFloorResult& OutFloorResult, bool bCanUseCachedLocation, const FHitResult* DownwardSweepResult = nullptr) const override;
 

@@ -328,23 +328,23 @@ def main():
 
     # Landscape-grade dual scale (cm). Near grass ~11 m. Macro ~400 m.
     # 3 m tiles + a 30 m macro (old 0.0028 / 0.12) read as a grid of edges.
-    tile = scalar("TileScale", 0.0009, x0, 600)
-    macro = scalar("MacroScale", 0.028, x0, 720)
+    tile = scalar("TileScale", 0.00038, x0, 600)
+    macro = scalar("MacroScale", 0.040, x0, 720)
     rock_mul = scalar("RockTileMul", 0.28, x0, 840)
     rock_mac = scalar("RockMacroMul", 0.07, x0, 960)
     fade_a = scalar("DistanceFadeStart", 3500.0, x0, 1080)
     fade_b = scalar("DistanceFadeEnd", 22000.0, x0, 1200)
-    slope_a = scalar("SlopeStart", 0.18, x0, 1320)
-    slope_b = scalar("SlopeMid", 0.38, x0, 1440)
-    slope_c = scalar("SlopeEnd", 0.70, x0, 1560)
+    slope_a = scalar("SlopeStart", 0.09, x0, 1320)
+    slope_b = scalar("SlopeMid", 0.15, x0, 1440)
+    slope_c = scalar("SlopeEnd", 0.30, x0, 1560)
 
     # Dominant-axis planar UVs so cliffs are not stretched YZ wood grain.
     px = mask(wp, "", True, False, False, x0 + 280, -120, "Px")
     py = mask(wp, "", False, True, False, x0 + 280, -40, "Py")
     pz = mask(wp, "", False, False, True, x0 + 280, 40, "Pz")
 
-    c_096 = const(0.82, x0 + 280, 200, "0.82")
-    c_002 = const(0.09, x0 + 280, 260, "0.09")
+    c_096 = const(0.68, x0 + 280, 200, "0.68")
+    c_002 = const(0.16, x0 + 280, 260, "0.16")
     c_0 = const(0.0, x0 + 280, 400, "0")
     c_2 = const(2.0, x0 + 280, 460, "2")
     c_4 = const(4.0, x0 + 280, 520, "4")

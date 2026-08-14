@@ -113,25 +113,25 @@ void FGXTerrainPBR::Initialize(UObject* Outer)
 	// The authored parent already has T_VoxelAlbedoAtlas. A MID that binds a
 	// transient runtime atlas (or a cube leftover) turns the crust black while
 	// the material editor still looks fine.
-	const bool bImportedAlbedo = AlbedoAtlas && AlbedoAtlas->GetPathName().Contains(TEXT("T_VoxelAlbedoAtlas"));
-	if (Parent && bImportedAlbedo)
-	{
-		Applied = Parent;
-		UE_LOG(LogGXVoxel, Warning, TEXT("GXTerrainPBR: using authored parent %s (no MID)"), *GetNameSafe(Parent));
-	}
-	else if (Parent && Outer)
+	// Keep the authored atlas. Only override landscape scalars — the old
+	// 0.0045 tile / 0.32 slope MID was the 2 m grass grid and bare hill sides.
+	if (Parent && Outer)
 	{
 		Mid = UMaterialInstanceDynamic::Create(Parent, Outer);
 		if (Mid)
 		{
-			if (AlbedoAtlas) Mid->SetTextureParameterValue(TEXT("AlbedoAtlas"), AlbedoAtlas);
-			if (RoughAtlas) Mid->SetTextureParameterValue(TEXT("RoughAtlas"), RoughAtlas);
-			Mid->SetScalarParameterValue(TEXT("TileScale"), 0.0045f);
-			Mid->SetScalarParameterValue(TEXT("SlopeStart"), 0.32f);
-			Mid->SetScalarParameterValue(TEXT("SlopeEnd"), 0.72f);
+			Mid->SetScalarParameterValue(TEXT("TileScale"), 0.00038f);
+			Mid->SetScalarParameterValue(TEXT("MacroScale"), 0.040f);
+			Mid->SetScalarParameterValue(TEXT("SlopeStart"), 0.09f);
+			Mid->SetScalarParameterValue(TEXT("SlopeMid"), 0.15f);
+			Mid->SetScalarParameterValue(TEXT("SlopeEnd"), 0.30f);
 			Roots.Add(Mid);
 			Applied = Mid;
 		}
+	}
+	if (!Applied)
+	{
+		Applied = Parent;
 	}
 
 	bReady = true;
