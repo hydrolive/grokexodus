@@ -116,7 +116,7 @@ void FGXHorizonClipmap::BuildRing(
 			const float SurfR = Stamp.SampleSurfaceRadius(Df);
 			// Sit 1.5 m under the voxel isosurface so L0 wins depth and a
 			// missing chunk still shows crust instead of a black pit.
-			const FVector P = Dir * (SurfR - 1.5f) * 100.0f;
+			const FVector P = Dir * (SurfR - 0.4f) * 100.0f;
 			const int32 Idx = I + J * Dim;
 			IndexOf[Idx] = Positions.Num();
 			Positions.Add(P);

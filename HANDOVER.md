@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.11**  
+Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.12**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.7.12** 0.7.11 shots: grass OK, walked, but mountains were a **floating ribbon** (azimuth wedges = knife-edge walls). Three compact blobs on the 8 km limb instead. Collision cook is async again (14 FPS hitch). Clipmap sink 0.4 m.
 - **GX 0.7.11** 0.7.10 shots: grass OK, but the range was a **doughnut wall** (forced 360° ring → floating arch). No ring. Azimuth FBm places a few massifs on the limb. Spawn basin still flat.
 - **GX 0.7.10** 0.7.9 shots: grass is back (black pit gone). The “mountains” were a 2 km-tall ring at 2 km — a wall in the sky. Ranges now start at 5 km with foothills in front so 2 km peaks sit on the 8 km horizon.
 - **GX 0.7.9** 0.7.8 shots: Ready, **black around the pawn still**, a real ridge on the limb. Near crust was single-sided PBR with **inward** SDF normals (0.7.7). Normals now face outward; old `.gxm` cache is invalidated.

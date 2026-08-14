@@ -83,9 +83,9 @@ void AGXVoxelChunkProxy::ApplyMesh(
 		Tangents.Add(FProcMeshTangent(T, false));
 	}
 
-	// Sync-cook collision so the player is not standing on a mesh with no
-	// floor (that was the "I cannot move" snap-loop). Far visual chunks stay async.
-	Mesh->bUseAsyncCooking = !bCollision;
+	// Always async. Sync-cooking the 160 m collision island while walking
+	// was the 14 FPS hitch in the 0.7.11 log.
+	Mesh->bUseAsyncCooking = true;
 	Mesh->ClearAllMeshSections();
 	Mesh->CreateMeshSection_LinearColor(
 		0,

@@ -76,7 +76,7 @@ struct FGXPlanetStampParams
 		P.CrustDepth = 96.0f;
 		P.Seed = 1337u;
 		P.ContinentFreq = 1.35f;
-		P.MountainFreq = 13.0f;   // fingerprint bump — azimuth massifs, no doughnut ring
+		P.MountainFreq = 12.0f;   // fingerprint bump — 3 limb blobs, not wedges
 		P.DetailFreq = 900.0f;
 		P.MoistureFreq = 2.4f;
 		P.ScarFreq = 4.5f;

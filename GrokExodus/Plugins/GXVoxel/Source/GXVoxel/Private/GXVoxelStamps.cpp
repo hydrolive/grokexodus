@@ -98,21 +98,26 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	float Domain = 0.5f + 0.5f * FGXNoise::FBm(
 		Ux * Params.PlateauFreq, Uy * Params.PlateauFreq, Uz * Params.PlateauFreq,
 		Params.Seed + 21u, 2, 2.0f, 0.5f);
-	// Flatten only the spawn basin. Do NOT force a 360° range ring — that
-	// was the floating arch in the 0.7.10 shots (player stood inside a doughnut).
-	// Azimuth noise picks a few massifs on the 8 km limb.
+	// Flatten the spawn basin. Three compact blobs on the 8 km limb — not an
+	// azimuth wedge (that painted a knife-edge ribbon) and not a 360° ring.
 	const float ArcM = FMath::Acos(FMath::Clamp(Ux, -1.0f, 1.0f)) * Params.Radius;
 	const float Basin = FGXNoise::Smooth01((2200.0f - ArcM) / 500.0f);
-	const float Az = FMath::Atan2(Uy, Uz);
-	const float Massif = FGXNoise::Smooth01((FGXNoise::FBm(
-		FMath::Cos(Az) * 2.4f, FMath::Sin(Az) * 2.4f, 0.15f,
-		Params.Seed + 27u, 2, 2.0f, 0.5f) - 0.18f) / 0.38f);
-	const float Horizon = FGXNoise::Smooth01((ArcM - 3500.0f) / 1200.0f);
+	const float A = 7000.0f / FMath::Max(Params.Radius, 1.0f);
+	const FVector3f Here(Ux, Uy, Uz);
+	auto Blob = [&](const FVector3f& C) -> float
+	{
+		const float Ang = FMath::Acos(FMath::Clamp(FVector3f::DotProduct(Here, C.GetSafeNormal()), -1.0f, 1.0f));
+		const float D = Ang * Params.Radius;
+		return FGXNoise::Smooth01((2800.0f - D) / 900.0f);
+	};
+	const float Blobs = FMath::Max3(
+		Blob(FVector3f(1.0f, A, 0.15f)),
+		Blob(FVector3f(1.0f, -A * 0.7f, A * 0.8f)),
+		Blob(FVector3f(1.0f, -0.2f * A, -A)));
 	Domain = FMath::Lerp(Domain, 0.16f, Basin * 0.92f);
-	Domain = FMath::Min(1.0f, Domain + 0.10f * (1.0f - Basin));
-	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.93f, Horizon * Massif));
+	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.92f, Blobs * (1.0f - Basin)));
 	const float PlainsW = 1.0f - FGXNoise::Smooth01((Domain - 0.34f) / 0.26f);
-	const float MountainW = FGXNoise::Smooth01((Domain - 0.60f) / 0.20f);
+	const float MountainW = FGXNoise::Smooth01((Domain - 0.55f) / 0.28f);
 	const float HillW = FMath::Clamp(1.0f - PlainsW - MountainW, 0.0f, 1.0f);
 	const float RangeMask = 1.0f - PlainsW;
 	const float Highland = Domain;
