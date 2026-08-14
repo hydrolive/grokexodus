@@ -1154,7 +1154,6 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 	EnsureMeshBanks();
 
 	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
-	const FVector OriginM(Coord.X * ChunkM, Coord.Y * ChunkM, Coord.Z * ChunkM);
 	const FVector ViewerLocal = WorldToLocalMeters(CachedViewerWorld.IsNearlyZero() ? GetPrimaryInvokerLocation() : CachedViewerWorld);
 
 	int32 Bank = INDEX_NONE;
@@ -1182,7 +1181,9 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 	Tangents.Reserve(MeshData.Positions.Num());
 	for (int32 I = 0; I < MeshData.Positions.Num(); ++I)
 	{
-		LocalPos.Add((MeshData.Positions[I] - OriginM) * GMetersToUU);
+		// Banks live on the planet actor (origin). Verts are planet-local cm.
+		// Subtracting OriginM put the whole crust in the core (0.7.21 void).
+		LocalPos.Add(MeshData.Positions[I] * GMetersToUU);
 		FVector T = FVector::CrossProduct(
 			MeshData.Normals.IsValidIndex(I) ? MeshData.Normals[I] : FVector::UpVector,
 			FVector::UpVector);

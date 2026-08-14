@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.21**  
+Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.22**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.7.22** 0.7.21 shot: teal void, no ground. Bank verts were chunk-local on a PMC at the planet origin, so the crust sat in the core. Verts are planet-local cm now. Apply stayed 2–5 ms.
 - **GX 0.7.21** 0.7.20 shots: still walked off voxels. `CreateMeshSection` on the **600th chunk actor** was ~81 ms. Crust is now **16 PMCs × 48 sections** on the world actor — no SpawnActor on the walk path. Stamp snap 0.08 s is the floor. Same cache as 0.7.19/20.
 - **GX 0.7.20** 0.7.19 shots: still walked onto chocolate clipmap (near 21/48). Collision on every new chunk was **81 ms apply / 11 FPS**, so the stream never kept up. Visuals first; collision only in 90 m. Airborne snap 0.35 s (not 4 s) so a late chunk does not drop you through. Apply drain is time-budgeted. Clipmap hole ~140 m so you do not walk on the far sheet. No stamp fingerprint change.
 - **GX 0.7.19** 0.7.18 shots: 12 m clipmap sink made a **floating voxel slab** + black void; `Volcano*0.50` still stacked a **teal cone**; remesh-for-collision was the **81 ms** walk hitch; LOD1/2 cracks. Sink is 2–3 m. No cone add. Collision cooks on first mesh (no remesh while walking). LOD0 to 220 m. Jagged east-range summits, rock clipmap (no snow-white). Unload +220 m. Fingerprint 14.
@@ -53,6 +54,12 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 - Live Coding often blocks `Build.bat`. The agent **closes Unreal and rebuilds Development Editor `-NoUBA`** (see `AGENTS.md`). Do not ask the user to do that.
 - **Unreal MCP:** `UnrealMCPython` plugin listens on `127.0.0.1:12029`. Agent **must Start-Process the editor** and confirm a PID before polling the port. Never wait on 12029 with no UnrealEditor process (the user had to launch it by hand). Run Python via `unreal-mcpython__util execute_python`. Unity MCP is disabled.
 - **Plugin GXCore failed to load / GetLastError=4551:** Development `UnrealEditor-GXCore.dll` was an unloadable image (UBA served a bad cached link). DebugGame DLL was fine; the editor loads Development. Fix: delete `Plugins/*/Binaries/Win64/UnrealEditor-GX*.dll` and `Binaries/Win64/UnrealEditor-GrokExodus.dll`, rebuild `GrokExodusEditor Win64 Development -NoUBA`. All six project DLLs now map with `LoadLibraryEx(DONT_RESOLVE)`.
+
+## Verify after 0.7.22
+
+1. Gold `GX 0.7.22`. You stand on grass, not a teal void.
+2. Walk 400 m — voxels follow. `meshApply` a few ms.
+3. Log `visual banks=16`.
 
 ## Verify after 0.7.21
 
