@@ -131,12 +131,17 @@ void FGXHorizonClipmap::BuildRing(
 			IndexOf[Idx] = Positions.Num();
 			Positions.Add(P);
 			Normals.Add(Dir);
-			float Biome = 1.0f;
+			// Same atlas ids the near PBR reads from UV0.X (1 grass, 3 dirt, 2 rock).
+			float AtlasId = 1.0f;
 			if (Field.Orogeny > 0.04f || Field.Volcano > 0.12f || Field.HeightM > 260.0f || Field.SlopeProxy > 0.14f)
 			{
-				Biome = 2.0f;
+				AtlasId = 2.0f;
 			}
-			UV0.Add(FVector2D(Biome, 0.0f));
+			else if (Field.SlopeProxy > 0.09f)
+			{
+				AtlasId = 3.0f;
+			}
+			UV0.Add(FVector2D(AtlasId, 0.0f));
 			Colors.Add(FLinearColor(0.52f, 0.60f, 0.34f, 1.0f));
 			FVector T = FVector::CrossProduct(Dir, FVector::ZAxisVector);
 			if (T.SizeSquared() < 1e-6f)
@@ -273,11 +278,11 @@ void FGXHorizonClipmap::Update(
 	FVector T, B;
 	CenterDir.FindBestAxisVectors(T, B);
 
-	// Hole under the voxel disk so chocolate clipmap is not the walk surface.
-	// Voxels cover 360 m; hole ~140 m leaves a wide overlap.
+	// Small hole underfoot so a missed voxel shows textured clipmap, not a
+	// black pond. PBR on the rings matches the near crust.
 	if (Rings.Num() > 0)
 	{
-		Rings[0].InnerM = FMath::Clamp(InnerHoleM * 0.40f, 100.0f, 160.0f);
+		Rings[0].InnerM = FMath::Clamp(InnerHoleM * 0.22f, 56.0f, 96.0f);
 	}
 	if (Rings.Num() > 2)
 	{

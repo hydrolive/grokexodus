@@ -181,8 +181,9 @@ void AGXVoxelWorld::ApplyEarthPlayDefaults()
 	bAsyncMeshing = true;
 	WarmupSeconds = 1.0f;
 	WarmupMeshBuildsPerFrame = 8;
-	MaxMeshBuildsPerFrame = 10;
-	MeshTimeBudgetMs = 8.0f;
+	MaxMeshBuildsPerFrame = 6;
+	MeshTimeBudgetMs = 6.0f;
+	MaxMeshCreatesPerTick = 1;
 	MaxAsyncInFlight = 16;
 	bAutoLoadOnBeginPlay = false;
 	ConfigurePlanet(E.Radius, E.MaxRelief, StreamRadius, static_cast<int32>(E.Seed));
@@ -347,6 +348,7 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	}
 
 	const double M0 = FPlatformTime::Seconds();
+	MeshCreatesThisTick = 0;
 	DrainPendingMeshes(MaxMeshBuildsPerFrame);
 	const int32 Budget = (WarmupTimeRemaining > 0.0f) ? WarmupMeshBuildsPerFrame : MaxMeshBuildsPerFrame;
 	const int32 QueueBefore = NearMeshQueue.Num() + MeshQueue.Num();
@@ -360,7 +362,8 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			WorldToLocalMeters(CachedViewerWorld),
 			StreamRadius,
 			HorizonOuterM,
-			nullptr);
+			TerrainMaterial,
+			TerrainMaterial);
 	}
 	if (Foliage && Volume && bWorldReady)
 	{
@@ -1186,16 +1189,41 @@ void AGXVoxelWorld::DrainPendingMeshes(int32 Budget)
 			continue;
 		}
 		PersistChunkMesh(P.Coord, P.Mesh);
-		ApplyBuiltMesh(P.Coord, P.LOD, MoveTemp(P.Mesh));
+		if (!ApplyBuiltMesh(P.Coord, P.LOD, MoveTemp(P.Mesh)))
+		{
+			// Create budget hit — mesh is back in the mailbox. Stop this tick.
+			if (MeshMailbox.IsValid())
+			{
+				FScopeLock Lock(&MeshMailbox->CS);
+				for (int32 J = Local.Num() - 1; J > I; --J)
+				{
+					MeshMailbox->Pending.Insert(MoveTemp(Local[J]), 0);
+				}
+			}
+			break;
+		}
 	}
 }
 
-void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshBuffers&& MeshData)
+void AGXVoxelWorld::DeferMeshApply(const FGXChunkKey& Coord, int32 LOD, FGXMeshBuffers&& MeshData)
+{
+	if (!MeshMailbox.IsValid() || MeshData.IsEmpty())
+	{
+		return;
+	}
+	FScopeLock Lock(&MeshMailbox->CS);
+	FGXMeshMailbox::FItem& Item = MeshMailbox->Pending.AddDefaulted_GetRef();
+	Item.Coord = Coord;
+	Item.LOD = LOD;
+	Item.Mesh = MoveTemp(MeshData);
+}
+
+bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshBuffers&& MeshData)
 {
 	if (MeshData.IsEmpty())
 	{
 		MarkChunkEmpty(Coord, LOD, TEXT("mesh"));
-		return;
+		return true;
 	}
 	HollowChunks.Remove(Coord);
 	EmptyRetries.Remove(Coord);
@@ -1203,6 +1231,7 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 
 	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
 	const FVector ViewerLocal = WorldToLocalMeters(CachedViewerWorld.IsNearlyZero() ? GetPrimaryInvokerLocation() : CachedViewerWorld);
+	const bool bHadVisual = ChunkVisuals.Contains(Coord);
 
 	int32 Bank = INDEX_NONE;
 	int32 Section = INDEX_NONE;
@@ -1219,7 +1248,7 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 			{
 				UE_LOG(LogGXVoxel, Warning, TEXT("GX-visual bank full, drop %d_%d_%d banks=%d free=%d vis=%d"),
 					Coord.X, Coord.Y, Coord.Z, MeshBanks.Num(), FreeVisualSlots.Num(), ChunkVisuals.Num());
-				return;
+				return true;
 			}
 		}
 	}
@@ -1228,7 +1257,7 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 	if (!PMC)
 	{
 		ReleaseVisual(Coord);
-		return;
+		return true;
 	}
 
 	TArray<FVector> LocalPos;
@@ -1259,15 +1288,27 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 		&& Slot->VertCount > 0;
 	if (bCanUpdate)
 	{
-		// Same topology — skip Clear+Create (that was the 81 ms walk hitch).
 		PMC->UpdateMeshSection_LinearColor(
 			Section, LocalPos, MeshData.Normals, MeshData.UV0, MeshData.Colors, Tangents);
 	}
 	else
 	{
+		// 48-section PMC Create rebuilt the whole proxy (~81 ms). Cap Creates
+		// so walking stays interactive; leftover meshes wait in the mailbox.
+		const int32 CreateCap = (WarmupTimeRemaining > 0.0f) ? 3 : FMath::Max(1, MaxMeshCreatesPerTick);
+		if (MeshCreatesThisTick >= CreateCap)
+		{
+			if (!bHadVisual)
+			{
+				ReleaseVisual(Coord);
+			}
+			DeferMeshApply(Coord, LOD, MoveTemp(MeshData));
+			return false;
+		}
 		PMC->ClearMeshSection(Section);
 		PMC->CreateMeshSection_LinearColor(
 			Section, LocalPos, MeshData.Indices, MeshData.Normals, MeshData.UV0, MeshData.Colors, Tangents, false);
+		++MeshCreatesThisTick;
 	}
 	if (TerrainMaterial)
 	{
@@ -1284,6 +1325,7 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 	// No per-chunk actor. Stamp snap is the floor. PMC collision on 600
 	// actors was the 81 ms walk hitch.
 	(void)CollisionRadius;
+	return true;
 }
 
 bool AGXVoxelWorld::PlacePawnOnSurface(APawn* Pawn, FVector RadialHint)

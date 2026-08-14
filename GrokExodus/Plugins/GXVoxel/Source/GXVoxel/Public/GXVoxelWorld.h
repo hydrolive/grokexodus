@@ -237,10 +237,10 @@ protected:
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UProceduralMeshComponent>> MeshBanks;
 	TArray<int32> FreeVisualSlots;
-	/** 28×48 = 1344. Unload at 580 m is ~1000 crust chunks; 16×48 overflowed and punched holes. */
-	static constexpr int32 VisualBankCount = 28;
-	static constexpr int32 VisualBankMax = 36;
-	static constexpr int32 VisualSectionsPerBank = 48;
+	/** 8 sections/PMC so CreateMeshSection does not rebuild a 48-section proxy (that was 81 ms / 10 FPS). */
+	static constexpr int32 VisualBankCount = 120;
+	static constexpr int32 VisualBankMax = 200;
+	static constexpr int32 VisualSectionsPerBank = 8;
 	TArray<FGXChunkKey> NearMeshQueue;
 	TArray<FGXChunkKey> MeshQueue;
 	TSet<FGXChunkKey> MeshQueued;
@@ -283,6 +283,8 @@ protected:
 	int32 CacheMisses = 0;
 	int32 LastInFlightLogged = 0;
 	int32 StallSeconds = 0;
+	int32 MeshCreatesThisTick = 0;
+	int32 MaxMeshCreatesPerTick = 1;
 
 	void RebuildParams();
 	void ResetStreamingState();
@@ -293,7 +295,8 @@ protected:
 	void BuildChunkMeshSync(const FGXChunkKey& Coord);
 	void EnqueueChunkMeshAsync(const FGXChunkKey& Coord);
 	void DrainPendingMeshes(int32 Budget);
-	void ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshBuffers&& MeshData);
+	bool ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshBuffers&& MeshData);
+	void DeferMeshApply(const FGXChunkKey& Coord, int32 LOD, FGXMeshBuffers&& MeshData);
 	void EnsureMeshBanks();
 	void GrowMeshBanks(int32 TargetBanks);
 	bool AcquireVisual(const FGXChunkKey& Key, int32& OutBank, int32& OutSection);
