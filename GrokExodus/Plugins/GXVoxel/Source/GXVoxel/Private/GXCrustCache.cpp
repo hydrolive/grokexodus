@@ -50,8 +50,8 @@ uint64 FGXPlanetStampParams::Fingerprint() const
 	H = MixF(H, CanyonAmp);
 	H = MixF(H, OceanDepthFrac);
 	H = MixF(H, TrenchAmp);
-	// 10 = 0.7.16 earthly ramp (RangeW actually peaks; foothill approach).
-	H = MixU64(H, 10u);
+	// 12 = 0.7.17 wide volcano (11 was a teal gumdrop).
+	H = MixU64(H, 12u);
 	return H;
 }
 

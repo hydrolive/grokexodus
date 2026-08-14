@@ -20,9 +20,9 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// Overlap ~150 m so rings never leave a sky gap. Outer rings sit a
 	// little deeper so the shared band does not z-fight.
 	const FSpec Specs[] = {
-		{ 0.0f, 1680.0f, 12.0f, 3.5f },
-		{ 1520.0f, 4400.0f, 28.0f, 4.5f },
-		{ 4180.0f, 10000.0f, 64.0f, 6.0f },
+		{ 0.0f, 1680.0f, 12.0f, 12.0f },
+		{ 1520.0f, 4400.0f, 28.0f, 14.0f },
+		{ 4180.0f, 10000.0f, 64.0f, 16.0f },
 	};
 	for (const FSpec& S : Specs)
 	{
@@ -203,17 +203,21 @@ void FGXHorizonClipmap::BuildRing(
 		const float Slope = 1.0f - FMath::Abs(FVector::DotProduct(N, Radial));
 		const float HeightM = Positions[V].Size() * 0.01f + Sink - R0;
 		const float Alt = HeightM / Relief;
-		if (Alt > 0.58f || Slope > 0.40f)
+		if (Alt > 0.58f)
 		{
-			Colors[V] = FLinearColor(0.58f, 0.56f, 0.54f); // high rock
+			Colors[V] = FLinearColor(0.90f, 0.92f, 0.94f); // snow cap only
 		}
-		else if (Alt > 0.30f || Slope > 0.18f)
+		else if (Alt > 0.20f || Slope > 0.16f)
 		{
-			Colors[V] = FLinearColor(0.52f, 0.40f, 0.24f); // dirt / talus
+			Colors[V] = FLinearColor(0.62f, 0.50f, 0.42f); // volcanic / rock
+		}
+		else if (Slope > 0.10f)
+		{
+			Colors[V] = FLinearColor(0.56f, 0.44f, 0.28f); // dirt skirt
 		}
 		else
 		{
-			Colors[V] = FLinearColor(0.40f, 0.52f, 0.26f); // lit grass
+			Colors[V] = FLinearColor(0.46f, 0.60f, 0.30f); // grass plains
 		}
 	}
 
@@ -265,8 +269,8 @@ void FGXHorizonClipmap::Update(
 	FVector T, B;
 	CenterDir.FindBestAxisVectors(T, B);
 
-	// No inner hole. 0.7.7 punched 300 m and showed the core; 0.7.15 left
-	// a 16 m paper edge you could look under. The disk sits under voxels.
+	// Full disk, sunk ~12 m. A 280 m hole (0.7.17) was the teal void;
+	// a 3.5 m sink was the dig-pond. Voxels win underfoot; clipmap fills gaps.
 	(void)InnerHoleM;
 	if (Rings.Num() > 0)
 	{

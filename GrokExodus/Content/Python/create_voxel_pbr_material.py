@@ -105,10 +105,20 @@ def _import_texture(abs_path, dest_pkg, dest_name, srgb, clamp):
     dest = dest_pkg + "/" + dest_name
     # Reuse committed uassets. ImportAssetTasks uses Interchange and asserts
     # RecursionGuard when run from the UnrealMCPython TCP game-thread callback.
-    if unreal.EditorAssetLibrary.does_asset_exist(dest):
-        tex = unreal.EditorAssetLibrary.load_asset(dest)
+    # PIE/MCP sometimes reports does_asset_exist=False — try load first.
+    for path in (dest, dest + "." + dest_name):
+        tex = None
+        try:
+            tex = unreal.load_asset(path)
+        except Exception:
+            tex = None
+        if not tex:
+            try:
+                tex = unreal.EditorAssetLibrary.load_asset(path)
+            except Exception:
+                tex = None
         if tex:
-            unreal.log("[GXPBR] reuse %s" % dest)
+            unreal.log("[GXPBR] reuse %s" % path)
             return tex
 
     if not os.path.isfile(abs_path):
@@ -396,7 +406,7 @@ def main():
     rock_n = triplanar_albedo("AlbedoAtlas", albedo_tex, rock_near, c_2, c_0, x0 + 1900, 400)
     rock_f = atlas_sample("AlbedoAtlas", albedo_tex, rock_far, c_2, c_0, x0 + 1900, 640, False)
     dirt_col = const(3.0, x0 + 1700, 800, "dirtCol")
-    dirt_n = atlas_sample("AlbedoAtlas", albedo_tex, tile, dirt_col, c_0, x0 + 1900, 800, False)
+    dirt_n = triplanar_albedo("AlbedoAtlas", albedo_tex, tile, dirt_col, c_0, x0 + 1900, 800)
 
     # Macro as variation up close (breaks repeats) then take over with distance.
     half = const(0.5, x0 + 7500, -200, "0.5")
@@ -606,9 +616,18 @@ def _create_horizon_far():
     vc = mel.create_material_expression(mat, unreal.MaterialExpressionVertexColor, -300, 0)
     rough = mel.create_material_expression(mat, unreal.MaterialExpressionConstant, -300, 160)
     _set(rough, "r", 0.88)
+    fill_k = mel.create_material_expression(mat, unreal.MaterialExpressionConstant, -300, 260)
+    _set(fill_k, "r", 0.18)
+    fill = mel.create_material_expression(mat, unreal.MaterialExpressionMultiply, -40, 220)
+    try:
+        mel.connect_material_expressions(vc, "RGB", fill, "A")
+        mel.connect_material_expressions(fill_k, "", fill, "B")
+    except Exception:
+        pass
     try:
         mel.connect_material_property(vc, "RGB", unreal.MaterialProperty.MP_BASE_COLOR)
         mel.connect_material_property(rough, "", unreal.MaterialProperty.MP_ROUGHNESS)
+        mel.connect_material_property(fill, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     except Exception as err:
         unreal.log_warning("[GXPBR] far plug: %s" % err)
     mel.recompile_material(mat)

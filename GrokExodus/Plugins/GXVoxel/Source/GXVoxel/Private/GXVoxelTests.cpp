@@ -167,6 +167,27 @@ bool FGXVoxelEarthGeomorphology::RunTest(const FString& Parameters)
 	TestTrue(TEXT("highlands exist"), HMax > Params.MaxRelief * 0.20f);
 	TestTrue(TEXT("east range is a real mountain"), HMax > 700.0f);
 
+	{
+		const FVector3f Volc = FVector3f(1.0f, 7400.0f / Params.Radius, 3800.0f / Params.Radius).GetSafeNormal();
+		const FGXEarthField VF = Stamp.SampleEarthField(Volc, false);
+		TestTrue(TEXT("POI volcano is a landmark"), VF.HeightM > 1000.0f);
+		TestTrue(TEXT("POI volcano registers"), VF.Volcano > 0.4f);
+		const FVector3d VolcSurf(
+			static_cast<double>(Volc.X) * (Params.Radius + VF.HeightM - 2.0f),
+			static_cast<double>(Volc.Y) * (Params.Radius + VF.HeightM - 2.0f),
+			static_cast<double>(Volc.Z) * (Params.Radius + VF.HeightM - 2.0f));
+		const int32 VolcMat = Stamp.SampleMaterial(VolcSurf, 2.0f);
+		TestTrue(TEXT("volcano is rock/snow/scorched, not grass"),
+			VolcMat == static_cast<int32>(EGXVoxelMaterial::SnowIce)
+			|| VolcMat == static_cast<int32>(EGXVoxelMaterial::VolcanicScorched)
+			|| VolcMat == static_cast<int32>(EGXVoxelMaterial::RockyCliff));
+		const FVector3d SpawnSurf(Params.Radius + 40.0, 0, 0);
+		const int32 SpawnMat = Stamp.SampleMaterial(SpawnSurf, 2.0f);
+		TestTrue(TEXT("spawn plains are grass, not sand"),
+			SpawnMat == static_cast<int32>(EGXVoxelMaterial::TemperateGrass)
+			|| SpawnMat == static_cast<int32>(EGXVoxelMaterial::DryDirt));
+	}
+
 	float F1 = 0.0f;
 	float F2 = 0.0f;
 	FGXNoise::WorleyF1F2(1.3f, -0.4f, 2.1f, 1337u, F1, F2);

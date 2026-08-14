@@ -164,7 +164,9 @@ void AGXVoxelWorld::ApplyEarthPlayDefaults()
 	StreamRadius = 360.0f;
 	UnloadRadius = 500.0f;
 	NearFieldRadius = 110.0f;
-	CollisionRadius = 160.0f;
+	// 0.7.16: 160 m collision + 360 m mesh. Walk off the cook and you
+	// bounce on the uncollided clipmap (black mountain). Async cook.
+	CollisionRadius = 320.0f;
 	bForceLOD0 = false;
 	HorizonOuterM = 10000.0f;
 	bAsyncMeshing = true;

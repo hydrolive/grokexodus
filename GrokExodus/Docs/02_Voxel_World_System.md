@@ -209,7 +209,8 @@ A 4 km ball cannot host 2 km peaks — they become the whole planet. 60 km keeps
 | Continents / shelves | 6-octave fBm + plate bias; **+X spawn continent** so PIE is never ocean |
 | Orogeny | Authored elongated spines at 8–11 km (weight reaches 1 on the crest). Domain FBm is capped at hills so the first kilometre cannot become a wall. |
 | Cratons / plateaus | Old interiors stay low and flat; plateaus are high and flat |
-| Hills / foothills | Anisotropic near ridges from ~280 m. Wide rise + feet aprons so mid-ground climbs toward the range. |
+| Hills / foothills | Anisotropic near ridges from ~280 m. Wide rise + feet aprons so mid-ground climbs toward the range. Inland plains stamp **grass**; ranges stamp **rock**. |
+| POI volcano | One authored stratovolcano at ~7.4 km E / 3.8 km N. Scorched flanks, snow above ~880 m. |
 | Rivers | Domain-warped inverted ridges |
 | Canyons / rifts | Rare deep cuts; rifts on divergent edges |
 | Local ridges / gullies | Gentle ~5–10 km undulation. Walkable land is mostly flat or a long slope, not a sawtooth. |
