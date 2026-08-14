@@ -3,10 +3,12 @@ Create / refresh /Game/Voxel/Materials/M_VoxelTerrain_PBR
 
 GRAPH ONLY. Do not add MaterialExpressionCustom.
 
-Imports the Imagine biome JPGs plus the 4x2 atlases and assigns them as
-real Texture2D defaults. An empty TextureSampleParameter2D in UE 5.8
-falls back to DefaultTextureCube; a cube sampler cannot take the runtime
-2D atlas, so the crust goes black.
+Landscape-grade dual-scale triplanar: near detail + macro scale so color
+remains at distance without wallpaper. Rock tiles coarser than grass.
+Do not fade to vertex color.
+
+Imports Imagine atlases as Texture2D defaults (never leave samples unbound —
+UE 5.8 falls back to DefaultTextureCube).
 
 In the editor Output Log (close the material tab first):
   py "E:/Github/grokexodus/GrokExodus/Content/Python/create_voxel_pbr_material.py"
@@ -313,101 +315,117 @@ def main():
     tc = node(unreal.MaterialExpressionTextureCoordinate, x0, 320, "UV0")
     _set(tc, "coordinate_index", 0)
     vc = node(unreal.MaterialExpressionVertexColor, x0, 460, "VColor")
-    # Planar YZ in centimetres. Spawn is +X so the tangent plane is YZ —
-    # World XY made flats smear (X barely changes). A per-pixel tangent
-    # frame warped every 1 m MC triangle into its own stretched patch.
+
+    # Landscape-grade dual scale (cm). Near grass ~2.2 m. Macro ~20 m.
+    # Rock tiles coarser than grass so mountains keep color without wallpaper.
     tile = scalar("TileScale", 0.0045, x0, 600)
-    slope_a = scalar("SlopeStart", 0.32, x0, 720)
-    slope_b = scalar("SlopeEnd", 0.72, x0, 840)
+    macro = scalar("MacroScale", 0.12, x0, 720)
+    rock_mul = scalar("RockTileMul", 0.28, x0, 840)
+    rock_mac = scalar("RockMacroMul", 0.07, x0, 960)
+    fade_a = scalar("DistanceFadeStart", 3500.0, x0, 1080)
+    fade_b = scalar("DistanceFadeEnd", 22000.0, x0, 1200)
+    slope_a = scalar("SlopeStart", 0.32, x0, 1320)
+    slope_b = scalar("SlopeEnd", 0.72, x0, 1440)
 
-    p = mul(wp, "", tile, "", x0 + 280, 0, "World*Tile")
-    p_y = mask(p, "", False, True, False, x0 + 540, -40, "Py")
-    p_z = mask(p, "", False, False, True, x0 + 540, 40, "Pz")
-    lu = frac(p_y, "", x0 + 800, -40, "fracY")
-    lv = frac(p_z, "", x0 + 800, 40, "fracZ")
+    # +X spawn: YZ is the tangent plane (planar = no per-triangle warp).
+    py = mask(wp, "", False, True, False, x0 + 280, -40, "Py")
+    pz = mask(wp, "", False, False, True, x0 + 280, 40, "Pz")
 
-    c_096 = const(0.96, x0 + 800, 140, "0.96")
-    c_002 = const(0.02, x0 + 800, 200, "0.02")
-    pu = add(mul(lu, "", c_096, "", x0 + 1060, -40), "", c_002, "", x0 + 1320, -40, "padU")
-    pv = add(mul(lv, "", c_096, "", x0 + 1060, 40), "", c_002, "", x0 + 1320, 40, "padV")
-
-    mat_id = mask(tc, "", True, False, False, x0 + 280, 320, "MatId")
+    c_096 = const(0.96, x0 + 280, 200, "0.96")
+    c_002 = const(0.02, x0 + 280, 260, "0.02")
     c_0 = const(0.0, x0 + 280, 400, "0")
-    c_7 = const(7.0, x0 + 280, 460, "7")
-    id_clamped = node(unreal.MaterialExpressionClamp, x0 + 540, 320, "Id01_7")
+    c_2 = const(2.0, x0 + 280, 460, "2")
+    c_4 = const(4.0, x0 + 280, 520, "4")
+    c_025 = const(0.25, x0 + 280, 580, "0.25")
+    c_05 = const(0.5, x0 + 280, 640, "0.5")
+    c_7 = const(7.0, x0 + 280, 700, "7")
+
+    mat_id = mask(tc, "", True, False, False, x0 + 560, 320, "MatId")
+    id_clamped = node(unreal.MaterialExpressionClamp, x0 + 820, 320, "Id01_7")
     connect(mat_id, "", id_clamped, "")
     connect(c_0, "", id_clamped, "Min")
     connect(c_7, "", id_clamped, "Max")
+    row = floor(mul(id_clamped, "", c_025, "", x0 + 1080, 320), "", x0 + 1340, 320, "row")
+    col = sub(id_clamped, "", mul(row, "", c_4, "", x0 + 1340, 400), "", x0 + 1600, 320, "col")
 
-    c_4 = const(4.0, x0 + 540, 420, "4")
-    c_025 = const(0.25, x0 + 540, 480, "0.25")
-    c_05 = const(0.5, x0 + 540, 540, "0.5")
-    row = floor(mul(id_clamped, "", c_025, "", x0 + 800, 320), "", x0 + 1060, 320, "row")
-    col = sub(id_clamped, "", mul(row, "", c_4, "", x0 + 1060, 400), "", x0 + 1320, 320, "col")
-
-    atlas_u = mul(add(col, "", pu, "", x0 + 1580, -40), "", c_025, "", x0 + 1840, -40, "atlasU")
-    atlas_v = mul(add(row, "", pv, "", x0 + 1580, 40), "", c_05, "", x0 + 1840, 40, "atlasV")
-    atlas_uv = append(atlas_u, "", atlas_v, "", x0 + 2100, 0, "atlasUV")
-
-    c_2 = const(2.0, x0 + 1320, 520, "2")
-    rock_u = mul(add(c_2, "", pu, "", x0 + 1580, 500), "", c_025, "", x0 + 1840, 500, "rockU")
-    rock_v = mul(add(c_0, "", pv, "", x0 + 1580, 560), "", c_05, "", x0 + 1840, 560, "rockV")
-    rock_uv = append(rock_u, "", rock_v, "", x0 + 2100, 520, "rockUV")
-
-    alb_b = tex("AlbedoAtlas", atlas_uv, albedo_tex, x0 + 2360, 0, linear=False)
-    alb_r = tex("AlbedoAtlas", rock_uv, albedo_tex, x0 + 2360, 220, linear=False)
-    rgh_b = tex("RoughAtlas", atlas_uv, rough_tex, x0 + 2360, 440, linear=True)
-    rgh_r = tex("RoughAtlas", rock_uv, rough_tex, x0 + 2360, 660, linear=True)
-
-    radial = node(unreal.MaterialExpressionNormalize, x0 + 280, 720, "radial")
+    radial = node(unreal.MaterialExpressionNormalize, x0 + 560, 800, "radial")
     connect(wp, "", radial, "")
-    ndot = node(unreal.MaterialExpressionDotProduct, x0 + 540, 720, "NdotUp")
-    connect(vn, "", ndot, "A")
-    connect(radial, "", ndot, "B")
-    up = sat(ndot, "", x0 + 800, 720, "up")
-    one = const(1.0, x0 + 800, 800, "1")
-    slope = sub(one, "", up, "", x0 + 1060, 720, "slope")
-    numer = sub(slope, "", slope_a, "", x0 + 1320, 720)
-    denom = sub(slope_b, "", slope_a, "", x0 + 1320, 800)
-    w_rock = sat(div(numer, "", denom, "", x0 + 1580, 720), "", x0 + 1840, 720, "wRock")
 
-    lerp_a = node(unreal.MaterialExpressionLinearInterpolate, x0 + 2700, 80, "AlbedoLerp")
-    connect(alb_b, "RGB", lerp_a, "A")
-    connect(alb_r, "RGB", lerp_a, "B")
-    connect(w_rock, "", lerp_a, "Alpha")
+    def atlas_sample(param, texture, tnode, cell_u, cell_v, ox, oy, linear):
+        fu = frac(mul(py, "", tnode, "", ox, oy), "", ox + 240, oy)
+        fv = frac(mul(pz, "", tnode, "", ox, oy + 70), "", ox + 240, oy + 70)
+        pu = add(mul(fu, "", c_096, "", ox + 480, oy), "", c_002, "", ox + 720, oy)
+        pv = add(mul(fv, "", c_096, "", ox + 480, oy + 70), "", c_002, "", ox + 720, oy + 70)
+        au = mul(add(cell_u, "", pu, "", ox + 960, oy), "", c_025, "", ox + 1200, oy)
+        av = mul(add(cell_v, "", pv, "", ox + 960, oy + 70), "", c_05, "", ox + 1200, oy + 70)
+        uv = append(au, "", av, "", ox + 1440, oy)
+        return tex(param, uv, texture, ox + 1680, oy, linear)
 
-    tint_amt = const(0.35, x0 + 2700, 280, "tintAmt")
-    tint_base = const(0.65, x0 + 2700, 340, "tintBase")
-    tint = add(mul(vc, "RGB", tint_amt, "", x0 + 2960, 280), "", tint_base, "", x0 + 3220, 280, "tint")
-    albedo = mul(lerp_a, "", tint, "", x0 + 3480, 80, "Albedo*Tint")
+    far_tile = mul(tile, "", macro, "", x0 + 560, 0, "FarTile")
+    rock_near = mul(tile, "", rock_mul, "", x0 + 560, 80, "RockNear")
+    rock_far = mul(tile, "", rock_mac, "", x0 + 560, 160, "RockFar")
 
-    lerp_r = node(unreal.MaterialExpressionLinearInterpolate, x0 + 2700, 500, "RoughLerp")
-    connect(rgh_b, "R", lerp_r, "A")
-    connect(rgh_r, "R", lerp_r, "B")
-    connect(w_rock, "", lerp_r, "Alpha")
+    grass_n = atlas_sample("AlbedoAtlas", albedo_tex, tile, col, row, x0 + 1900, -80, False)
+    grass_f = atlas_sample("AlbedoAtlas", albedo_tex, far_tile, col, row, x0 + 1900, 160, False)
+    rock_n = atlas_sample("AlbedoAtlas", albedo_tex, rock_near, c_2, c_0, x0 + 1900, 400, False)
+    rock_f = atlas_sample("AlbedoAtlas", albedo_tex, rock_far, c_2, c_0, x0 + 1900, 640, False)
 
-    # Flatten tiling before the stream edge so far chunks do not look like
-    # wallpaper. Vertex color is the biome tint without repeats.
-    cam = node(unreal.MaterialExpressionCameraPositionWS, x0 + 3480, -80, "Cam")
-    dist = node(unreal.MaterialExpressionDistance, x0 + 3740, -80, "CamDist")
+    # Macro as variation up close (breaks repeats) then take over with distance.
+    half = const(0.5, x0 + 7500, -200, "0.5")
+    var_amt = const(0.4, x0 + 7500, -140, "varAmt")
+    grass_var = add(mul(grass_f, "", half, "", x0 + 7760, -200), "", half, "", x0 + 8020, -200)
+    grass_detail = node(unreal.MaterialExpressionLinearInterpolate, x0 + 8280, -80, "GrassVar")
+    connect(grass_n, "", grass_detail, "A")
+    connect(mul(grass_n, "", grass_var, "", x0 + 8020, -40), "", grass_detail, "B")
+    connect(var_amt, "", grass_detail, "Alpha")
+    rock_var = add(mul(rock_f, "", half, "", x0 + 7760, 200), "", half, "", x0 + 8020, 200)
+    rock_detail = node(unreal.MaterialExpressionLinearInterpolate, x0 + 8280, 280, "RockVar")
+    connect(rock_n, "", rock_detail, "A")
+    connect(mul(rock_n, "", rock_var, "", x0 + 8020, 320), "", rock_detail, "B")
+    connect(var_amt, "", rock_detail, "Alpha")
+
+    cam = node(unreal.MaterialExpressionCameraPositionWS, x0 + 7500, 600, "Cam")
+    dist = node(unreal.MaterialExpressionDistance, x0 + 7760, 600, "CamDist")
     connect(wp, "", dist, "A")
     connect(cam, "", dist, "B")
-    fade_a = scalar("DistanceFadeStart", 5000.0, x0 + 3480, -200)
-    fade_b = scalar("DistanceFadeEnd", 15000.0, x0 + 3480, -320)
-    fade_w = sat(div(sub(dist, "", fade_a, "", x0 + 4000, -80), "",
-                     sub(fade_b, "", fade_a, "", x0 + 4000, 0), "", x0 + 4260, -80),
-                 "", x0 + 4520, -80, "fadeW")
-    far_alb = node(unreal.MaterialExpressionLinearInterpolate, x0 + 4780, 80, "FarAlbedo")
-    connect(albedo, "", far_alb, "A")
-    connect(vc, "RGB", far_alb, "B")
-    connect(fade_w, "", far_alb, "Alpha")
-    far_r = node(unreal.MaterialExpressionLinearInterpolate, x0 + 4780, 500, "FarRough")
-    connect(lerp_r, "", far_r, "A")
-    far_rv = const(0.88, x0 + 4520, 560, "farR")
-    connect(far_rv, "", far_r, "B")
-    connect(fade_w, "", far_r, "Alpha")
-    albedo = far_alb
-    lerp_r = far_r
+    fade_w = sat(div(sub(dist, "", fade_a, "", x0 + 8020, 560), "",
+                     sub(fade_b, "", fade_a, "", x0 + 8020, 640), "", x0 + 8280, 600),
+                 "", x0 + 8540, 600, "fadeW")
+
+    grass = node(unreal.MaterialExpressionLinearInterpolate, x0 + 8800, -80, "GrassLOD")
+    connect(grass_detail, "", grass, "A")
+    connect(grass_f, "", grass, "B")
+    connect(fade_w, "", grass, "Alpha")
+    rock = node(unreal.MaterialExpressionLinearInterpolate, x0 + 8800, 280, "RockLOD")
+    connect(rock_detail, "", rock, "A")
+    connect(rock_f, "", rock, "B")
+    connect(fade_w, "", rock, "Alpha")
+
+    ndot = node(unreal.MaterialExpressionDotProduct, x0 + 560, 1000, "NdotUp")
+    connect(vn, "", ndot, "A")
+    connect(radial, "", ndot, "B")
+    one = const(1.0, x0 + 820, 1080, "1")
+    slope = sub(one, "", sat(ndot, "", x0 + 820, 1000), "", x0 + 1080, 1000, "slope")
+    w_rock = sat(div(sub(slope, "", slope_a, "", x0 + 1340, 1000), "",
+                     sub(slope_b, "", slope_a, "", x0 + 1340, 1080), "", x0 + 1600, 1000),
+                 "", x0 + 1860, 1000, "wRock")
+
+    albedo = node(unreal.MaterialExpressionLinearInterpolate, x0 + 9100, 80, "Albedo")
+    connect(grass, "", albedo, "A")
+    connect(rock, "", albedo, "B")
+    connect(w_rock, "", albedo, "Alpha")
+
+    # Light biome tint only — do not replace texture at distance.
+    tint = add(mul(vc, "RGB", const(0.18, x0 + 9100, 280), "", x0 + 9360, 280),
+               "", const(0.82, x0 + 9100, 340), "", x0 + 9620, 280, "tint")
+    albedo = mul(albedo, "", tint, "", x0 + 9880, 80, "Albedo*Tint")
+
+    rgh_n = atlas_sample("RoughAtlas", rough_tex, tile, col, row, x0 + 1900, 880, True)
+    rgh_rn = atlas_sample("RoughAtlas", rough_tex, rock_near, c_2, c_0, x0 + 1900, 1100, True)
+    lerp_r = node(unreal.MaterialExpressionLinearInterpolate, x0 + 9100, 500, "Rough")
+    connect(rgh_n, "", lerp_r, "A")
+    connect(rgh_rn, "", lerp_r, "B")
+    connect(w_rock, "", lerp_r, "Alpha")
 
     def plug(src, src_out, prop):
         try:

@@ -132,6 +132,26 @@ Python-only material/content work does **not** require a C++ rebuild. C++ change
 
 ---
 
+## Proper solutions, not shortcuts
+
+Do **not** take the easy route. If the right answer is a new system, invent and ship it.
+
+Shortcuts we already paid for — do not repeat:
+
+- Fade landscape to vertex color / unlit / a flat tint to hide tiling
+- Two-sided materials to hide winding
+- Keep-last-mesh when remesh is empty
+- Asking the user to run editor Python or launch the editor
+- A gray sphere or default material as a “horizon”
+
+Required bar:
+
+- **Terrain is a landscape.** Near detail plus a larger **macro** scale so color and form remain at distance without wallpaper repeats. Rock / mountain layers tile coarser than grass (scaled-up rock, not more grass repeats).
+- **Planets stay body-fixed.** Lighting, materials, and streaming must work at that scale (dual-layer ephemeris, not spinning the actor).
+- Prefer a real subsystem (dual-scale triplanar, ephemeris sky, authored horizon) over a one-line lerp that papers over the bug.
+
+---
+
 ## Product rules
 
 - **Creativity + hard spaceflight.** No bunkers, no walkers, no new work in `Source/GrokExodus/Voxel/` except crash fixes or routing that file onto GX.

@@ -7,6 +7,7 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.5.9+** Landscape dual-scale triplanar (not fade-to-vertex-color). Near grass ~2 m, macro ~20 m; rock uses a larger tile so mountains keep color without repeating. Horizon sphere still fills the limb.
 - **GX 0.5.9** Distant voxel wallpaper fades to vertex color by 150 m. A mean-radius `M_VoxelHorizon` sphere fills the limb past the stream; near pixels are masked so holes are not a second grass layer. Stream ~180–200 m.
 - **GX 0.5.8** Dig ignored early “infected” pages (Density=0, no flags) while the mesh still showed stamp grass. Sample/raycast/load now treat only Deformed/PlayerPlaced cells as real edits. Place already overwrote them; dig now carves that grass.
 - **GX 0.5.7** PBR UVs are **planar World YZ** (spawn is +X). Planet-tangent frames warped every MC triangle. TileScale 0.0045 on centimetres again. MCP re-ran the material script.
