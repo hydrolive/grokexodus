@@ -126,7 +126,7 @@ void FGXTerrainPBR::Initialize(UObject* Outer)
 		{
 			if (AlbedoAtlas) Mid->SetTextureParameterValue(TEXT("AlbedoAtlas"), AlbedoAtlas);
 			if (RoughAtlas) Mid->SetTextureParameterValue(TEXT("RoughAtlas"), RoughAtlas);
-			Mid->SetScalarParameterValue(TEXT("TileScale"), 0.28f);
+			Mid->SetScalarParameterValue(TEXT("TileScale"), 0.0045f);
 			Mid->SetScalarParameterValue(TEXT("SlopeStart"), 0.32f);
 			Mid->SetScalarParameterValue(TEXT("SlopeEnd"), 0.72f);
 			Roots.Add(Mid);

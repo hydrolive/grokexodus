@@ -7,7 +7,7 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
-- **GX 0.5.7** Dig no longer stair-steps the hillside. PBR UVs are planet-tangent in **meters**, TileScale **0.28** (~3.6 m). The first tangent used an If node that collapsed — extreme tiling + atlas bleed. Script was re-run from MCP.
+- **GX 0.5.7** PBR UVs are **planar World YZ** (spawn is +X). Planet-tangent frames warped every MC triangle. TileScale 0.0045 on centimetres again. MCP re-ran the material script.
 - **GX 0.5.6** Crust winding flipped to I0,I1,I2 (PBR is single-sided; I0,I2,I1 showed only the underside). Space jumps along planet-up; airborne snap ignores the next 2.5 s so the jump is not yanked back.
 - **GX 0.5.5** Lit PBR was black because spawn is +X and the sun was aimed at the opposite hemisphere (old unlit vertex-color hid that). Sun now lights +X; SkyLight captures from the crust, not the core. Runtime no longer wraps the authored material in a MID that can stomp the atlas.
 - **GX 0.5.4** Imagine JPGs are imported as real Texture2D assets (`/Game/Voxel/Textures/T_VoxelAlbedoAtlas`, per-biome `T_*_A`). Empty TextureSampleParameter2D nodes were DefaultTextureCube, so the 2D atlas bind was ignored and the crust went black. Re-run the Python script; AlbedoAtlas/RoughAtlas must show the 4×2 atlas, not a cube.
