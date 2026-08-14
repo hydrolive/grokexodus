@@ -33,7 +33,7 @@ Do **not** ship a user-facing change without bumping this file in the same commi
 When a change is done (compiles, or is docs/process only):
 
 1. `git status` / `git diff` / `git log -5 --oneline`
-2. Stage **source and docs only** (never `Binaries/`, `Intermediate/`, `Saved/`, `.pdb`)
+2. Stage **source, docs, and Unreal content that this change created, edited, or deleted** (see below). Never stage `Binaries/`, `Intermediate/`, `Saved/`, `.pdb`.
 3. Commit immediately with a **detailed** message:
 
 ```
@@ -47,6 +47,26 @@ Include the new `GX_VERSION_STRING` in the title or first body line (`GX 0.4.1: 
 4. **Do not push** unless the user asks.
 
 Docs-only / AGENTS-only commits may skip the version bump if no binary/HUD change shipped.
+
+### 3. Commit Unreal assets with the change that produced them
+
+If the agent **creates, edits, or removes** editor content, those files **must** be in the same commit as the Python/C++ that caused it. Do not leave cooked-looking graphs only on disk.
+
+Include, when they changed:
+
+- `GrokExodus/Content/**/*.uasset` (materials, textures, maps, meshes, data assets)
+- matching `.uexp` / `.ubulk` / `.umap` if present
+- `GrokExodus/Content/Python/*.py` that generated them
+
+Typical misses we already paid for: `M_VoxelTerrain_PBR`, `M_VoxelHorizon`, `M_VoxelHorizonFar` updated by `create_voxel_pbr_material.py` but left unstaged because the old rule said “source and docs only.”
+
+After any MCP / editor Python that writes an asset:
+
+1. `git status` under `GrokExodus/Content/`
+2. Stage every new/modified/deleted `.uasset` (and siblings) from that run
+3. Commit them. A follow-up “commit the materials” commit is required if they were forgotten earlier.
+
+Still never commit `Saved/`, `Binaries/`, `Intermediate/`, `DerivedDataCache/`.
 
 ---
 
