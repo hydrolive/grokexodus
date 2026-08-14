@@ -192,11 +192,11 @@ FGXMeshBuffers FGXMesher::MeshChunk(
 					{
 						continue;
 					}
-					// One winding for every triangle. Per-face centroid tests flip
-					// vertical walls (caps with hole sides) and are unstable at Dot~0.
+					// Standard table order. I0,I2,I1 pointed the crust inward — PBR is
+					// single-sided so the surface vanished and only the underside showed.
 					Mesh.Indices.Add(I0);
-					Mesh.Indices.Add(I2);
 					Mesh.Indices.Add(I1);
+					Mesh.Indices.Add(I2);
 				}
 			}
 		}

@@ -219,11 +219,12 @@ Runtime: `create_voxel_pbr_material.py` imports those JPGs plus `T_VoxelAtlas_{A
 1. Build `GrokExodusEditor`.
 2. Play (project default game mode is `AGXGameMode`). Restart the editor if it was already open.
 3. Wait ~2 s for near-field mesh; you spawn on the +X crust.
-4. WASD + mouse. **LMB** drill, **RMB / G** place, **R** cycle material, **T** tool quality, **F5** save.
+4. WASD + mouse. **Space** jump, **LMB** drill, **RMB / G** place, **R** cycle material, **T** tool quality, **F5** save.
 
 | Key | Action |
 |-----|--------|
 | WASD | Move on the local horizon |
+| Space | Jump along planet-up |
 | Mouse | Spherical look (parallel transport) |
 | LMB | Dig / Place (hold) |
 | RMB / G | Toggle drill ↔ place |

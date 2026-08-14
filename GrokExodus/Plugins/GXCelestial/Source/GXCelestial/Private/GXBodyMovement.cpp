@@ -17,7 +17,7 @@ UGXBodyMovement::UGXBodyMovement()
 	GroundFriction = 8.0f;
 	MaxWalkSpeed = 650.0f;
 	MaxAcceleration = 2048.0f;
-	JumpZVelocity = 420.0f;
+	JumpZVelocity = 700.0f;
 	MaxStepHeight = 50.0f;
 	SetWalkableFloorAngle(80.0f);
 	bMaintainHorizontalGroundVelocity = false;
@@ -92,6 +92,12 @@ void UGXBodyMovement::UpdateGravity()
 	{
 		GravityScale = Mag / WorldG;
 	}
+}
+
+void UGXBodyMovement::NotifyPlayerJumped()
+{
+	JumpIgnoreSnapSeconds = 2.5f;
+	AirborneSeconds = 0.0f;
 }
 
 void UGXBodyMovement::SnapToSurface(bool bZeroVelocity)
@@ -170,7 +176,12 @@ void UGXBodyMovement::TickComponent(float DeltaTime, ELevelTick TickType, FActor
 	}
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	if (bSnapWhenAirborne && FieldActor)
+	if (JumpIgnoreSnapSeconds > 0.0f)
+	{
+		JumpIgnoreSnapSeconds -= DeltaTime;
+		AirborneSeconds = 0.0f;
+	}
+	else if (bSnapWhenAirborne && FieldActor)
 	{
 		const bool bNoFloor = !CurrentFloor.IsWalkableFloor();
 		const bool bInShallowHole = bNoFloor && HasSolidWithinMeters(4.0f);

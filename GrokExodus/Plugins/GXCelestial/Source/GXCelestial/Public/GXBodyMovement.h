@@ -45,6 +45,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GX|Gravity")
 	void SnapToSurface(bool bZeroVelocity = true);
 
+	/** Skip airborne crust-snap for this many seconds (call when the player jumps). */
+	void NotifyPlayerJumped();
+
 	virtual void BeginPlay() override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
@@ -60,4 +63,5 @@ protected:
 	bool HasSolidWithinMeters(float MaxMeters) const;
 
 	float AirborneSeconds = 0.0f;
+	float JumpIgnoreSnapSeconds = 0.0f;
 };

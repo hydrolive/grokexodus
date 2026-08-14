@@ -22,6 +22,8 @@ public:
 	virtual void Tick(float DeltaSeconds) override;
 	virtual void DoAim(float Yaw, float Pitch) override;
 	virtual void DoMove(float Right, float Forward) override;
+	virtual void DoJumpStart() override;
+	virtual void DoJumpEnd() override;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "GX")
 	TObjectPtr<UGXTerrainToolComponent> TerrainTool;
@@ -42,6 +44,8 @@ public:
 	float LookSensitivity = 1.0f;
 
 protected:
+	void OnJumpPressed();
+	void OnJumpReleased();
 	void OnDrillStarted();
 	void OnDrillCompleted();
 	void OnToolMode();
@@ -56,4 +60,5 @@ protected:
 	void ApplyLookAndBody();
 
 	bool bLookBasisValid = false;
+	uint64 LastJumpFrame = 0;
 };

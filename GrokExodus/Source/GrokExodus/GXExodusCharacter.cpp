@@ -76,11 +76,14 @@ void AGrokExodusSurvivor::BeginPlay()
 	bUseControllerRotationYaw = false;
 	bUseControllerRotationRoll = false;
 	ConfigureCamera();
+	JumpMaxHoldTime = 0.22f;
 	if (UGXBodyMovement* Move = GetBodyMove())
 	{
 		Move->bAlignCapsuleToGravity = false;
 		Move->bOrientRotationToMovement = false;
 		Move->MaxWalkSpeed = 700.0f;
+		Move->JumpZVelocity = 700.0f;
+		Move->AirControl = 0.55f;
 		Move->TryFindField();
 	}
 	EnsureLookBasis();
@@ -204,6 +207,50 @@ void AGrokExodusSurvivor::DoMove(float Right, float Forward)
 	AddMovementInput(RightDir, Right);
 }
 
+void AGrokExodusSurvivor::DoJumpStart()
+{
+	OnJumpPressed();
+}
+
+void AGrokExodusSurvivor::DoJumpEnd()
+{
+	OnJumpReleased();
+}
+
+void AGrokExodusSurvivor::OnJumpPressed()
+{
+	const uint64 Frame = GFrameCounter;
+	if (LastJumpFrame == Frame)
+	{
+		return;
+	}
+	LastJumpFrame = Frame;
+
+	UGXBodyMovement* Move = GetBodyMove();
+	if (!Move)
+	{
+		Jump();
+		return;
+	}
+	if (Move->MovementMode == MOVE_None)
+	{
+		Move->SetMovementMode(MOVE_Walking);
+	}
+	Move->NotifyPlayerJumped();
+	Jump();
+	if (!Move->IsFalling())
+	{
+		const FVector Up = GetPlanetUp();
+		Move->Velocity += Up * Move->JumpZVelocity;
+		Move->SetMovementMode(MOVE_Falling);
+	}
+}
+
+void AGrokExodusSurvivor::OnJumpReleased()
+{
+	StopJumping();
+}
+
 void AGrokExodusSurvivor::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
@@ -214,6 +261,8 @@ void AGrokExodusSurvivor::SetupPlayerInputComponent(UInputComponent* PlayerInput
 	PlayerInputComponent->BindKey(EKeys::F5, IE_Pressed, this, &AGrokExodusSurvivor::OnSaveWorld);
 	PlayerInputComponent->BindKey(EKeys::T, IE_Pressed, this, &AGrokExodusSurvivor::OnCycleQuality);
 	PlayerInputComponent->BindKey(EKeys::G, IE_Pressed, this, &AGrokExodusSurvivor::OnToolMode);
+	PlayerInputComponent->BindKey(EKeys::SpaceBar, IE_Pressed, this, &AGrokExodusSurvivor::OnJumpPressed);
+	PlayerInputComponent->BindKey(EKeys::SpaceBar, IE_Released, this, &AGrokExodusSurvivor::OnJumpReleased);
 }
 
 void AGrokExodusSurvivor::OnDrillStarted() { if (TerrainTool) TerrainTool->PrimaryFire(true); }
