@@ -363,6 +363,22 @@ def main():
     radial = node(unreal.MaterialExpressionNormalize, x0 + 560, 800, "radial")
     connect(wp, "", radial, "")
 
+    # Sphere lon/lat * R — world XYZ planar UVs put a seam on every axis
+    # (Y=0 / Z=0 planes through the planet). Date line is on the far -X side.
+    lon = node(unreal.MaterialExpressionArctangent2, x0 + 820, -200, "lon")
+    connect(py, "", lon, "A")
+    connect(px, "", lon, "B")
+    nzp = mask(radial, "", False, False, True, x0 + 820, -80, "Nz")
+    lat = node(unreal.MaterialExpressionArcsine, x0 + 1080, -80, "lat")
+    connect(nzp, "", lat, "")
+    origin = node(unreal.MaterialExpressionConstant3Vector, x0 + 560, 40, "origin")
+    _set(origin, "constant", unreal.LinearColor(0.0, 0.0, 0.0, 0.0))
+    rlen = node(unreal.MaterialExpressionDistance, x0 + 820, 40, "Rcm")
+    connect(wp, "", rlen, "A")
+    connect(origin, "", rlen, "B")
+    lon_u = mul(lon, "", rlen, "", x0 + 1340, -200, "lonU")
+    lat_v = mul(lat, "", rlen, "", x0 + 1340, -80, "latV")
+
     def atlas_sample_axes(param, texture, tnode, cell_u, cell_v, ua, va, ox, oy, linear):
         fu = frac(mul(ua, "", tnode, "", ox, oy), "", ox + 240, oy)
         fv = frac(mul(va, "", tnode, "", ox, oy + 70), "", ox + 240, oy + 70)
@@ -374,7 +390,7 @@ def main():
         return tex(param, uv, texture, ox + 1680, oy, linear)
 
     def atlas_sample(param, texture, tnode, cell_u, cell_v, ox, oy, linear):
-        return atlas_sample_axes(param, texture, tnode, cell_u, cell_v, py, pz, ox, oy, linear)
+        return atlas_sample_axes(param, texture, tnode, cell_u, cell_v, lon_u, lat_v, ox, oy, linear)
 
     nx = mask(vn, "", True, False, False, x0 + 560, 1180, "Nx")
     ny = mask(vn, "", False, True, False, x0 + 560, 1260, "Ny")
@@ -391,7 +407,7 @@ def main():
     wz = div(az, "", wsum, "", x0 + 1520, 1340, "wZ")
 
     def triplanar_albedo(param, texture, tnode, cell_u, cell_v, ox, oy):
-        s_yz = atlas_sample_axes(param, texture, tnode, cell_u, cell_v, py, pz, ox, oy, False)
+        s_yz = atlas_sample_axes(param, texture, tnode, cell_u, cell_v, lon_u, lat_v, ox, oy, False)
         s_xz = atlas_sample_axes(param, texture, tnode, cell_u, cell_v, px, pz, ox, oy + 220, False)
         s_xy = atlas_sample_axes(param, texture, tnode, cell_u, cell_v, px, py, ox, oy + 440, False)
         a = add(mul(s_yz, "", wx, "", ox + 2000, oy), "", mul(s_xz, "", wy, "", ox + 2000, oy + 220), "", ox + 2300, oy)

@@ -20,9 +20,9 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// Overlap ~150 m so rings never leave a sky gap. Outer rings sit a
 	// little deeper so the shared band does not z-fight.
 	const FSpec Specs[] = {
-		{ 0.0f, 420.0f, 8.0f, 0.0f },
-		{ 390.0f, 2200.0f, 24.0f, 2.0f },
-		{ 2050.0f, 10000.0f, 72.0f, 4.0f },
+		{ 0.0f, 560.0f, 8.0f, 0.0f },
+		{ 520.0f, 2400.0f, 24.0f, 2.5f },
+		{ 2200.0f, 10000.0f, 72.0f, 4.5f },
 	};
 	for (const FSpec& S : Specs)
 	{
@@ -51,6 +51,15 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap: %d rings"), Rings.Num());
 }
 
+void FGXHorizonClipmap::Invalidate()
+{
+	LastViewerLocal = FVector(1e12f, 0, 0);
+	for (FRing& R : Rings)
+	{
+		R.LastBuild = FVector(1e12f, 0, 0);
+	}
+}
+
 void FGXHorizonClipmap::Shutdown()
 {
 	for (FRing& R : Rings)
@@ -75,7 +84,8 @@ void FGXHorizonClipmap::BuildRing(
 	float CellM,
 	float SinkM,
 	UMaterialInterface* Material,
-	const FGXCrustAtlas* Atlas)
+	const FGXCrustAtlas* Atlas,
+	const TArray<FVector>* EditHolesLocalM)
 {
 	if (!Comp)
 	{
@@ -132,6 +142,23 @@ void FGXHorizonClipmap::BuildRing(
 			const float SurfR = Stamp.GetParams().Radius + HeightM;
 			const FVector P = Dir * (SurfR - Sink) * 100.0f;
 			const int32 Idx = I + J * Dim;
+			if (EditHolesLocalM)
+			{
+				const FVector PM = Dir * SurfR;
+				bool bHole = false;
+				for (const FVector& Hole : *EditHolesLocalM)
+				{
+					if (FVector::DistSquared(PM, Hole) < 900.0f)
+					{
+						bHole = true;
+						break;
+					}
+				}
+				if (bHole)
+				{
+					continue;
+				}
+			}
 			IndexOf[Idx] = Positions.Num();
 			Positions.Add(P);
 			Normals.Add(Dir);
@@ -262,7 +289,8 @@ void FGXHorizonClipmap::Update(
 	float OuterM,
 	UMaterialInterface* NearMaterial,
 	UMaterialInterface* FarMaterial,
-	const FGXCrustAtlas* Atlas)
+	const FGXCrustAtlas* Atlas,
+	const TArray<FVector>* EditHolesLocalM)
 {
 	if (!Owner || Rings.Num() == 0)
 	{
@@ -309,7 +337,7 @@ void FGXHorizonClipmap::Update(
 	for (int32 I = 0; I < Rings.Num(); ++I)
 	{
 		FRing& Ring = Rings[I];
-		const float RebuildM = (I == 0) ? 70.0f : 350.0f;
+		const float RebuildM = (I == 0) ? 220.0f : 400.0f;
 		if (bReady && Built >= 1 && I > 0)
 		{
 			break;
@@ -320,7 +348,7 @@ void FGXHorizonClipmap::Update(
 		}
 		if (UProceduralMeshComponent* C = Ring.Comp.Get())
 		{
-			BuildRing(C, Stamp, CenterDir, T, B, Ring.InnerM, Ring.OuterM, Ring.CellM, Ring.SinkM, FarLit, Atlas);
+			BuildRing(C, Stamp, CenterDir, T, B, Ring.InnerM, Ring.OuterM, Ring.CellM, Ring.SinkM, FarLit, Atlas, EditHolesLocalM);
 			Ring.LastBuild = ViewerLocalM;
 			++Built;
 		}

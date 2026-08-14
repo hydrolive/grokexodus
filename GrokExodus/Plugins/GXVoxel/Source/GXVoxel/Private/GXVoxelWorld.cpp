@@ -112,6 +112,7 @@ void AGXVoxelWorld::ResetStreamingState()
 	HollowChunks.Empty();
 	EmptyRetries.Empty();
 	NextEmptyRetryAt.Empty();
+	EditHolesLocalM.Empty();
 	LastSettledEmpty = 0;
 	LastHollowNear = 0;
 	StallSeconds = 0;
@@ -369,7 +370,8 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			HorizonOuterM,
 			TerrainMaterial,
 			TerrainMaterial,
-			CrustAtlas.Get());
+			CrustAtlas.Get(),
+			&EditHolesLocalM);
 	}
 	if (Foliage && Volume && bWorldReady)
 	{
@@ -601,11 +603,21 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	Out.YieldAmount = Brush.VolumeChanged * 0.7f * RecoveryMul;
 	Out.ToolWear = Brush.VolumeChanged * WearMul;
 	if (Jobs) Jobs->BumpStamp();
+	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
 		BrushForceLOD0.Add(C);
 		EnqueueRemesh(C, true);
+		EditHolesLocalM.Add(FVector((C.X + 0.5f) * ChunkM, (C.Y + 0.5f) * ChunkM, (C.Z + 0.5f) * ChunkM));
+	}
+	if (EditHolesLocalM.Num() > 48)
+	{
+		EditHolesLocalM.RemoveAt(0, EditHolesLocalM.Num() - 48, EAllowShrinking::No);
+	}
+	if (HorizonClipmap)
+	{
+		HorizonClipmap->Invalidate();
 	}
 	FlushMeshQueue(2);
 	return Out;
@@ -624,11 +636,21 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	Out.bSuccess = Brush.VolumeChanged > 0.0f;
 	Out.MaterialId = MaterialId;
 	if (Jobs) Jobs->BumpStamp();
+	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
 		BrushForceLOD0.Add(C);
 		EnqueueRemesh(C, true);
+		EditHolesLocalM.Add(FVector((C.X + 0.5f) * ChunkM, (C.Y + 0.5f) * ChunkM, (C.Z + 0.5f) * ChunkM));
+	}
+	if (EditHolesLocalM.Num() > 48)
+	{
+		EditHolesLocalM.RemoveAt(0, EditHolesLocalM.Num() - 48, EAllowShrinking::No);
+	}
+	if (HorizonClipmap)
+	{
+		HorizonClipmap->Invalidate();
 	}
 	FlushMeshQueue(2);
 	return Out;

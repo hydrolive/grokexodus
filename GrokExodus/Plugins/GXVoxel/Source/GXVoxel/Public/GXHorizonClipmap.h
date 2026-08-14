@@ -29,8 +29,10 @@ public:
 		float OuterM,
 		UMaterialInterface* NearMaterial,
 		UMaterialInterface* FarMaterial = nullptr,
-		const FGXCrustAtlas* Atlas = nullptr);
+		const FGXCrustAtlas* Atlas = nullptr,
+		const TArray<FVector>* EditHolesLocalM = nullptr);
 
+	void Invalidate();
 	bool IsReady() const { return bReady; }
 
 private:
@@ -59,5 +61,6 @@ private:
 		float CellM,
 		float SinkM,
 		UMaterialInterface* Material,
-		const FGXCrustAtlas* Atlas);
+		const FGXCrustAtlas* Atlas,
+		const TArray<FVector>* EditHolesLocalM);
 };

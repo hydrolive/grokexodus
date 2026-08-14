@@ -254,6 +254,7 @@ protected:
 	TSet<FGXChunkKey> RemeshWhenIdle;
 	TSet<FGXChunkKey> BrushForceLOD0;
 	TMap<FGXChunkKey, int32> EmptyRetries;
+	TArray<FVector> EditHolesLocalM;
 	TMap<FGXChunkKey, double> NextEmptyRetryAt;
 
 	FVector CachedViewerWorld = FVector::ZeroVector;
