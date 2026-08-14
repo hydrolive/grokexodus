@@ -76,7 +76,7 @@ struct FGXPlanetStampParams
 		P.CrustDepth = 96.0f;
 		P.Seed = 1337u;
 		P.ContinentFreq = 1.35f;
-		P.MountainFreq = 15.0f;   // ~25 km masses; fingerprint bump for taller peaks
+		P.MountainFreq = 14.0f;   // ~27 km masses; fingerprint bump — ranges on the limb
 		P.DetailFreq = 900.0f;
 		P.MoistureFreq = 2.4f;
 		P.ScarFreq = 4.5f;

@@ -98,16 +98,19 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	float Domain = 0.5f + 0.5f * FGXNoise::FBm(
 		Ux * Params.PlateauFreq, Uy * Params.PlateauFreq, Uz * Params.PlateauFreq,
 		Params.Seed + 21u, 2, 2.0f, 0.5f);
-	// Spawn basin ~1.6 km of lake-flat. Ranges from 2 km so peaks read as
-	// mountains on the 8 km clipmap, not just rolling hills.
+	// Plains underfoot. Foothills 2.5–5 km. Ranges on the 5–16 km limb so
+	// 2 km peaks sit on the horizon (atan(2/6) ≈ 18°), not a wall overhead.
 	const float ArcM = FMath::Acos(FMath::Clamp(Ux, -1.0f, 1.0f)) * Params.Radius;
-	const float Basin = FGXNoise::Smooth01((1600.0f - ArcM) / 400.0f);
-	const float RangeRing = FGXNoise::Smooth01((ArcM - 1800.0f) / 600.0f)
-		* (1.0f - FGXNoise::Smooth01((ArcM - 18000.0f) / 4000.0f));
+	const float Basin = FGXNoise::Smooth01((2500.0f - ArcM) / 500.0f);
+	const float FootRing = FGXNoise::Smooth01((ArcM - 2200.0f) / 700.0f)
+		* (1.0f - FGXNoise::Smooth01((ArcM - 5200.0f) / 800.0f));
+	const float RangeRing = FGXNoise::Smooth01((ArcM - 4800.0f) / 900.0f)
+		* (1.0f - FGXNoise::Smooth01((ArcM - 16000.0f) / 4000.0f));
 	Domain = FMath::Lerp(Domain, 0.16f, Basin * 0.92f);
+	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.52f, FootRing));
 	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.94f, RangeRing));
 	const float PlainsW = 1.0f - FGXNoise::Smooth01((Domain - 0.34f) / 0.26f);
-	const float MountainW = FGXNoise::Smooth01((Domain - 0.55f) / 0.18f);
+	const float MountainW = FGXNoise::Smooth01((Domain - 0.58f) / 0.18f);
 	const float HillW = FMath::Clamp(1.0f - PlainsW - MountainW, 0.0f, 1.0f);
 	const float RangeMask = 1.0f - PlainsW;
 	const float Highland = Domain;
