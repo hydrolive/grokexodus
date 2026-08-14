@@ -230,12 +230,16 @@ protected:
 		int32 Bank = INDEX_NONE;
 		int32 Section = INDEX_NONE;
 		int32 LOD = 0;
+		int32 VertCount = 0;
+		int32 IndexCount = 0;
 	};
 	TMap<FGXChunkKey, FChunkVisual> ChunkVisuals;
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UProceduralMeshComponent>> MeshBanks;
 	TArray<int32> FreeVisualSlots;
-	static constexpr int32 VisualBankCount = 16;
+	/** 28×48 = 1344. Unload at 580 m is ~1000 crust chunks; 16×48 overflowed and punched holes. */
+	static constexpr int32 VisualBankCount = 28;
+	static constexpr int32 VisualBankMax = 36;
 	static constexpr int32 VisualSectionsPerBank = 48;
 	TArray<FGXChunkKey> NearMeshQueue;
 	TArray<FGXChunkKey> MeshQueue;
@@ -245,6 +249,7 @@ protected:
 	TSet<FGXChunkKey> HollowChunks;
 	TSet<FGXChunkKey> RemeshWhenIdle;
 	TSet<FGXChunkKey> BrushForceLOD0;
+	TMap<FGXChunkKey, int32> EmptyRetries;
 
 	FVector CachedViewerWorld = FVector::ZeroVector;
 	FVector LastStreamViewerWorld = FVector(1e12f, 0, 0);
@@ -290,9 +295,10 @@ protected:
 	void DrainPendingMeshes(int32 Budget);
 	void ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshBuffers&& MeshData);
 	void EnsureMeshBanks();
+	void GrowMeshBanks(int32 TargetBanks);
 	bool AcquireVisual(const FGXChunkKey& Key, int32& OutBank, int32& OutSection);
 	void ReleaseVisual(const FGXChunkKey& Key);
-	void EvictFurthestVisual(const FVector& ViewerLocalM, float ChunkM);
+	bool EvictFurthestVisual(const FVector& ViewerLocalM, float ChunkM);
 	void EnsureCrustAtlas();
 	void OnAtlasReady(const TSharedRef<FGXCrustAtlas, ESPMode::ThreadSafe>& Built, bool bFromDisk);
 	bool TryApplyCachedChunk(const FGXChunkKey& Coord, int32 LOD);

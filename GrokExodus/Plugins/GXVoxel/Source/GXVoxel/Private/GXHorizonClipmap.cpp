@@ -137,7 +137,7 @@ void FGXHorizonClipmap::BuildRing(
 				Biome = 2.0f;
 			}
 			UV0.Add(FVector2D(Biome, 0.0f));
-			Colors.Add(FLinearColor(0.38f, 0.48f, 0.28f, 1.0f));
+			Colors.Add(FLinearColor(0.52f, 0.60f, 0.34f, 1.0f));
 			FVector T = FVector::CrossProduct(Dir, FVector::ZAxisVector);
 			if (T.SizeSquared() < 1e-6f)
 			{
@@ -221,7 +221,7 @@ void FGXHorizonClipmap::BuildRing(
 		}
 		else
 		{
-			Colors[V] = FLinearColor(0.50f, 0.58f, 0.32f); // grass — not a black pond
+			Colors[V] = FLinearColor(0.58f, 0.66f, 0.38f); // grass — valleys were too dark
 		}
 	}
 

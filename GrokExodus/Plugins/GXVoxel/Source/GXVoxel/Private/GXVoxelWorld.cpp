@@ -110,6 +110,7 @@ void AGXVoxelWorld::ResetStreamingState()
 	MeshQueued.Empty();
 	AsyncInFlight.Empty();
 	HollowChunks.Empty();
+	EmptyRetries.Empty();
 	LastSettledEmpty = 0;
 	LastHollowNear = 0;
 	StallSeconds = 0;
@@ -174,7 +175,8 @@ void AGXVoxelWorld::ApplyEarthPlayDefaults()
 	NearFieldRadius = 110.0f;
 	CollisionRadius = 90.0f;
 	StreamInterval = 0.40f;
-	bForceLOD0 = false;
+	// Mixed LOD0/1 is the black polygonal crack. Transvoxel skirts are 0.8.
+	bForceLOD0 = true;
 	HorizonOuterM = 10000.0f;
 	bAsyncMeshing = true;
 	WarmupSeconds = 1.0f;
@@ -625,8 +627,9 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 
 int32 AGXVoxelWorld::SelectLOD(float DistanceM) const
 {
-	// LOD1/2 against LOD0 is the black crack in 0.7.17–0.7.18 shots.
-	if (bForceLOD0 || DistanceM < FMath::Max(220.0f, StreamRadius * 0.70f))
+	// Mixed LOD0/1 seams are black polygonal holes. Keep the whole stream
+	// at LOD0 until transvoxel skirts (0.8) can stitch the crack.
+	if (bForceLOD0 || DistanceM <= StreamRadius)
 	{
 		return 0;
 	}
@@ -735,6 +738,7 @@ void AGXVoxelWorld::RefreshLoadState()
 void AGXVoxelWorld::InvalidateHollow(const FGXChunkKey& Coord)
 {
 	HollowChunks.Remove(Coord);
+	EmptyRetries.Remove(Coord);
 }
 
 void AGXVoxelWorld::MarkChunkEmpty(const FGXChunkKey& Coord, int32 LOD, const TCHAR* Reason)
@@ -749,13 +753,40 @@ void AGXVoxelWorld::MarkChunkEmpty(const FGXChunkKey& Coord, int32 LOD, const TC
 		EnqueueRemesh(Coord, true);
 		return;
 	}
+
+	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
+	const FVector Local = WorldToLocalMeters(CachedViewerWorld.IsNearlyZero() ? GetPrimaryInvokerLocation() : CachedViewerWorld);
+	const FVector Center((Coord.X + 0.5f) * ChunkM, (Coord.Y + 0.5f) * ChunkM, (Coord.Z + 0.5f) * ChunkM);
+	const float Dist = FVector::Dist(Center, Local);
+	const bool bNear = Dist <= FMath::Max(200.0f, NearFieldRadius * 1.5f);
+	const bool bOnCrust = ChunkOverlapsSurface(Coord, ChunkM);
+	int32& Retries = EmptyRetries.FindOrAdd(Coord);
+	const int32 MaxRetry = (bNear || bOnCrust) ? 4 : 1;
+	if (Retries < MaxRetry)
+	{
+		++Retries;
+		GX_PERF(1, TEXT("GX-empty near-retry %d/%d %d_%d_%d d=%.0f crust=%d %s"),
+			Retries, MaxRetry, Coord.X, Coord.Y, Coord.Z, Dist, bOnCrust ? 1 : 0,
+			Reason ? Reason : TEXT("?"));
+		BrushForceLOD0.Add(Coord);
+		EnqueueRemesh(Coord, true);
+		return;
+	}
+
+	EmptyRetries.Remove(Coord);
 	if (HollowChunks.Contains(Coord))
 	{
 		return;
 	}
 	HollowChunks.Add(Coord);
 	++LastSettledEmpty;
-	GX_PERF(2, TEXT("GX-empty settle %d_%d_%d %s"), Coord.X, Coord.Y, Coord.Z, Reason ? Reason : TEXT("?"));
+	if (ChunkVisuals.Contains(Coord))
+	{
+		// Do not keep-last-empty (that shortcut hid a failed remesh). Drop it.
+		ReleaseVisual(Coord);
+	}
+	GX_PERF(2, TEXT("GX-empty settle %d_%d_%d d=%.0f crust=%d %s"),
+		Coord.X, Coord.Y, Coord.Z, Dist, bOnCrust ? 1 : 0, Reason ? Reason : TEXT("?"));
 }
 
 bool AGXVoxelWorld::ChunkOverlapsSurface(const FGXChunkKey& Coord, float ChunkM) const
@@ -797,6 +828,13 @@ bool AGXVoxelWorld::ChunkOverlapsSurface(const FGXChunkKey& Coord, float ChunkM)
 		}
 	}
 	Acc(Origin + FVector(ChunkM * 0.5f));
+	// Face centers — high-frequency ridges can miss all 8 corners + centroid.
+	Acc(Origin + FVector(ChunkM * 0.5f, ChunkM * 0.5f, 0.0f));
+	Acc(Origin + FVector(ChunkM * 0.5f, ChunkM * 0.5f, ChunkM));
+	Acc(Origin + FVector(ChunkM * 0.5f, 0.0f, ChunkM * 0.5f));
+	Acc(Origin + FVector(ChunkM * 0.5f, ChunkM, ChunkM * 0.5f));
+	Acc(Origin + FVector(0.0f, ChunkM * 0.5f, ChunkM * 0.5f));
+	Acc(Origin + FVector(ChunkM, ChunkM * 0.5f, ChunkM * 0.5f));
 	// Half-chunk slack so a ridge that only clips a face is still meshed.
 	const float Slack = ChunkM * 0.5f;
 	return !(SMax < -Slack || SMin > Slack);
@@ -979,12 +1017,25 @@ void AGXVoxelWorld::ProcessMeshQueue(int32 Budget)
 		return MeshQueue.Pop(EAllowShrinking::No);
 	};
 
+	TSet<FGXChunkKey> HandledThisTick;
 	while (Built < Budget
 		&& (NearMeshQueue.Num() + MeshQueue.Num()) > 0
 		&& FPlatformTime::Seconds() < Deadline)
 	{
 		const FGXChunkKey Coord = PopNext();
 		MeshQueued.Remove(Coord);
+		if (HandledThisTick.Contains(Coord))
+		{
+			// Empty-retry requeued the same key (LIFO). Leave it for next tick
+			// so we do not burn 4 identical meshes and settle a hole this frame.
+			if (!MeshQueued.Contains(Coord))
+			{
+				MeshQueued.Add(Coord);
+				NearMeshQueue.Insert(Coord, 0);
+			}
+			continue;
+		}
+		HandledThisTick.Add(Coord);
 		if (AsyncInFlight.Contains(Coord))
 		{
 			RemeshWhenIdle.Add(Coord);
@@ -1143,14 +1194,11 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 {
 	if (MeshData.IsEmpty())
 	{
-		if (ChunkVisuals.Contains(Coord))
-		{
-			return;
-		}
 		MarkChunkEmpty(Coord, LOD, TEXT("mesh"));
 		return;
 	}
 	HollowChunks.Remove(Coord);
+	EmptyRetries.Remove(Coord);
 	EnsureMeshBanks();
 
 	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
@@ -1160,11 +1208,19 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 	int32 Section = INDEX_NONE;
 	if (!AcquireVisual(Coord, Bank, Section))
 	{
-		EvictFurthestVisual(ViewerLocal, ChunkM);
+		if (!EvictFurthestVisual(ViewerLocal, ChunkM))
+		{
+			GrowMeshBanks(MeshBanks.Num() + 4);
+		}
 		if (!AcquireVisual(Coord, Bank, Section))
 		{
-			UE_LOG(LogGXVoxel, Warning, TEXT("GX-visual bank full, drop %d_%d_%d"), Coord.X, Coord.Y, Coord.Z);
-			return;
+			EvictFurthestVisual(ViewerLocal, ChunkM);
+			if (!AcquireVisual(Coord, Bank, Section))
+			{
+				UE_LOG(LogGXVoxel, Warning, TEXT("GX-visual bank full, drop %d_%d_%d banks=%d free=%d vis=%d"),
+					Coord.X, Coord.Y, Coord.Z, MeshBanks.Num(), FreeVisualSlots.Num(), ChunkVisuals.Num());
+				return;
+			}
 		}
 	}
 
@@ -1196,9 +1252,23 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 	}
 
 	PMC->bUseAsyncCooking = true;
-	PMC->ClearMeshSection(Section);
-	PMC->CreateMeshSection_LinearColor(
-		Section, LocalPos, MeshData.Indices, MeshData.Normals, MeshData.UV0, MeshData.Colors, Tangents, false);
+	FChunkVisual* Slot = ChunkVisuals.Find(Coord);
+	const bool bCanUpdate = Slot
+		&& Slot->VertCount == LocalPos.Num()
+		&& Slot->IndexCount == MeshData.Indices.Num()
+		&& Slot->VertCount > 0;
+	if (bCanUpdate)
+	{
+		// Same topology — skip Clear+Create (that was the 81 ms walk hitch).
+		PMC->UpdateMeshSection_LinearColor(
+			Section, LocalPos, MeshData.Normals, MeshData.UV0, MeshData.Colors, Tangents);
+	}
+	else
+	{
+		PMC->ClearMeshSection(Section);
+		PMC->CreateMeshSection_LinearColor(
+			Section, LocalPos, MeshData.Indices, MeshData.Normals, MeshData.UV0, MeshData.Colors, Tangents, false);
+	}
 	if (TerrainMaterial)
 	{
 		PMC->SetMaterial(Section, TerrainMaterial);
@@ -1207,6 +1277,8 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 	if (FChunkVisual* V = ChunkVisuals.Find(Coord))
 	{
 		V->LOD = LOD;
+		V->VertCount = LocalPos.Num();
+		V->IndexCount = MeshData.Indices.Num();
 	}
 
 	// No per-chunk actor. Stamp snap is the floor. PMC collision on 600
@@ -1363,12 +1435,19 @@ bool AGXVoxelWorld::TryApplyCachedChunk(const FGXChunkKey& Coord, int32 LOD)
 
 void AGXVoxelWorld::EnsureMeshBanks()
 {
-	if (MeshBanks.Num() >= VisualBankCount)
+	GrowMeshBanks(VisualBankCount);
+}
+
+void AGXVoxelWorld::GrowMeshBanks(int32 TargetBanks)
+{
+	TargetBanks = FMath::Clamp(TargetBanks, VisualBankCount, VisualBankMax);
+	if (MeshBanks.Num() >= TargetBanks)
 	{
 		return;
 	}
 	USceneComponent* Root = GetRootComponent();
-	for (int32 B = MeshBanks.Num(); B < VisualBankCount; ++B)
+	const int32 From = MeshBanks.Num();
+	for (int32 B = From; B < TargetBanks; ++B)
 	{
 		UProceduralMeshComponent* PMC = NewObject<UProceduralMeshComponent>(this);
 		if (!PMC)
@@ -1389,8 +1468,8 @@ void AGXVoxelWorld::EnsureMeshBanks()
 			FreeVisualSlots.Add(B * VisualSectionsPerBank + S);
 		}
 	}
-	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s visual banks=%d slots=%d"),
-		GX_VERSION_STRING, MeshBanks.Num(), FreeVisualSlots.Num());
+	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s visual banks=%d slots=%d (grew from %d)"),
+		GX_VERSION_STRING, MeshBanks.Num(), FreeVisualSlots.Num() + ChunkVisuals.Num(), From);
 }
 
 bool AGXVoxelWorld::AcquireVisual(const FGXChunkKey& Key, int32& OutBank, int32& OutSection)
@@ -1432,9 +1511,12 @@ void AGXVoxelWorld::ReleaseVisual(const FGXChunkKey& Key)
 	}
 }
 
-void AGXVoxelWorld::EvictFurthestVisual(const FVector& ViewerLocalM, float ChunkM)
+bool AGXVoxelWorld::EvictFurthestVisual(const FVector& ViewerLocalM, float ChunkM)
 {
-	float BestDs = -1.0f;
+	// Never evict inside the unload sphere — that punched black hillside holes
+	// when 16×48 slots filled with still-streamed crust.
+	const float KeepSq = FMath::Square(FMath::Max(UnloadRadius, StreamRadius + 40.0f));
+	float BestDs = KeepSq;
 	FGXChunkKey Best = FGXChunkKey();
 	bool bFound = false;
 	for (const auto& Pair : ChunkVisuals)
@@ -1452,6 +1534,7 @@ void AGXVoxelWorld::EvictFurthestVisual(const FVector& ViewerLocalM, float Chunk
 	{
 		ReleaseVisual(Best);
 	}
+	return bFound;
 }
 
 void AGXVoxelWorld::PersistChunkMesh(const FGXChunkKey& Coord, const FGXMeshBuffers& Mesh) const
