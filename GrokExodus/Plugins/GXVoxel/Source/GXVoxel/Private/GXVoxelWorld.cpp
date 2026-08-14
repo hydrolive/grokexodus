@@ -642,7 +642,7 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	}
 	if (HorizonClipmap)
 	{
-		HorizonClipmap->Invalidate();
+		HorizonClipmap->NotifyEdits();
 	}
 	GX_PERF(1, TEXT("GX-dig clipmap hole local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d"),
 		L.X, L.Y, L.Z, RadiusM * DigSpeedMul, Brush.DirtyChunks.Num());
@@ -701,7 +701,7 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	}
 	if (HorizonClipmap)
 	{
-		HorizonClipmap->Invalidate();
+		HorizonClipmap->NotifyEdits();
 	}
 	GX_PERF(1, TEXT("GX-place clipmap mound local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d"),
 		L.X, L.Y, L.Z, RadiusM, Brush.DirtyChunks.Num());

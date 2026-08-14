@@ -34,6 +34,8 @@ public:
 		TFunction<float(const FVector&)> DensityAt = nullptr);
 
 	void Invalidate();
+	/** Rebuild only the local brush patches. Do not recut the 8 m crust. */
+	void NotifyEdits();
 	bool IsReady() const { return bReady; }
 
 private:
@@ -51,6 +53,7 @@ private:
 	TWeakObjectPtr<UProceduralMeshComponent> EditPatch;
 	FVector LastViewerLocal = FVector(1e12f, 0, 0);
 	bool bReady = false;
+	bool bEditsDirty = false;
 
 	static void BuildRing(
 		UProceduralMeshComponent* Comp,

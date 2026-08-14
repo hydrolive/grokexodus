@@ -63,31 +63,11 @@ namespace
 		return SurfR;
 	}
 
-	float EditCoverM(const FVector4& E, float CellM)
+	float EditCoverM(const FVector4& E)
 	{
-		return CellM + FMath::Abs(E.W) + 1.5f;
-	}
-
-	bool VertCoveredByEdit(const FVector& Guess, const TArray<FVector4>* Edits, float CellM)
-	{
-		if (!Edits)
-		{
-			return false;
-		}
-		for (const FVector4& E : *Edits)
-		{
-			const float Rad = FMath::Abs(E.W);
-			if (Rad < 0.05f)
-			{
-				continue;
-			}
-			const float Cover = CellM + Rad + 1.2f;
-			if (FVector::DistSquared(Guess, FVector(E.X, E.Y, E.Z)) < Cover * Cover)
-			{
-				return true;
-			}
-		}
-		return false;
+		// Skirt one fine cell past the brush — not the 8 m clipmap cell
+		// (that painted a 20 m disk of "other" material around every dig).
+		return FMath::Abs(E.W) + 1.2f;
 	}
 }
 
@@ -129,10 +109,16 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 void FGXHorizonClipmap::Invalidate()
 {
 	LastViewerLocal = FVector(1e12f, 0, 0);
+	bEditsDirty = true;
 	for (FRing& R : Rings)
 	{
 		R.LastBuild = FVector(1e12f, 0, 0);
 	}
+}
+
+void FGXHorizonClipmap::NotifyEdits()
+{
+	bEditsDirty = true;
 }
 
 void FGXHorizonClipmap::Shutdown()
@@ -196,9 +182,6 @@ void FGXHorizonClipmap::BuildRing(
 
 	TArray<int32> IndexOf;
 	IndexOf.Init(INDEX_NONE, Dim * Dim);
-	TArray<uint8> Covered;
-	Covered.Reserve(VertGuess);
-	const bool bCutEdits = (CellM <= 10.0f);
 
 	for (int32 J = 0; J < Dim; ++J)
 	{
@@ -226,10 +209,9 @@ void FGXHorizonClipmap::BuildRing(
 			(void)DensityAt;
 			float SurfR = Stamp.GetParams().Radius + HeightM;
 			const FVector Guess = Dir * SurfR;
-			// 0.7.34 density-searched a 24 m disk and the whole near crust
-			// heaved. Carve is the brush sphere only. The 8 m ring opens a
-			// one-cell window; BuildEditPatch fills it at 0.4 m.
-			if (bCutEdits)
+			// Brush-sized carve only. Do not delete quads — 0.7.35 cut an
+			// 8 m window the fine patch did not fill (reflective voids).
+			if (CellM <= 10.0f)
 			{
 				SurfR = ApplyEditSpheres(SurfR, Guess, EditHolesLocalM);
 			}
@@ -238,7 +220,6 @@ void FGXHorizonClipmap::BuildRing(
 			IndexOf[Idx] = Positions.Num();
 			Positions.Add(P);
 			Normals.Add(Dir);
-			Covered.Add(bCutEdits && VertCoveredByEdit(Guess, EditHolesLocalM, CellM) ? 1 : 0);
 			// Same atlas ids the near PBR reads from UV0.X (1 grass, 3 dirt, 2 rock).
 			float AtlasId = 1.0f;
 			if (Field.SlopeProxy > 0.16f || Field.Orogeny > 0.15f || Field.Volcano > 0.18f)
@@ -286,10 +267,6 @@ void FGXHorizonClipmap::BuildRing(
 			const float CV = (static_cast<float>(J - Half) + 0.5f) * CellM;
 			const float CD2 = CU * CU + CV * CV;
 			if (CD2 < InnerPad * 0.82f || CD2 > OuterPad * 1.10f)
-			{
-				continue;
-			}
-			if (bCutEdits && (Covered[A] || Covered[B] || Covered[C] || Covered[D]))
 			{
 				continue;
 			}
@@ -381,8 +358,7 @@ void FGXHorizonClipmap::BuildEditPatch(
 	}
 
 	const float R0 = Stamp.GetParams().Radius;
-	const float CellM = 0.40f;
-	const float RingCell = 8.0f;
+	const float CellM = 0.25f;
 	constexpr int32 MaxPatches = 12;
 
 	struct FCand { float Dist2; int32 Index; };
@@ -424,7 +400,7 @@ void FGXHorizonClipmap::BuildEditPatch(
 		}
 		FVector TanU, TanV;
 		CenterDir.FindBestAxisVectors(TanU, TanV);
-		const float Cover = EditCoverM(E, RingCell);
+		const float Cover = EditCoverM(E);
 		const int32 Half = FMath::Max(4, FMath::CeilToInt(Cover / CellM));
 		const int32 Dim = Half * 2 + 1;
 		const float Cover2 = Cover * Cover;
@@ -469,7 +445,7 @@ void FGXHorizonClipmap::BuildEditPatch(
 					AtlasId = 2.0f;
 				}
 				UV0.Add(FVector2D(AtlasId, 0.0f));
-				Colors.Add(FLinearColor(0.54f, 0.42f, 0.28f, 1.0f));
+				Colors.Add(FLinearColor(0.52f, 0.60f, 0.34f, 1.0f));
 				FVector Tan = FVector::CrossProduct(Dir, FVector::ZAxisVector);
 				if (Tan.SizeSquared() < 1e-6f)
 				{
@@ -561,6 +537,37 @@ void FGXHorizonClipmap::Update(
 	{
 		return;
 	}
+
+	UMaterialInterface* NearLit = NearMaterial;
+	UMaterialInterface* FarLit = FarMaterial;
+	if (!FarLit)
+	{
+		FarLit = NearLit;
+	}
+	if (!FarLit)
+	{
+		FarLit = LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Game/Voxel/Materials/M_VoxelTerrain_PBR.M_VoxelTerrain_PBR"));
+	}
+	if (!FarLit)
+	{
+		FarLit = LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Game/Voxel/Materials/M_VoxelHorizonFar.M_VoxelHorizonFar"));
+	}
+	if (!NearLit)
+	{
+		NearLit = FarLit;
+	}
+
+	if (bEditsDirty)
+	{
+		if (UProceduralMeshComponent* Patch = EditPatch.Get())
+		{
+			BuildEditPatch(Patch, Stamp, ViewerLocalM, NearLit, EditHolesLocalM);
+		}
+		bEditsDirty = false;
+	}
+
 	// 400 m early-out meant the 400 m fine ring never followed the pawn.
 	if (FVector::DistSquared(ViewerLocalM, LastViewerLocal) < FMath::Square(60.0f) && bReady)
 	{
@@ -583,27 +590,6 @@ void FGXHorizonClipmap::Update(
 	if (Rings.Num() > 2)
 	{
 		Rings.Last().OuterM = FMath::Max(OuterM, 4000.0f);
-	}
-
-	UMaterialInterface* NearLit = NearMaterial;
-	UMaterialInterface* FarLit = FarMaterial;
-	if (!FarLit)
-	{
-		FarLit = NearLit;
-	}
-	if (!FarLit)
-	{
-		FarLit = LoadObject<UMaterialInterface>(nullptr,
-			TEXT("/Game/Voxel/Materials/M_VoxelTerrain_PBR.M_VoxelTerrain_PBR"));
-	}
-	if (!FarLit)
-	{
-		FarLit = LoadObject<UMaterialInterface>(nullptr,
-			TEXT("/Game/Voxel/Materials/M_VoxelHorizonFar.M_VoxelHorizonFar"));
-	}
-	if (!NearLit)
-	{
-		NearLit = FarLit;
 	}
 
 	const double T0 = FPlatformTime::Seconds();
