@@ -38,6 +38,7 @@ private:
 		float InnerM = 0.0f;
 		float OuterM = 0.0f;
 		float CellM = 24.0f;
+		float SinkM = 3.5f;
 	};
 
 	TArray<FRing> Rings;
@@ -53,5 +54,6 @@ private:
 		float InnerM,
 		float OuterM,
 		float CellM,
+		float SinkM,
 		UMaterialInterface* Material);
 };

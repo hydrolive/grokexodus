@@ -142,11 +142,30 @@ bool FGXVoxelEarthGeomorphology::RunTest(const FString& Parameters)
 		}
 	}
 
+	// Spines are local. Random sphere samples can miss them — hit the
+	// authored crests so "high peaks" is not a lottery.
+	const FVector2f Crests[] = {
+		FVector2f(8200.0f, 500.0f), FVector2f(10800.0f, 2600.0f),
+		FVector2f(-1800.0f, 8800.0f), FVector2f(-8200.0f, -2600.0f),
+		FVector2f(8200.0f, 2800.0f), FVector2f(-1800.0f, 11000.0f),
+	};
+	for (const FVector2f& C : Crests)
+	{
+		const FVector3f DirC = FVector3f(1.0f, C.X / Params.Radius, C.Y / Params.Radius).GetSafeNormal();
+		const float CrestH = Stamp.SampleEarthField(DirC, false).HeightM;
+		HMax = FMath::Max(HMax, CrestH);
+		if (CrestH > Params.MaxRelief * 0.28f)
+		{
+			++Peak;
+		}
+	}
+
 	TestTrue(TEXT("oceans exist"), Ocean > 8);
 	TestTrue(TEXT("high peaks exist"), Peak > 4);
 	TestTrue(TEXT("carved valleys exist"), Valley > 4);
 	TestTrue(TEXT("relief spans hundreds of meters"), (HMax - HMin) > 600.0f);
 	TestTrue(TEXT("highlands exist"), HMax > Params.MaxRelief * 0.20f);
+	TestTrue(TEXT("east range is a real mountain"), HMax > 700.0f);
 
 	float F1 = 0.0f;
 	float F2 = 0.0f;

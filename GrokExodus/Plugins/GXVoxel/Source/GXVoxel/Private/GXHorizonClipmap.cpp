@@ -16,11 +16,13 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 		return;
 	}
 
-	struct FSpec { float Inner; float Outer; float Cell; };
+	struct FSpec { float Inner; float Outer; float Cell; float Sink; };
+	// Overlap ~150 m so rings never leave a sky gap. Outer rings sit a
+	// little deeper so the shared band does not z-fight.
 	const FSpec Specs[] = {
-		{ 16.0f, 1600.0f, 12.0f },
-		{ 900.0f, 4200.0f, 28.0f },
-		{ 2800.0f, 10000.0f, 64.0f },
+		{ 0.0f, 1680.0f, 12.0f, 3.5f },
+		{ 1520.0f, 4400.0f, 28.0f, 4.5f },
+		{ 4180.0f, 10000.0f, 64.0f, 6.0f },
 	};
 	for (const FSpec& S : Specs)
 	{
@@ -33,6 +35,9 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 		PMC->SetCastShadow(false);
 		PMC->SetVisibleInRayTracing(false);
 		PMC->bUseAsyncCooking = true;
+		PMC->bNeverDistanceCull = true;
+		PMC->SetCullDistance(0.0f);
+		PMC->SetBoundsScale(8.0f);
 		PMC->SetupAttachment(Owner->GetRootComponent());
 		PMC->RegisterComponent();
 		FRing Ring;
@@ -40,6 +45,7 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 		Ring.InnerM = S.Inner;
 		Ring.OuterM = S.Outer;
 		Ring.CellM = S.Cell;
+		Ring.SinkM = S.Sink;
 		Rings.Add(Ring);
 	}
 	UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap: %d rings"), Rings.Num());
@@ -67,6 +73,7 @@ void FGXHorizonClipmap::BuildRing(
 	float InnerM,
 	float OuterM,
 	float CellM,
+	float SinkM,
 	UMaterialInterface* Material)
 {
 	if (!Comp)
@@ -77,8 +84,10 @@ void FGXHorizonClipmap::BuildRing(
 	const int32 Half = FMath::Max(8, FMath::CeilToInt(OuterM / CellM));
 	const int32 Dim = Half * 2 + 1;
 	const float R0 = Stamp.GetParams().Radius;
+	const float Relief = FMath::Max(Stamp.GetParams().MaxRelief, 1.0f);
 	const float InnerPad = InnerM * InnerM;
 	const float OuterPad = OuterM * OuterM;
+	const float Sink = FMath::Max(SinkM, 0.5f);
 
 	TArray<FVector> Positions;
 	TArray<FVector> Normals;
@@ -114,9 +123,9 @@ void FGXHorizonClipmap::BuildRing(
 			}
 			const FVector3f Df(Dir.X, Dir.Y, Dir.Z);
 			const float SurfR = Stamp.SampleSurfaceRadius(Df);
-			// Sit 1.5 m under the voxel isosurface so L0 wins depth and a
-			// missing chunk still shows crust instead of a black pit.
-			const FVector P = Dir * (SurfR - 0.4f) * 100.0f;
+			// Sit under LOD1/2 MC (2–4 m voxels) so the clipmap never
+			// pokes through as a dark cap. Missing voxels still show crust.
+			const FVector P = Dir * (SurfR - Sink) * 100.0f;
 			const int32 Idx = I + J * Dim;
 			IndexOf[Idx] = Positions.Num();
 			Positions.Add(P);
@@ -161,8 +170,10 @@ void FGXHorizonClipmap::BuildRing(
 			{
 				continue;
 			}
-			Indices.Add(A); Indices.Add(C); Indices.Add(B);
-			Indices.Add(B); Indices.Add(C); Indices.Add(D);
+			// Outward winding. A,C,B faced the core — 0.7.15 mid-range was
+			// backface-culled (teal void) and only the underside showed.
+			Indices.Add(A); Indices.Add(B); Indices.Add(C);
+			Indices.Add(B); Indices.Add(D); Indices.Add(C);
 		}
 	}
 
@@ -183,20 +194,26 @@ void FGXHorizonClipmap::BuildRing(
 		{
 			N = Normals[V];
 		}
-		Normals[V] = N;
 		const FVector Radial = Positions[V].GetSafeNormal();
-		const float Slope = 1.0f - FMath::Abs(FVector::DotProduct(N, Radial));
-		if (Slope < 0.14f)
+		if (FVector::DotProduct(N, Radial) < 0.0f)
 		{
-			Colors[V] = FLinearColor(0.30f, 0.42f, 0.22f); // plains grass
+			N = -N;
 		}
-		else if (Slope < 0.32f)
+		Normals[V] = N;
+		const float Slope = 1.0f - FMath::Abs(FVector::DotProduct(N, Radial));
+		const float HeightM = Positions[V].Size() * 0.01f + Sink - R0;
+		const float Alt = HeightM / Relief;
+		if (Alt > 0.58f || Slope > 0.40f)
 		{
-			Colors[V] = FLinearColor(0.46f, 0.34f, 0.20f); // dirt skirt
+			Colors[V] = FLinearColor(0.58f, 0.56f, 0.54f); // high rock
+		}
+		else if (Alt > 0.30f || Slope > 0.18f)
+		{
+			Colors[V] = FLinearColor(0.52f, 0.40f, 0.24f); // dirt / talus
 		}
 		else
 		{
-			Colors[V] = FLinearColor(0.50f, 0.48f, 0.46f); // rock, not cyan
+			Colors[V] = FLinearColor(0.40f, 0.52f, 0.26f); // lit grass
 		}
 	}
 
@@ -209,6 +226,14 @@ void FGXHorizonClipmap::BuildRing(
 			Comp->SetMaterial(0, Material);
 		}
 		Comp->SetVisibility(true);
+		Comp->SetHiddenInGame(false);
+		Comp->UpdateBounds();
+		GX_PERF(2, TEXT("GX-clipmap ring inner=%.0f outer=%.0f verts=%d tris=%d sink=%.1f"),
+			InnerM, OuterM, Positions.Num(), Indices.Num() / 3, Sink);
+	}
+	else
+	{
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap empty ring inner=%.0f outer=%.0f"), InnerM, OuterM);
 	}
 }
 
@@ -240,11 +265,13 @@ void FGXHorizonClipmap::Update(
 	FVector T, B;
 	CenterDir.FindBestAxisVectors(T, B);
 
-	// Only punch a hole underfoot. A 300 m inner hole was the black pit in
-	// the 0.7.7 shot — missing voxels opened a view into the planet.
-	// Clipmap sits 1.5 m under the stamp so overlapping voxels win depth.
+	// No inner hole. 0.7.7 punched 300 m and showed the core; 0.7.15 left
+	// a 16 m paper edge you could look under. The disk sits under voxels.
 	(void)InnerHoleM;
-	Rings[0].InnerM = 16.0f;
+	if (Rings.Num() > 0)
+	{
+		Rings[0].InnerM = 0.0f;
+	}
 	if (Rings.Num() > 2)
 	{
 		Rings.Last().OuterM = FMath::Max(OuterM, 4000.0f);
@@ -266,7 +293,7 @@ void FGXHorizonClipmap::Update(
 		FRing& Ring = Rings[I];
 		if (UProceduralMeshComponent* C = Ring.Comp.Get())
 		{
-			BuildRing(C, Stamp, CenterDir, T, B, Ring.InnerM, Ring.OuterM, Ring.CellM, FarLit);
+			BuildRing(C, Stamp, CenterDir, T, B, Ring.InnerM, Ring.OuterM, Ring.CellM, Ring.SinkM, FarLit);
 		}
 	}
 	bReady = true;

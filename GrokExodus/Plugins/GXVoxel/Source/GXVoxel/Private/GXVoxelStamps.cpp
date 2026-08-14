@@ -104,7 +104,9 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	const float Basin = FGXNoise::Smooth01((500.0f - ArcM) / 200.0f);
 	const float R = FMath::Max(Params.Radius, 1.0f);
 	const FVector3f Here(Ux, Uy, Uz);
-	auto RangeW = [&](FVector3f Mid, FVector3f Along, float HalfLen, float HalfWid, float Flank) -> float
+	// Weight is 1 on the crest. The old (HalfWid-Dist)/Flank peaked at
+	// Smooth01(HalfWid/Flank)≈0.28, so "mountains" were 30 m bumps.
+	auto RangeW = [&](FVector3f Mid, FVector3f Along, float HalfLen, float HalfWid, float Flank, bool bPlateau) -> float
 	{
 		Mid = Mid.GetSafeNormal();
 		Along = (Along - Mid * FVector3f::DotProduct(Along, Mid)).GetSafeNormal();
@@ -117,7 +119,15 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 		const float AcrossM = FVector3f::DotProduct(Here - Mid * FVector3f::DotProduct(Here, Mid), Across) * R;
 		const float Se = AlongM - FMath::Clamp(AlongM, -HalfLen, HalfLen);
 		const float Dist = FMath::Sqrt(Se * Se + AcrossM * AcrossM);
-		return FGXNoise::Smooth01((HalfWid - Dist) / Flank);
+		const float Fall = FMath::Max(Flank, 1.0f);
+		if (bPlateau)
+		{
+			// 1 inside HalfWid, 0 at HalfWid+Flank — foothill apron.
+			return FGXNoise::Smooth01((HalfWid + Fall - Dist) / Fall);
+		}
+		// Triangular ridge: 1 on the centerline, 0 at HalfWid+Flank.
+		const float T = FMath::Clamp(1.0f - Dist / FMath::Max(HalfWid + Fall, 1.0f), 0.0f, 1.0f);
+		return T * T * (3.0f - 2.0f * T);
 	};
 	auto MidAt = [&](float EastM, float NorthM) -> FVector3f
 	{
@@ -125,51 +135,65 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	};
 	const FVector3f AZ(0, 0, 1);
 	const FVector3f AY(0, 1, 0);
+	// Crests stay past ~5 km so the 360 m voxel stream never meshes a cliff.
 	const float Spine = FMath::Max3(
-		RangeW(MidAt(8200.0f, 500.0f), AZ, 5200.0f, 1200.0f, 3400.0f),
-		RangeW(MidAt(9600.0f, 2200.0f), AZ, 4000.0f, 1100.0f, 3000.0f),
+		RangeW(MidAt(8200.0f, 500.0f), AZ, 5600.0f, 480.0f, 2800.0f, false),
+		RangeW(MidAt(10800.0f, 2600.0f), AZ, 4200.0f, 420.0f, 2400.0f, false),
 		FMath::Max(
-			RangeW(MidAt(-1800.0f, 8600.0f), AY, 4800.0f, 1200.0f, 3200.0f),
-			RangeW(MidAt(-8000.0f, -2400.0f), AZ, 4500.0f, 1100.0f, 3000.0f)));
+			RangeW(MidAt(-1800.0f, 8800.0f), AY, 5000.0f, 460.0f, 2600.0f, false),
+			RangeW(MidAt(-8200.0f, -2600.0f), AZ, 4600.0f, 440.0f, 2500.0f, false)));
 	const float Feet = FMath::Max3(
-		RangeW(MidAt(8200.0f, 500.0f), AZ, 5800.0f, 2600.0f, 2800.0f),
-		RangeW(MidAt(-1800.0f, 8600.0f), AY, 5200.0f, 2400.0f, 2600.0f),
-		RangeW(MidAt(-8000.0f, -2400.0f), AZ, 5000.0f, 2400.0f, 2600.0f));
+		RangeW(MidAt(8200.0f, 500.0f), AZ, 6400.0f, 2000.0f, 5200.0f, true),
+		RangeW(MidAt(-1800.0f, 8800.0f), AY, 5600.0f, 1800.0f, 5000.0f, true),
+		RangeW(MidAt(-8200.0f, -2600.0f), AZ, 5200.0f, 1800.0f, 5000.0f, true));
+	// Wide, low rise so mid-ground goes UP toward the range (not a bowl).
+	const float Rise = FMath::Max3(
+		RangeW(MidAt(8200.0f, 500.0f), AZ, 7000.0f, 1600.0f, 7800.0f, true),
+		RangeW(MidAt(-1800.0f, 8800.0f), AY, 6200.0f, 1500.0f, 7600.0f, true),
+		RangeW(MidAt(-8200.0f, -2600.0f), AZ, 5800.0f, 1500.0f, 7600.0f, true));
 	Domain = FMath::Lerp(Domain, 0.22f, Basin * 0.80f);
 	// Cap the raw field at "hills". Uncapped FBm was a 2 km wall in the
 	// first kilometre (0.7.13–0.7.14 shots). Mountains come only from spines.
-	Domain = FMath::Min(Domain, 0.46f);
-	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.50f, Feet * (1.0f - Basin)));
-	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.86f, Spine * (1.0f - Basin)));
+	Domain = FMath::Min(Domain, 0.44f);
+	const float Away = 1.0f - Basin;
+	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.52f, Rise * Away));
+	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.64f, Feet * Away));
+	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.93f, Spine * Away));
 	const float PlainsW = 1.0f - FGXNoise::Smooth01((Domain - 0.34f) / 0.26f);
 	const float MountainW = FGXNoise::Smooth01((Domain - 0.54f) / 0.26f);
 	const float HillW = FMath::Clamp(1.0f - PlainsW - MountainW, 0.0f, 1.0f);
-	const float RangeMask = 1.0f - PlainsW;
 	const float Highland = Domain;
 
-	const float Mass = 0.5f + 0.5f * FGXNoise::FBm(
+	const float Mass = 0.58f + 0.42f * FGXNoise::FBm(
 		Ux * Params.MountainFreq, Uy * Params.MountainFreq, Uz * Params.MountainFreq,
 		Params.Seed + 7u, 2, 2.0f, 0.5f);
 	const float PlainsH = 0.028f;
-	const float HillH = PlainsH + 0.038f * (0.4f + 0.6f * FGXNoise::FBm(
-		Ux * Params.HillFreq, Uy * Params.HillFreq, Uz * Params.HillFreq,
-		Params.Seed + 17u, 2, 2.0f, 0.5f));
+	const float HillH = PlainsH + 0.022f * (0.35f + 0.65f * FGXNoise::FBm(
+		Ux * Params.HillFreq * 0.42f, Uy * Params.HillFreq, Uz * Params.HillFreq * 1.18f,
+		Params.Seed + 17u, 3, 2.0f, 0.52f));
 	const float Ridge = FGXNoise::Ridged(
 		Ux * Params.MountainFreq * 2.4f, Uy * Params.MountainFreq * 2.4f, Uz * Params.MountainFreq * 2.4f,
 		Params.Seed + 9u, 3);
-	// 0.8–1.5 km peaks at 8 km (≈6–11°). A 2 km wall at 5 km was not earthly.
-	const float PeakH = PlainsH + (0.30f + 0.32f * Ridge) * Mass * MountainW;
+	// Cols cut the crest so the range is peaks and passes, not a fence.
+	const float Cols = 0.42f + 0.58f * (0.5f + 0.5f * FGXNoise::FBm(
+		Ux * 3.8f, Uy * 3.8f, Uz * 3.8f, Params.Seed + 11u, 2, 2.0f, 0.5f));
+	// 0.7–1.6 km peaks at 8–11 km. Foothills fill the base (no hole).
+	const float PeakH = PlainsH + (0.26f + 0.40f * Ridge) * Mass * MountainW * Cols;
 	const float Orogeny = LandMask * (PlainsW * PlainsH + HillW * HillH + MountainW * PeakH);
 	Out.Orogeny = LandMask * MountainW * 0.22f * Mass;
 
-	const float Foothills = LandMask * HillW * FGXNoise::FBm(
+	const float Foothills = LandMask * (HillW + MountainW * 0.35f) * FGXNoise::FBm(
 		Ux * Params.MountainFreq * 0.45f, Uy * Params.MountainFreq * 0.45f, Uz * Params.MountainFreq * 0.45f,
-		Params.Seed + 8u, 3, 2.0f, 0.5f) * 0.012f;
+		Params.Seed + 8u, 3, 2.0f, 0.5f) * 0.016f;
 
-	const float HillGate = 1.0f - FGXNoise::Smooth01((350.0f - ArcM) / 180.0f);
-	const float Hills = LandMask * (0.010f + HillGate * 0.048f * (0.40f + 0.60f * FGXNoise::FBm(
-		Ux * Params.HillFreq, Uy * Params.HillFreq, Uz * Params.HillFreq,
-		Params.Seed + 18u, 3, 2.0f, 0.5f)));
+	// Anisotropic ridges, not circular blobs. Gate so the 280 m pad stays walkable.
+	const float HillGate = 1.0f - FGXNoise::Smooth01((280.0f - ArcM) / 160.0f);
+	const float HillN = FGXNoise::FBm(
+		Ux * Params.HillFreq,
+		Uy * Params.HillFreq * 0.42f,
+		Uz * Params.HillFreq * 1.18f,
+		Params.Seed + 18u, 4, 2.0f, 0.52f);
+	const float Hills = LandMask * HillGate * 0.024f * (0.30f + 0.70f * HillN);
 	const float Shield = LandMask * PlainsW * 0.004f;
 	const float Plateau = 0.0f;
 

@@ -50,8 +50,8 @@ uint64 FGXPlanetStampParams::Fingerprint() const
 	H = MixF(H, CanyonAmp);
 	H = MixF(H, OceanDepthFrac);
 	H = MixF(H, TrenchAmp);
-	// 9 = outward SDF normals (0.7.8 cache stored inward N → black crust).
-	H = MixU64(H, 9u);
+	// 10 = 0.7.16 earthly ramp (RangeW actually peaks; foothill approach).
+	H = MixU64(H, 10u);
 	return H;
 }
 

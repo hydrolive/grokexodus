@@ -134,7 +134,7 @@ Path: `Saved/VoxelWorld/<SaveFileName>` (default `earth_default.gxsav`).
 
 Unedited crust meshes and the height atlas live in `Saved/VoxelWorld/crust_<fingerprint>/`. First PIE bakes them; later PIE loads them. Changing seed, radius, relief, or stamp params makes a new folder. Digs invalidate only the dirty chunk files.
 
-Empty remesh settles only at **LOD0**. A coarse LOD that misses the 1 m crust retries at LOD0 instead of punching a hole. Stream enqueues chunks whose 8 corners + center straddle the isosurface (±½ chunk). Clipmap inner hole is 0.88× stream so it covers a missing outer voxel. Spawn is a ~2.2 km lake-flat; a range ring at 3–16 km puts mountains on the 8 km clipmap. `gx.perf.trace 1` logs `GX-stream` on change and a 1 Hz `GX-<ver> perf` line.
+Empty remesh settles only at **LOD0**. A coarse LOD that misses the 1 m crust retries at LOD0 instead of punching a hole. Stream enqueues chunks whose 8 corners + center straddle the isosurface (±½ chunk). Clipmap is a **full disk** under the voxels (sink 3.5–6 m, no inner hole) with **outward** winding so mid-range is not backface-culled. Rings overlap ~150 m; outer rings sit deeper to avoid z-fight. Spawn is a ~280 m walkable pad, then rolling hills; elongated spines at 8–11 km with a wide foothill ramp so the land rises toward the range. `gx.perf.trace 1` logs `GX-stream` on change and a 1 Hz `GX-<ver> perf` line.
 
 ```text
 GXV1 header  (seed, radius, relief, voxel size)
@@ -207,9 +207,9 @@ A 4 km ball cannot host 2 km peaks — they become the whole planet. 60 km keeps
 |---|---|
 | Tectonic plates | Worley cells; age + convergent/divergent hash |
 | Continents / shelves | 6-octave fBm + plate bias; **+X spawn continent** so PIE is never ocean |
-| Orogeny | Ridged mountains along convergent plate edges + inland ranges |
+| Orogeny | Authored elongated spines at 8–11 km (weight reaches 1 on the crest). Domain FBm is capped at hills so the first kilometre cannot become a wall. |
 | Cratons / plateaus | Old interiors stay low and flat; plateaus are high and flat |
-| Hills / foothills | Mid-frequency rolling land |
+| Hills / foothills | Anisotropic near ridges from ~280 m. Wide rise + feet aprons so mid-ground climbs toward the range. |
 | Rivers | Domain-warped inverted ridges |
 | Canyons / rifts | Rare deep cuts; rifts on divergent edges |
 | Local ridges / gullies | Gentle ~5–10 km undulation. Walkable land is mostly flat or a long slope, not a sawtooth. |
