@@ -244,7 +244,7 @@ void FGXHorizonClipmap::Update(
 	// the 0.7.7 shot — missing voxels opened a view into the planet.
 	// Clipmap sits 1.5 m under the stamp so overlapping voxels win depth.
 	(void)InnerHoleM;
-	Rings[0].InnerM = 48.0f;
+	Rings[0].InnerM = 16.0f;
 	if (Rings.Num() > 2)
 	{
 		Rings.Last().OuterM = FMath::Max(OuterM, 4000.0f);

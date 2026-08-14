@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.8**  
+Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.9**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.7.9** 0.7.8 shots: Ready, **black around the pawn still**, a real ridge on the limb. Near crust was single-sided PBR with **inward** SDF normals (0.7.7). Normals now face outward; old `.gxm` cache is invalidated.
 - **GX 0.7.8** 0.7.7 shot: Ready, **black around the pawn**, felt glued, hills not mountains. Clipmap hole is 48 m (was 317 m) and sits 1.5 m under the stamp. Collision cooks sync out to 160 m; airborne snap waits 4 s and does not zero walk velocity (that snap-loop was “I cannot move”). Ranges start at 2 km with ~2 km peaks. Debug overlay spam removed.
 - **GX 0.7.7** Screenshots: plains OK, **no mountains**, **missing chunks** (pit to the horizon), **grass tiles + hard edges**. Spawn basin is ~2.2 km; a range ring at 3–16 km puts ~1.2 km peaks on the 8 km clipmap. Empty meshes settle only at LOD0 (LOD>0 retries). Clipmap hole overlaps the voxel shell (0.88× stream). SDF-gradient normals (chunk-grid lighting seams). Grass tiles ~11 m / macro ~400 m. New crust fingerprint — first PIE rebakes the atlas.
 - **GX 0.7.6** Overlay stuck at **32/164 28%**: 32 real crust meshes, 132 band-air chunks remeshed forever (`hollow=0`, `queue=126+2170`, `inflight=6`). Empty remesh / empty `.gxm` now session-settle; HUD counts settled as done; stream uses 8-corner overlap (not a 76 m band); far jobs wait until near is quiet; inflight chunks are not re-queued every 200 ms. `LogGXPerf` stream is on-change / 2 s; 1 Hz line has cache/inflight/mailbox; `GX-mesh STALL` after 3 s. Play 0.7.6 — overlay should hit Ready without walking.
