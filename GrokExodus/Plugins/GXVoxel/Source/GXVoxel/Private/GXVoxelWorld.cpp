@@ -3,6 +3,7 @@
 #include "GXVoxelWorld.h"
 #include "GXMesher.h"
 #include "GXVoxelChunkProxy.h"
+#include "ProceduralMeshComponent.h"
 #include "GXVoxelInvokerComponent.h"
 #include "GXVoxelVolume.h"
 #include "GXGravity.h"
@@ -130,7 +131,7 @@ void AGXVoxelWorld::ConfigurePlanet(float InRadius, float InRelief, float InStre
 	PlanetRadius = InRadius;
 	MaxRelief = InRelief;
 	StreamRadius = FMath::Clamp(InStream, 200.0f, 900.0f);
-	UnloadRadius = StreamRadius + 120.0f;
+	UnloadRadius = StreamRadius + 220.0f;
 	NearFieldRadius = FMath::Clamp(NearFieldRadius, 80.0f, StreamRadius * 0.5f);
 	CollisionRadius = FMath::Max(CollisionRadius, NearFieldRadius);
 	if (InSeed != 0)
@@ -162,10 +163,9 @@ void AGXVoxelWorld::ApplyEarthPlayDefaults()
 {
 	const FGXPlanetStampParams E = FGXPlanetStampParams::Earth();
 	StreamRadius = 360.0f;
-	UnloadRadius = 500.0f;
+	UnloadRadius = 580.0f;
 	NearFieldRadius = 110.0f;
-	// Walk-floor collision. 320 m cooked too many meshes (77 ms apply).
-	CollisionRadius = 240.0f;
+	CollisionRadius = 200.0f;
 	StreamInterval = 0.55f;
 	bForceLOD0 = false;
 	HorizonOuterM = 10000.0f;
@@ -602,7 +602,8 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 
 int32 AGXVoxelWorld::SelectLOD(float DistanceM) const
 {
-	if (bForceLOD0 || DistanceM < FMath::Max(NearFieldRadius, StreamRadius * 0.55f))
+	// LOD1/2 against LOD0 is the black crack in 0.7.17–0.7.18 shots.
+	if (bForceLOD0 || DistanceM < FMath::Max(220.0f, StreamRadius * 0.70f))
 	{
 		return 0;
 	}
@@ -871,15 +872,16 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 				// 0.7.17 deferred everything past 110 m while near was busy.
 				// Walking kept near busy, so the 110–360 m band never meshed
 				// and the player walked off voxels onto the clipmap.
-				if (bNearBusy && Dist > FMath::Max(NearFieldRadius, CollisionRadius + 16.0f))
+				if (bNearBusy && Dist > StreamNow * 0.90f)
 				{
 					++DeferredFar;
 					continue;
 				}
 				const TWeakObjectPtr<AGXVoxelChunkProxy>* Existing = ChunkActors.Find(CC);
 				const bool bHaveMesh = Existing && Existing->IsValid() && Existing->Get()->HasRenderableMesh();
-				const bool bNeedCollision = Dist <= CollisionRadius && bHaveMesh && !Existing->Get()->HasCollision();
-				if (!bHaveMesh || bNeedCollision)
+				// Do not remesh just to add collision — that was the 81 ms
+				// walk hitch (0.7.18). First mesh already cooks collision.
+				if (!bHaveMesh)
 				{
 					EnqueueRemesh(CC, Dist <= NearFieldRadius);
 				}
@@ -1149,8 +1151,16 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 	Proxy->LOD = LOD;
 	const FVector ViewerLocal = WorldToLocalMeters(CachedViewerWorld.IsNearlyZero() ? GetPrimaryInvokerLocation() : CachedViewerWorld);
 	const FVector CenterM = OriginM + FVector(ChunkM * 0.5f);
-	const bool bCollision = FVector::Dist(CenterM, ViewerLocal) <= CollisionRadius;
+	// Cook collision on first mesh for the whole stream so walking in does
+	// not recreate the section. Shadows / RT still use CollisionRadius.
+	const bool bCollision = FVector::Dist(CenterM, ViewerLocal) <= StreamRadius;
 	Proxy->ApplyMesh(MeshData, OriginM, GMetersToUU, TerrainMaterial, bCollision);
+	if (Proxy->Mesh)
+	{
+		const bool bNearCol = FVector::Dist(CenterM, ViewerLocal) <= CollisionRadius;
+		Proxy->Mesh->SetCastShadow(bNearCol);
+		Proxy->Mesh->SetVisibleInRayTracing(bNearCol);
+	}
 }
 
 bool AGXVoxelWorld::PlacePawnOnSurface(APawn* Pawn, FVector RadialHint)

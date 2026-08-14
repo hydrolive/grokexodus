@@ -177,8 +177,18 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	// Cols cut the crest so the range is peaks and passes, not a fence.
 	const float Cols = 0.42f + 0.58f * (0.5f + 0.5f * FGXNoise::FBm(
 		Ux * 3.8f, Uy * 3.8f, Uz * 3.8f, Params.Seed + 11u, 2, 2.0f, 0.5f));
-	// 0.7–1.6 km peaks at 8–11 km. Foothills fill the base (no hole).
-	const float PeakH = PlainsH + (0.26f + 0.40f * Ridge) * Mass * MountainW * Cols;
+	// Jagged skyline at a scale the 80 m clipmap can draw (not a smooth cone).
+	const float Skyline = FGXNoise::Ridged(
+		Ux * 26.0f, Uy * 26.0f, Uz * 26.0f, Params.Seed + 12u, 2);
+	// Elongated summit on the east crest — a ridge node, not a radial volcano.
+	const float Summit = RangeW(MidAt(8100.0f, 1100.0f), AZ, 1600.0f, 380.0f, 1500.0f, false);
+	const float Summit2 = RangeW(MidAt(9000.0f, -400.0f), AZ, 1100.0f, 320.0f, 1300.0f, false);
+	const float PeakH = PlainsH
+		+ (0.24f + 0.28f * Ridge) * Mass * MountainW * Cols
+		+ MountainW * Skyline * 0.14f
+		+ Summit * (0.18f + 0.10f * Ridge)
+		+ Summit2 * (0.12f + 0.08f * Ridge);
+	Out.Volcano = FMath::Max(Summit, Summit2) * (0.35f + 0.45f * Ridge);
 	const float Orogeny = LandMask * (PlainsW * PlainsH + HillW * HillH + MountainW * PeakH);
 	Out.Orogeny = LandMask * MountainW * Mass;
 
@@ -225,20 +235,6 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 		Params.Seed + 71u, 2);
 	const float Local = LocalRidge * 0.008f - FMath::Pow(FMath::Abs(LocalGully), 3.8f) * 0.004f;
 
-	// High summit on the east range — warped, ridged, not a radial cone.
-	{
-		const FVector3f VMid = MidAt(8000.0f, 1600.0f);
-		const FVector3f Off = Here - VMid * FVector3f::DotProduct(Here, VMid);
-		const float Warp = FGXNoise::FBm(
-			Ux * 14.0f, Uy * 14.0f, Uz * 14.0f, Params.Seed + 82u, 3, 2.0f, 0.5f) * 480.0f;
-		const float VDist = FMath::Max(0.0f, Off.Size() * R + Warp);
-		const float Core = FGXNoise::Smooth01((2600.0f - VDist) / 1900.0f);
-		const float Skirt = FGXNoise::Smooth01((5200.0f - VDist) / 2800.0f);
-		const float Ribs = FGXNoise::Ridged(
-			Ux * 22.0f, Uy * 22.0f, Uz * 22.0f, Params.Seed + 83u, 3);
-		Out.Volcano = FMath::Max(0.0f, FMath::Pow(Core, 1.12f) * (0.62f + 0.38f * Ribs) + Skirt * 0.12f);
-	}
-
 	const float Alpine = FGXNoise::Smooth01((Out.Orogeny - 0.32f) / 0.28f);
 	const float Polar = FGXNoise::Smooth01((Lat - 0.60f) / 0.24f);
 	const float Glacial = (Polar * 0.75f + Alpine * Polar) * FGXNoise::Ridged(
@@ -261,7 +257,6 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	const float DetailScale = PlainsW * 0.40f + HillW * 0.70f + MountainW;
 	float LandH = 0.01f * LandMask
 		+ Inland * (Shield + Hills + Foothills + Plateau + Orogeny
-			+ Out.Volcano * 0.50f
 			+ Local * 0.45f * DetailScale
 			+ Detail * DetailScale
 			- Out.RiverCarve * PlainsW * 0.35f
@@ -420,13 +415,13 @@ int32 FGXSphereStamp::SampleEarthMaterial(const FVector3d& PlanetLocalM, float D
 
 	// POI volcano: scorched flanks, snow cap. Do this before the grass/sand
 	// tests — 0.7.16 stamped the whole cone as grass hills.
-	if (Field.Volcano > 0.10f)
+	if (Field.Volcano > 0.18f)
 	{
-		if (HeightAboveSea > 1350.0f)
+		if (HeightAboveSea > 1800.0f)
 		{
 			return static_cast<int32>(EGXVoxelMaterial::SnowIce);
 		}
-		return static_cast<int32>(EGXVoxelMaterial::VolcanicScorched);
+		return static_cast<int32>(EGXVoxelMaterial::RockyCliff);
 	}
 
 	const float SnowLine = Relief * (0.48f - Latitude * 0.28f);

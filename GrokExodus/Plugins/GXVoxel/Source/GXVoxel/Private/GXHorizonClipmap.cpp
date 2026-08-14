@@ -20,9 +20,9 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// Overlap ~150 m so rings never leave a sky gap. Outer rings sit a
 	// little deeper so the shared band does not z-fight.
 	const FSpec Specs[] = {
-		{ 0.0f, 1800.0f, 20.0f, 12.0f },
-		{ 1650.0f, 4800.0f, 40.0f, 14.0f },
-		{ 4500.0f, 10000.0f, 80.0f, 16.0f },
+		{ 0.0f, 1800.0f, 20.0f, 2.0f },
+		{ 1650.0f, 4800.0f, 40.0f, 2.5f },
+		{ 4500.0f, 10000.0f, 80.0f, 3.0f },
 	};
 	for (const FSpec& S : Specs)
 	{
@@ -132,11 +132,7 @@ void FGXHorizonClipmap::BuildRing(
 			Positions.Add(P);
 			Normals.Add(Dir);
 			float Biome = 1.0f;
-			if (Field.Volcano > 0.08f)
-			{
-				Biome = (Field.HeightM > 1280.0f) ? 5.0f : 7.0f;
-			}
-			else if (Field.Orogeny > 0.04f || Field.HeightM > 280.0f || Field.SlopeProxy > 0.18f)
+			if (Field.Orogeny > 0.04f || Field.Volcano > 0.12f || Field.HeightM > 260.0f || Field.SlopeProxy > 0.14f)
 			{
 				Biome = 2.0f;
 			}
@@ -214,25 +210,18 @@ void FGXHorizonClipmap::BuildRing(
 		const float HeightM = Positions[V].Size() * 0.01f + Sink - R0;
 		const float Alt = HeightM / Relief;
 		const float Biome = UV0[V].X;
-		if (Biome > 4.5f && Biome < 5.5f)
+		// No snow-white: yellow atmosphere turned it into the teal gumdrop.
+		if (Biome > 1.5f || Alt > 0.16f || Slope > 0.14f)
 		{
-			Colors[V] = FLinearColor(0.90f, 0.92f, 0.94f); // snow
+			Colors[V] = FLinearColor(0.58f, 0.50f, 0.44f); // rock
 		}
-		else if (Biome > 6.5f)
+		else if (Slope > 0.09f)
 		{
-			Colors[V] = FLinearColor(0.42f, 0.32f, 0.28f); // volcanic
-		}
-		else if (Biome > 1.5f || Alt > 0.18f || Slope > 0.16f)
-		{
-			Colors[V] = FLinearColor(0.64f, 0.56f, 0.48f); // rock
-		}
-		else if (Slope > 0.10f)
-		{
-			Colors[V] = FLinearColor(0.56f, 0.44f, 0.28f); // dirt skirt
+			Colors[V] = FLinearColor(0.54f, 0.42f, 0.28f); // dirt skirt
 		}
 		else
 		{
-			Colors[V] = FLinearColor(0.46f, 0.60f, 0.30f); // grass plains
+			Colors[V] = FLinearColor(0.44f, 0.56f, 0.30f); // grass plains
 		}
 	}
 
