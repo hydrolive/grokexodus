@@ -313,48 +313,56 @@ def main():
     tc = node(unreal.MaterialExpressionTextureCoordinate, x0, 320, "UV0")
     _set(tc, "coordinate_index", 0)
     vc = node(unreal.MaterialExpressionVertexColor, x0, 460, "VColor")
-    tile = scalar("TileScale", 0.0045, x0, 600)
+    # Repeats per meter. 0.28 ≈ 3.6 m tiles. Do not use 0.0045 on centimetres
+    # after converting to meters, and do not use an If-node tangent (that
+    # collapsed to 0, so UVs exploded and the atlas bled).
+    tile = scalar("TileScale", 0.28, x0, 600)
     slope_a = scalar("SlopeStart", 0.32, x0, 720)
     slope_b = scalar("SlopeEnd", 0.72, x0, 840)
 
-    # Planet-tangent UVs (not World XY). XY tiling stretches the +X spawn
-    # into stripes; hills hid it because slope used a different projection.
-    radial = node(unreal.MaterialExpressionNormalize, x0 + 280, 0, "radial")
-    connect(wp, "", radial, "")
-    rz = mask(radial, "", False, False, True, x0 + 540, 80, "Rz")
-    absz = node(unreal.MaterialExpressionAbs, x0 + 800, 80, "|Rz|")
-    connect(rz, "", absz, "")
-    hint_z = node(unreal.MaterialExpressionConstant3Vector, x0 + 280, 160, "hintZ")
+    cm_to_m = const(0.01, x0 + 280, -80, "cm2m")
+    pos_m = mul(wp, "", cm_to_m, "", x0 + 540, -80, "PosM")
+    radial = node(unreal.MaterialExpressionNormalize, x0 + 800, -80, "radial")
+    connect(pos_m, "", radial, "")
+
+    hint_z = node(unreal.MaterialExpressionConstant3Vector, x0 + 280, 80, "hintZ")
     _set(hint_z, "constant", unreal.LinearColor(0.0, 0.0, 1.0, 0.0))
-    hint_y = node(unreal.MaterialExpressionConstant3Vector, x0 + 280, 240, "hintY")
+    hint_y = node(unreal.MaterialExpressionConstant3Vector, x0 + 280, 180, "hintY")
     _set(hint_y, "constant", unreal.LinearColor(0.0, 1.0, 0.0, 0.0))
-    c_07 = const(0.7, x0 + 800, 160, "0.7")
-    hint_if = node(unreal.MaterialExpressionIf, x0 + 1060, 80, "hint")
-    connect(absz, "", hint_if, "A")
-    connect(c_07, "", hint_if, "B")
-    def connect_any(src, names):
-        for pin in names:
-            if connect(src, "", hint_if, pin):
-                return
-    connect_any(hint_y, ("A > B", "Greater A than B", "Greater"))
-    connect_any(hint_z, ("A == B", "A == B Equals", "Equals"))
-    connect_any(hint_z, ("A < B", "A < B Less", "Less"))
-    cr = node(unreal.MaterialExpressionCrossProduct, x0 + 1320, 0, "RxH")
-    connect(radial, "", cr, "A")
-    connect(hint_if, "", cr, "B")
-    tanu = node(unreal.MaterialExpressionNormalize, x0 + 1580, 0, "T")
-    connect(cr, "", tanu, "")
-    tanv = node(unreal.MaterialExpressionCrossProduct, x0 + 1580, 80, "B")
+
+    def nrm_cross(a, b, px, py, desc):
+        c = node(unreal.MaterialExpressionCrossProduct, px, py, desc)
+        connect(a, "", c, "A")
+        connect(b, "", c, "B")
+        n = node(unreal.MaterialExpressionNormalize, px + 220, py, desc + "N")
+        connect(c, "", n, "")
+        return n
+
+    t_eq = nrm_cross(radial, hint_z, x0 + 800, 40, "Teq")   # equator / +X spawn
+    t_pol = nrm_cross(radial, hint_y, x0 + 800, 180, "Tpo")  # near poles
+    rz = mask(radial, "", False, False, True, x0 + 800, 300, "Rz")
+    absz = node(unreal.MaterialExpressionAbs, x0 + 1060, 300, "|Rz|")
+    connect(rz, "", absz, "")
+    c_055 = const(0.55, x0 + 1060, 360, "0.55")
+    c_025 = const(0.25, x0 + 1060, 420, "0.25w")
+    pole_w = sat(div(sub(absz, "", c_055, "", x0 + 1320, 300), "", c_025, "", x0 + 1580, 300), "", x0 + 1840, 300, "poleW")
+    t_lerp = node(unreal.MaterialExpressionLinearInterpolate, x0 + 2100, 80, "T")
+    connect(t_eq, "", t_lerp, "A")
+    connect(t_pol, "", t_lerp, "B")
+    connect(pole_w, "", t_lerp, "Alpha")
+    tanu = node(unreal.MaterialExpressionNormalize, x0 + 2360, 80, "Tn")
+    connect(t_lerp, "", tanu, "")
+    tanv = node(unreal.MaterialExpressionCrossProduct, x0 + 2360, 180, "Bn")
     connect(radial, "", tanv, "A")
     connect(tanu, "", tanv, "B")
-    du = node(unreal.MaterialExpressionDotProduct, x0 + 1840, -40, "P·T")
-    connect(wp, "", du, "A")
+    du = node(unreal.MaterialExpressionDotProduct, x0 + 2620, 40, "P·T")
+    connect(pos_m, "", du, "A")
     connect(tanu, "", du, "B")
-    dv = node(unreal.MaterialExpressionDotProduct, x0 + 1840, 40, "P·B")
-    connect(wp, "", dv, "A")
+    dv = node(unreal.MaterialExpressionDotProduct, x0 + 2620, 140, "P·B")
+    connect(pos_m, "", dv, "A")
     connect(tanv, "", dv, "B")
-    lu = frac(mul(du, "", tile, "", x0 + 2100, -40, "u*tile"), "", x0 + 2360, -40, "fracU")
-    lv = frac(mul(dv, "", tile, "", x0 + 2100, 40, "v*tile"), "", x0 + 2360, 40, "fracV")
+    lu = frac(mul(du, "", tile, "", x0 + 2880, 40, "u*tile"), "", x0 + 3140, 40, "fracU")
+    lv = frac(mul(dv, "", tile, "", x0 + 2880, 140, "v*tile"), "", x0 + 3140, 140, "fracV")
 
     c_096 = const(0.96, x0 + 800, 140, "0.96")
     c_002 = const(0.02, x0 + 800, 200, "0.02")

@@ -7,7 +7,7 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
-- **GX 0.5.7** Dig no longer stair-steps the hillside (unedited cells keep the smooth stamp). Brush remesh is a few async chunks, not 48 sync collision cooks. PBR UVs are planet-tangent (re-run `create_voxel_pbr_material.py`) so the +X flats are not stretched stripes.
+- **GX 0.5.7** Dig no longer stair-steps the hillside. PBR UVs are planet-tangent in **meters**, TileScale **0.28** (~3.6 m). The first tangent used an If node that collapsed — extreme tiling + atlas bleed. Script was re-run from MCP.
 - **GX 0.5.6** Crust winding flipped to I0,I1,I2 (PBR is single-sided; I0,I2,I1 showed only the underside). Space jumps along planet-up; airborne snap ignores the next 2.5 s so the jump is not yanked back.
 - **GX 0.5.5** Lit PBR was black because spawn is +X and the sun was aimed at the opposite hemisphere (old unlit vertex-color hid that). Sun now lights +X; SkyLight captures from the crust, not the core. Runtime no longer wraps the authored material in a MID that can stomp the atlas.
 - **GX 0.5.4** Imagine JPGs are imported as real Texture2D assets (`/Game/Voxel/Textures/T_VoxelAlbedoAtlas`, per-biome `T_*_A`). Empty TextureSampleParameter2D nodes were DefaultTextureCube, so the 2D atlas bind was ignored and the crust went black. Re-run the Python script; AlbedoAtlas/RoughAtlas must show the 4×2 atlas, not a cube.
@@ -23,7 +23,7 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 - `GrokExodus/Saved/GX_RUNNING_VERSION.txt` is written when GXPresentation starts. Console: `gx.version`.
 - Terrain: lit vertex-color. Hardware RT on; voxel RT only on near collision chunks. Collision ≤80 m.
 - Live Coding often blocks `Build.bat`. The agent **closes Unreal and rebuilds Development Editor `-NoUBA`** (see `AGENTS.md`). Do not ask the user to do that.
-- **Unreal MCP:** `UnrealMCPython` plugin listens on `127.0.0.1:12029`. Agent launches the editor if needed and runs Python via `unreal-mcpython__util execute_python`. Unity MCP is disabled. Never ask the user to paste `py` commands.
+- **Unreal MCP:** `UnrealMCPython` plugin listens on `127.0.0.1:12029`. Agent **must Start-Process the editor** and confirm a PID before polling the port. Never wait on 12029 with no UnrealEditor process (the user had to launch it by hand). Run Python via `unreal-mcpython__util execute_python`. Unity MCP is disabled.
 - **Plugin GXCore failed to load / GetLastError=4551:** Development `UnrealEditor-GXCore.dll` was an unloadable image (UBA served a bad cached link). DebugGame DLL was fine; the editor loads Development. Fix: delete `Plugins/*/Binaries/Win64/UnrealEditor-GX*.dll` and `Binaries/Win64/UnrealEditor-GrokExodus.dll`, rebuild `GrokExodusEditor Win64 Development -NoUBA`. All six project DLLs now map with `LoadLibraryEx(DONT_RESOLVE)`.
 
 ## Next work

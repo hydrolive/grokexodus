@@ -90,13 +90,29 @@ Then run the same `Build.bat … Development … -NoUBA`. Do not launch the edit
 
 ### 4. Relaunch so the user can PIE
 
-After a successful link, start the editor on the play map (do not wait for them to do it):
-
-```
-"C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe" "E:\Github\grokexodus\GrokExodus\GrokExodus.uproject" /Game/Voxel/Maps/Lvl_VoxelPlanet -skipcompile
-```
+After a successful link, **actually launch** the editor (see **Launch the editor** below). Do not only poll port 12029.
 
 Skip this close/rebuild/relaunch loop for docs-only or Python-only changes that do not touch C++.
+
+---
+
+## Mandatory: launch the editor yourself
+
+Never wait on `127.0.0.1:12029` unless `UnrealEditor.exe` is already a live process. The user must not start the editor for you.
+
+Editor binary and map:
+
+```
+"C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe"
+"E:\Github\grokexodus\GrokExodus\GrokExodus.uproject"
+/Game/Voxel/Maps/Lvl_VoxelPlanet -skipcompile
+```
+
+1. `Get-Process UnrealEditor -ErrorAction SilentlyContinue`. If there is no process, launch with `Start-Process` (or `&` in background). Do this as its **own** command, not chained after `git commit` where a failure can skip the launch.
+2. Sleep 2–3 s. Confirm a PID exists. If not, launch again and print the error. Do **not** start a 12029 wait loop on an empty process list.
+3. Only then poll `127.0.0.1:12029` (up to ~90 s). Log line: `TCP server started at 127.0.0.1:12029`.
+4. If the port never opens, check `Get-Process UnrealEditor` again. If the process is gone, the editor **crashed** — do not keep polling. Relaunch once; if it dies again, read `Saved/Logs/GrokExodus.log`.
+5. If the process is alive but `:12029` is closed, the `UnrealMCPython` plugin did not start. That is a plugin/load bug, not a “user should click the editor” problem.
 
 ---
 
@@ -108,19 +124,11 @@ Unity MCP is **disabled** for this repo. Use **unreal-mcpython** (TCP `127.0.0.1
 
 ### When a script or MCP tool needs the editor
 
-1. If `UnrealEditor.exe` is not running this project, launch it:
+1. Follow **Launch the editor** above (process first, then port).
+2. Call `unreal-mcpython__util` `execute_python` (e.g. `runpy.run_path(r"E:/Github/grokexodus/GrokExodus/Content/Python/create_voxel_pbr_material.py", run_name="__main__")`). Close the material editor tab first via MCP if that asset is open.
+3. If MCP still says connection refused after the port is open, retry `execute_python` once. Do not fall back to “ask the user to paste py …”.
 
-```
-"C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe" "E:\Github\grokexodus\GrokExodus\GrokExodus.uproject" /Game/Voxel/Maps/Lvl_VoxelPlanet -skipcompile
-```
-
-2. Wait until `127.0.0.1:12029` accepts a TCP connection (poll up to ~90 s after splash). The plugin log is `TCP server started at 127.0.0.1:12029`.
-
-3. Call `unreal-mcpython__util` `execute_python` with the script (e.g. `runpy.run_path(r"E:/Github/grokexodus/GrokExodus/Content/Python/create_voxel_pbr_material.py", run_name="__main__")`). Close the material editor tab first via MCP if that asset is open.
-
-4. If MCP still says connection refused after the port is open, the Grok MCP stdio bridge may need a session reconnect — retry `execute_python` once. Do not fall back to “ask the user to paste py …”.
-
-Python-only material/content work does **not** require a C++ rebuild. C++ changes still follow the close/rebuild/relaunch loop above; after relaunch, wait for `:12029` before any MCP Python.
+Python-only material/content work does **not** require a C++ rebuild. C++ changes still follow the close/rebuild/relaunch loop above; after relaunch, wait for a live editor **and** `:12029` before any MCP Python.
 
 ---
 
