@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GXVoxelStamps.h"
+#include "GXCrustAtlas.h"
 
 class AActor;
 class UProceduralMeshComponent;
@@ -27,7 +28,8 @@ public:
 		float InnerHoleM,
 		float OuterM,
 		UMaterialInterface* NearMaterial,
-		UMaterialInterface* FarMaterial = nullptr);
+		UMaterialInterface* FarMaterial = nullptr,
+		const FGXCrustAtlas* Atlas = nullptr);
 
 	bool IsReady() const { return bReady; }
 
@@ -56,5 +58,6 @@ private:
 		float OuterM,
 		float CellM,
 		float SinkM,
-		UMaterialInterface* Material);
+		UMaterialInterface* Material,
+		const FGXCrustAtlas* Atlas);
 };

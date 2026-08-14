@@ -20,9 +20,9 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// Overlap ~150 m so rings never leave a sky gap. Outer rings sit a
 	// little deeper so the shared band does not z-fight.
 	const FSpec Specs[] = {
-		{ 220.0f, 1800.0f, 20.0f, 5.0f },
-		{ 1650.0f, 4800.0f, 40.0f, 5.5f },
-		{ 4500.0f, 10000.0f, 80.0f, 6.0f },
+		{ 48.0f, 1800.0f, 24.0f, 8.0f },
+		{ 1650.0f, 4800.0f, 48.0f, 9.0f },
+		{ 4500.0f, 10000.0f, 96.0f, 10.0f },
 	};
 	for (const FSpec& S : Specs)
 	{
@@ -74,7 +74,8 @@ void FGXHorizonClipmap::BuildRing(
 	float OuterM,
 	float CellM,
 	float SinkM,
-	UMaterialInterface* Material)
+	UMaterialInterface* Material,
+	const FGXCrustAtlas* Atlas)
 {
 	if (!Comp)
 	{
@@ -123,9 +124,14 @@ void FGXHorizonClipmap::BuildRing(
 			}
 			const FVector3f Df(Dir.X, Dir.Y, Dir.Z);
 			const FGXEarthField Field = Stamp.SampleEarthField(Df, false);
-			const float SurfR = Stamp.GetParams().Radius + Field.HeightM;
-			// Sit under LOD1/2 MC (2–4 m voxels) so the clipmap never
-			// pokes through as a dark cap. Missing voxels still show crust.
+			// Same height the voxels use (atlas) so the base sits under the
+			// MC shell instead of punching through as a second mesh.
+			float HeightM = Field.HeightM;
+			if (Atlas)
+			{
+				HeightM = Atlas->SampleHeight(Df);
+			}
+			const float SurfR = Stamp.GetParams().Radius + HeightM;
 			const FVector P = Dir * (SurfR - Sink) * 100.0f;
 			const int32 Idx = I + J * Dim;
 			IndexOf[Idx] = Positions.Num();
@@ -257,18 +263,17 @@ void FGXHorizonClipmap::Update(
 	float InnerHoleM,
 	float OuterM,
 	UMaterialInterface* NearMaterial,
-	UMaterialInterface* FarMaterial)
+	UMaterialInterface* FarMaterial,
+	const FGXCrustAtlas* Atlas)
 {
 	if (!Owner || Rings.Num() == 0)
 	{
 		return;
 	}
-	if (FVector::DistSquared(ViewerLocalM, LastViewerLocal) < FMath::Square(250.0f) && bReady)
+	if (FVector::DistSquared(ViewerLocalM, LastViewerLocal) < FMath::Square(400.0f) && bReady)
 	{
 		return;
 	}
-	LastViewerLocal = ViewerLocalM;
-	const double T0 = FPlatformTime::Seconds();
 
 	FVector CenterDir = ViewerLocalM.GetSafeNormal();
 	if (CenterDir.IsNearlyZero())
@@ -278,10 +283,11 @@ void FGXHorizonClipmap::Update(
 	FVector T, B;
 	CenterDir.FindBestAxisVectors(T, B);
 
-	// Strictly outside the voxel stream. Any overlap is a second mesh.
+	// Continuous crust. Tiny hole under the pawn only — a 300 m hole was the
+	// teal river in 0.7.27 when voxels were still loading.
 	if (Rings.Num() > 0)
 	{
-		Rings[0].InnerM = FMath::Max(InnerHoleM + 40.0f, 280.0f);
+		Rings[0].InnerM = FMath::Clamp(InnerHoleM, 32.0f, 64.0f);
 	}
 	if (Rings.Num() > 2)
 	{
@@ -299,24 +305,48 @@ void FGXHorizonClipmap::Update(
 		FarLit = LoadObject<UMaterialInterface>(nullptr,
 			TEXT("/Engine/EngineDebugMaterials/VertexColorMaterial.VertexColorMaterial"));
 	}
-	for (int32 I = 0; I < Rings.Num(); ++I)
+
+	const double T0 = FPlatformTime::Seconds();
+	int32 Built = 0;
+	const int32 MaxRings = bReady ? 1 : Rings.Num();
+	for (int32 I = 0; I < Rings.Num() && Built < MaxRings; ++I)
 	{
 		FRing& Ring = Rings[I];
-		const float RebuildM = FMath::Max(500.0f, Ring.CellM * 18.0f);
+		const float RebuildM = FMath::Max(600.0f, Ring.CellM * 20.0f);
 		if (bReady && FVector::DistSquared(ViewerLocalM, Ring.LastBuild) < FMath::Square(RebuildM))
 		{
 			continue;
 		}
 		if (UProceduralMeshComponent* C = Ring.Comp.Get())
 		{
-			BuildRing(C, Stamp, CenterDir, T, B, Ring.InnerM, Ring.OuterM, Ring.CellM, Ring.SinkM, FarLit);
+			BuildRing(C, Stamp, CenterDir, T, B, Ring.InnerM, Ring.OuterM, Ring.CellM, Ring.SinkM, FarLit, Atlas);
 			Ring.LastBuild = ViewerLocalM;
+			++Built;
 		}
 	}
+	if (Built == 0)
+	{
+		LastViewerLocal = ViewerLocalM;
+		bReady = true;
+		return;
+	}
 	bReady = true;
+	bool bAllFresh = true;
+	for (const FRing& Ring : Rings)
+	{
+		if (FVector::DistSquared(ViewerLocalM, Ring.LastBuild) > FMath::Square(50.0f))
+		{
+			bAllFresh = false;
+			break;
+		}
+	}
+	if (bAllFresh)
+	{
+		LastViewerLocal = ViewerLocalM;
+	}
 	const double Ms = (FPlatformTime::Seconds() - T0) * 1000.0;
-	UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap rebuilt inner=%.0f outer=%.0f ms=%.1f"),
-		Rings[0].InnerM, Rings.Last().OuterM, Ms);
-	GX_PERF(1, TEXT("GX-clipmap rebuild ms=%.1f inner=%.0f outer=%.0f rings=%d"),
-		Ms, Rings[0].InnerM, Rings.Last().OuterM, Rings.Num());
+	UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap rebuilt inner=%.0f outer=%.0f ms=%.1f rings=%d"),
+		Rings[0].InnerM, Rings.Last().OuterM, Ms, Built);
+	GX_PERF(1, TEXT("GX-clipmap rebuild ms=%.1f inner=%.0f outer=%.0f built=%d"),
+		Ms, Rings[0].InnerM, Rings.Last().OuterM, Built);
 }

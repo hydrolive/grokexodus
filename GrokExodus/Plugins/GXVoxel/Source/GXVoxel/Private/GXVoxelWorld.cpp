@@ -139,7 +139,7 @@ void AGXVoxelWorld::ConfigurePlanet(float InRadius, float InRelief, float InStre
 
 	PlanetRadius = InRadius;
 	MaxRelief = InRelief;
-	StreamRadius = FMath::Clamp(InStream, 200.0f, 900.0f);
+	StreamRadius = FMath::Clamp(InStream, 120.0f, 900.0f);
 	UnloadRadius = StreamRadius + 220.0f;
 	NearFieldRadius = FMath::Clamp(NearFieldRadius, 80.0f, StreamRadius * 0.5f);
 	CollisionRadius = FMath::Max(CollisionRadius, NearFieldRadius);
@@ -171,16 +171,16 @@ void AGXVoxelWorld::ConfigurePlanet(float InRadius, float InRelief, float InStre
 void AGXVoxelWorld::ApplyEarthPlayDefaults()
 {
 	const FGXPlanetStampParams E = FGXPlanetStampParams::Earth();
-	StreamRadius = 260.0f;
-	UnloadRadius = 480.0f;
-	NearFieldRadius = 110.0f;
+	StreamRadius = 140.0f;
+	UnloadRadius = 260.0f;
+	NearFieldRadius = 90.0f;
 	CollisionRadius = 90.0f;
-	StreamInterval = 0.40f;
+	StreamInterval = 0.45f;
 	// Mixed LOD0/1 is the black polygonal crack. Transvoxel skirts are 0.8.
 	bForceLOD0 = true;
 	HorizonOuterM = 10000.0f;
 	bAsyncMeshing = true;
-	WarmupSeconds = 1.0f;
+	WarmupSeconds = 4.0f;
 	WarmupMeshBuildsPerFrame = 8;
 	MaxMeshBuildsPerFrame = 6;
 	MeshTimeBudgetMs = 6.0f;
@@ -333,6 +333,10 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	{
 		ActiveStreamRadius = FMath::Min(StreamRadius, ActiveStreamRadius + FMath::Max(40.0f, StreamRadius * 0.22f));
 	}
+	if (bAtlasReady && LastDesiredNear > 0 && LastMeshedNear < LastDesiredNear * 0.90f)
+	{
+		WarmupTimeRemaining = FMath::Max(WarmupTimeRemaining, 0.35f);
+	}
 
 	StreamCooldown -= DeltaSeconds;
 	double StreamMs = 0.0;
@@ -361,10 +365,11 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			this,
 			Volume->GetStamp(),
 			WorldToLocalMeters(CachedViewerWorld),
-			StreamRadius,
+			48.0f,
 			HorizonOuterM,
 			TerrainMaterial,
-			TerrainMaterial);
+			TerrainMaterial,
+			CrustAtlas.Get());
 	}
 	if (Foliage && Volume && bWorldReady)
 	{
@@ -689,6 +694,13 @@ void AGXVoxelWorld::RefreshLoadState()
 		: 0.0f;
 	const float QueueFrac = (Queue <= 0) ? 1.0f : FMath::Clamp(1.0f - Queue / 80.0f, 0.0f, 0.85f);
 
+	if (bWorldReady)
+	{
+		LoadStatus = TEXT("Ready");
+		LoadProgress = 1.0f;
+		return;
+	}
+
 	if (!bAtlasReady)
 	{
 		LoadStatus = bAtlasBuildInFlight
@@ -696,7 +708,7 @@ void AGXVoxelWorld::RefreshLoadState()
 			: TEXT("Preparing planet…");
 		LoadProgress = bAtlasBuildInFlight ? 0.08f : 0.03f;
 	}
-	else if (!bWorldReady && LastMeshedNear == 0 && Resolved == 0)
+	else if (LastMeshedNear == 0 && Resolved == 0)
 	{
 		LoadStatus = CacheHits + CacheMisses > 0
 			? TEXT("Streaming cached crust…")
@@ -727,8 +739,9 @@ void AGXVoxelWorld::RefreshLoadState()
 	// A spherical near-field is mostly hollow. Ready when the queue is quiet and
 	// we have real ground — do not require 85% of the ball to have a visible mesh.
 	const bool bHaveGround = LastMeshedNear >= 2;
-	const bool bNearFilled = Desired == 0 || MeshFrac >= 0.70f;
-	const bool bNearQuiet = NearMeshQueue.Num() == 0 && AsyncInFlight.Num() <= 2;
+	const bool bNearFilled = LastDesiredNear <= 0
+		|| LastMeshedNear >= FMath::CeilToInt(static_cast<float>(LastDesiredNear) * 0.90f);
+	const bool bNearQuiet = NearMeshQueue.Num() == 0 && AsyncInFlight.Num() <= 2 && bNearFilled;
 	if (bAtlasReady && bHaveGround && (bNearQuiet || bNearFilled) && WarmupTimeRemaining <= 0.0f)
 	{
 		LoadStatus = TEXT("Ready");
@@ -771,24 +784,9 @@ void AGXVoxelWorld::MarkChunkEmpty(const FGXChunkKey& Coord, int32 LOD, const TC
 		return;
 	}
 
-	// Slack-only overlap (center far from the isosurface) is air. Real crust
-	// (center near the surface) is never hollowed.
-	float CenterSigned = 0.0f;
-	{
-		const FVector3f Dir(Center.GetSafeNormal());
-		float Surf = PlanetRadius;
-		if (CrustAtlas.IsValid())
-		{
-			Surf = PlanetRadius + CrustAtlas->SampleHeight(Dir);
-		}
-		else if (Volume)
-		{
-			Surf = Volume->GetStamp().SampleSurfaceRadius(Dir);
-		}
-		CenterSigned = Center.Size() - Surf;
-	}
-	const bool bReallyCrust = bOnCrust && FMath::Abs(CenterSigned) <= ChunkM * 0.45f;
-	if (bReallyCrust)
+	// Overlap test said crust. Hollowing those 173 chunks was the teal river.
+	// Clipmap (same atlas height, sunk 8 m) fills any real miss. Do not hollow.
+	if (bOnCrust)
 	{
 		const double Now = FPlatformTime::Seconds();
 		const double* Next = NextEmptyRetryAt.Find(Coord);
@@ -796,9 +794,9 @@ void AGXVoxelWorld::MarkChunkEmpty(const FGXChunkKey& Coord, int32 LOD, const TC
 		{
 			return;
 		}
-		NextEmptyRetryAt.Add(Coord, Now + 2.0);
-		GX_PERF(2, TEXT("GX-empty crust-hold %d_%d_%d d=%.0f s=%.1f %s"),
-			Coord.X, Coord.Y, Coord.Z, Dist, CenterSigned, Reason ? Reason : TEXT("?"));
+		NextEmptyRetryAt.Add(Coord, Now + 2.5);
+		GX_PERF(2, TEXT("GX-empty crust-hold %d_%d_%d d=%.0f %s"),
+			Coord.X, Coord.Y, Coord.Z, Dist, Reason ? Reason : TEXT("?"));
 		BrushForceLOD0.Add(Coord);
 		EnqueueRemesh(Coord, Dist <= NearFieldRadius);
 		return;
@@ -1103,7 +1101,7 @@ void AGXVoxelWorld::ProcessMeshQueue(int32 Budget)
 			++Built;
 			continue;
 		}
-		const int32 CreateCap = (WarmupTimeRemaining > 0.0f) ? 3 : FMath::Max(1, MaxMeshCreatesPerTick);
+		const int32 CreateCap = (WarmupTimeRemaining > 0.0f) ? 8 : FMath::Max(1, MaxMeshCreatesPerTick);
 		if (MeshCreatesThisTick >= CreateCap)
 		{
 			MeshQueued.Add(Coord);
@@ -1352,7 +1350,7 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 	{
 		// 48-section PMC Create rebuilt the whole proxy (~81 ms). Cap Creates
 		// so walking stays interactive; leftover meshes wait in the mailbox.
-		const int32 CreateCap = (WarmupTimeRemaining > 0.0f) ? 3 : FMath::Max(1, MaxMeshCreatesPerTick);
+		const int32 CreateCap = (WarmupTimeRemaining > 0.0f) ? 8 : FMath::Max(1, MaxMeshCreatesPerTick);
 		if (MeshCreatesThisTick >= CreateCap)
 		{
 			if (!bHadVisual)
