@@ -132,6 +132,8 @@ g(r) = −μ r̂ / r²
 
 Path: `Saved/VoxelWorld/<SaveFileName>` (default `earth_default.gxsav`).
 
+Unedited crust meshes and the height atlas live in `Saved/VoxelWorld/crust_<fingerprint>/`. First PIE bakes them; later PIE loads them. Changing seed, radius, relief, or stamp params makes a new folder. Digs invalidate only the dirty chunk files.
+
 ```text
 GXV1 header  (seed, radius, relief, voxel size)
 page count
@@ -163,6 +165,8 @@ Plugins/GXVoxel/Source/GXVoxel/
   GXVoxelInvokerComponent.*
   GXVoxelChunkProxy.*      DynamicMesh apply
   GXVoxelWorld.*           stream / edit / save / gravity
+  GXCrustAtlas.*           tangent height field (worker-baked)
+  GXCrustCache.*           disk meshes keyed by stamp fingerprint
   GXTerrainToolComponent.*
 
 Plugins/GXCelestial/Source/GXCelestial/
@@ -287,6 +291,7 @@ Automation (editor): `Automation RunTests GX`
 | `GX.Voxel.PageSparseRoundTrip` | one dig → one 8³ page |
 | `GX.Voxel.MeshSphere` | MC emits tris |
 | `GX.Voxel.EarthGeomorphology` | 60 km Earth: +X land, oceans, peaks, valleys |
+| `GX.Voxel.SurfaceQueryCheap` | surface radius is one stamp sample |
 | `GX.Celestial.ClosedOrbit` | 10-period Kepler close |
 | `GX.Celestial.EciBodyInvertible` | point + velocity invert |
 | `GX.Celestial.DragAndHeat` | heat grows with v; surface g |

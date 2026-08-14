@@ -6,6 +6,7 @@
 #include "GXSnapshot.h"
 #include "GXVoxelStamps.h"
 #include "GXVoxelTypes.h"
+#include "GXCrustAtlas.h"
 
 struct FGXVoxelPage
 {
@@ -48,6 +49,10 @@ public:
 
 	FGXVoxelPacked Sample(const FVector3d& PlanetLocalM) const;
 	bool HasStored(const FVector3d& PlanetLocalM) const;
+	bool TryGetAuthoritative(const FVector3d& PlanetLocalM, FGXVoxelPacked& Out) const;
+
+	/** Shared height atlas. Workers read this instead of re-running the Earth stamp. */
+	TSharedPtr<const FGXCrustAtlas, ESPMode::ThreadSafe> Atlas;
 };
 
 /**
@@ -63,6 +68,7 @@ public:
 	FGXGenerationStamp GetStampValue() const { return Generation; }
 
 	FGXVoxelPacked Sample(const FVector3d& PlanetLocalM) const;
+	bool TryGetAuthoritative(const FVector3d& PlanetLocalM, FGXVoxelPacked& Out) const;
 	float SampleDensity(const FVector3d& PlanetLocalM) const { return Sample(PlanetLocalM).ToDensityMeters(); }
 
 	/** Write a cell (allocates only the 8³ page). Returns new generation. */
@@ -86,6 +92,7 @@ public:
 	int64 GetAllocatedBytes() const;
 
 	void GetAllocatedChunkKeys(TArray<FGXChunkKey>& Out) const;
+	bool ChunkHasEdits(const FGXChunkKey& Key) const;
 
 	/** Copy-on-write snapshot for workers. */
 	TSharedRef<FGXVoxelSnapshot, ESPMode::ThreadSafe> PublishSnapshot() const;

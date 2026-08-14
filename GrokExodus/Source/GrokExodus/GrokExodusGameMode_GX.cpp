@@ -44,9 +44,8 @@ void AGXGameMode::BeginPlay()
 	}
 	PlacePlayerOnSurface();
 
-	FTimerHandle H1, H2;
-	GetWorldTimerManager().SetTimer(H1, this, &AGXGameMode::PlacePlayerOnSurface, 0.35f, false);
-	GetWorldTimerManager().SetTimer(H2, this, &AGXGameMode::PlacePlayerOnSurface, 1.4f, false);
+	FTimerHandle H1;
+	GetWorldTimerManager().SetTimer(H1, this, &AGXGameMode::PlacePlayerOnSurface, 0.25f, false);
 }
 
 void AGXGameMode::EnsureLighting()

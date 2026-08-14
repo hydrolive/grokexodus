@@ -85,6 +85,30 @@ FGXVoxelPacked FGXVoxelVolume::Sample(const FVector3d& PlanetLocalM) const
 	return Stamp.SamplePacked(PlanetLocalM);
 }
 
+bool FGXVoxelVolume::TryGetAuthoritative(const FVector3d& PlanetLocalM, FGXVoxelPacked& Out) const
+{
+	const float VoxelSize = Stamp.GetParams().VoxelSize;
+	const FIntVector V = WorldToVoxel(PlanetLocalM, VoxelSize);
+	FGXChunkKey Chunk;
+	FGXPageKey Page;
+	FIntVector Local;
+	VoxelToPage(V, Chunk, Page, Local);
+	if (const TArray<TSharedPtr<FGXVoxelPage, ESPMode::ThreadSafe>>* Slot = Pages.Find(Chunk))
+	{
+		const int32 PageIndex = Page.Index();
+		if (Slot->IsValidIndex(PageIndex) && (*Slot)[PageIndex].IsValid())
+		{
+			const FGXVoxelPacked Stored = (*Slot)[PageIndex]->Get(Local.X, Local.Y, Local.Z);
+			if (Stored.IsAuthoritative())
+			{
+				Out = Stored;
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 FGXGenerationStamp FGXVoxelVolume::SetVoxel(const FIntVector& VoxelCoord, const FGXVoxelPacked& Cell)
 {
 	FGXChunkKey Chunk;
@@ -143,6 +167,23 @@ void FGXVoxelVolume::GetAllocatedChunkKeys(TArray<FGXChunkKey>& Out) const
 {
 	Out.Reset();
 	Pages.GetKeys(Out);
+}
+
+bool FGXVoxelVolume::ChunkHasEdits(const FGXChunkKey& Key) const
+{
+	const TArray<TSharedPtr<FGXVoxelPage, ESPMode::ThreadSafe>>* Slot = Pages.Find(Key);
+	if (!Slot)
+	{
+		return false;
+	}
+	for (const TSharedPtr<FGXVoxelPage, ESPMode::ThreadSafe>& P : *Slot)
+	{
+		if (P.IsValid())
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 FGXVoxelVolume::FBrushResult FGXVoxelVolume::ApplySphereBrush(
@@ -328,6 +369,29 @@ bool FGXVoxelSnapshot::HasStored(const FVector3d& PlanetLocalM) const
 	{
 		const int32 PageIndex = Page.Index();
 		return Slot->IsValidIndex(PageIndex) && (*Slot)[PageIndex].IsValid();
+	}
+	return false;
+}
+
+bool FGXVoxelSnapshot::TryGetAuthoritative(const FVector3d& PlanetLocalM, FGXVoxelPacked& Out) const
+{
+	const FIntVector V = FGXVoxelVolume::WorldToVoxel(PlanetLocalM, Params.VoxelSize);
+	FGXChunkKey Chunk;
+	FGXPageKey Page;
+	FIntVector Local;
+	FGXVoxelVolume::VoxelToPage(V, Chunk, Page, Local);
+	if (const TArray<TSharedPtr<const FGXVoxelPage, ESPMode::ThreadSafe>>* Slot = Pages.Find(Chunk))
+	{
+		const int32 PageIndex = Page.Index();
+		if (Slot->IsValidIndex(PageIndex) && (*Slot)[PageIndex].IsValid())
+		{
+			const FGXVoxelPacked Stored = (*Slot)[PageIndex]->Get(Local.X, Local.Y, Local.Z);
+			if (Stored.IsAuthoritative())
+			{
+				Out = Stored;
+				return true;
+			}
+		}
 	}
 	return false;
 }

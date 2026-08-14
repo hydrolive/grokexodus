@@ -72,10 +72,6 @@ void AVoxelGameMode::BeginPlay()
 	PlacePlayerOnSurface();
 	FTimerHandle Handle;
 	GetWorldTimerManager().SetTimer(Handle, this, &AVoxelGameMode::PlacePlayerOnSurface, 0.25f, false);
-	FTimerHandle Handle2;
-	GetWorldTimerManager().SetTimer(Handle2, this, &AVoxelGameMode::PlacePlayerOnSurface, 1.2f, false);
-	FTimerHandle Handle3;
-	GetWorldTimerManager().SetTimer(Handle3, this, &AVoxelGameMode::PlacePlayerOnSurface, 2.4f, false);
 }
 
 void AVoxelGameMode::EnsureLighting()

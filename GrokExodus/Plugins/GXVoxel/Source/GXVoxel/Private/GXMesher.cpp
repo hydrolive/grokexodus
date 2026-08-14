@@ -45,21 +45,33 @@ FGXMeshBuffers FGXMesher::MeshChunk(
 					static_cast<double>(BaseMinX + X * Stride) * BaseVoxel,
 					static_cast<double>(BaseMinY + Y * Stride) * BaseVoxel,
 					static_cast<double>(BaseMinZ + Z * Stride) * BaseVoxel);
-				const FGXVoxelPacked Packed = Snapshot.Sample(Corner);
 				const int32 Idx = GridIndex(X, Y, Z, Samples, Samples);
-				// Only edited cells override the stamp. Allocating an 8³ page
-				// fills neighbors from the packed stamp; using those for MC
-				// turns a smooth hillside into 1 m stairs around every dig.
-				const bool bEdited = Packed.IsAuthoritative();
-				if (bEdited)
+				FGXVoxelPacked Packed;
+				if (Snapshot.TryGetAuthoritative(Corner, Packed))
 				{
 					Densities[Idx] = Packed.ToDensityMeters();
+					Materials[Idx] = Packed.Material;
+				}
+				else if (Snapshot.Atlas.IsValid())
+				{
+					float AtlasD = 0.0f;
+					uint8 AtlasMat = 1;
+					if (Snapshot.Atlas->TrySample(Corner, AtlasD, AtlasMat))
+					{
+						Densities[Idx] = AtlasD;
+						Materials[Idx] = AtlasMat;
+					}
+					else
+					{
+						Densities[Idx] = Stamp.SampleDensity(Corner);
+						Materials[Idx] = Densities[Idx] > 0.0f ? 1 : 0;
+					}
 				}
 				else
 				{
 					Densities[Idx] = Stamp.SampleDensity(Corner);
+					Materials[Idx] = Densities[Idx] > 0.0f ? 1 : 0;
 				}
-				Materials[Idx] = Packed.Material != 0 ? Packed.Material : (Densities[Idx] > 0.0f ? 1 : 0);
 			}
 		}
 	}

@@ -5,6 +5,7 @@
 #include "GXMesher.h"
 #include "GXNoise.h"
 #include "GXVoxelStamps.h"
+#include "HAL/PlatformTime.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGXVoxelDensityIdentity, "GX.Voxel.DensityIdentity",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -153,5 +154,27 @@ bool FGXVoxelEarthGeomorphology::RunTest(const FString& Parameters)
 	FGXNoise::WorleyF1F2(1.3f, -0.4f, 2.1f, 1337u, F1, F2);
 	TestTrue(TEXT("Worley F1 <= F2"), F1 <= F2 + KINDA_SMALL_NUMBER);
 	TestTrue(TEXT("Worley F1 finite"), F1 >= 0.0f && F1 < 4.0f);
+
+	const uint64 FpA = Params.Fingerprint();
+	FGXPlanetStampParams Other = Params;
+	Other.MaxRelief = Params.MaxRelief + 50.0f;
+	TestTrue(TEXT("fingerprint changes with relief"), FpA != Other.Fingerprint());
+	TestTrue(TEXT("fingerprint stable"), FpA == Params.Fingerprint());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGXVoxelSurfaceQueryCheap, "GX.Voxel.SurfaceQueryCheap",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGXVoxelSurfaceQueryCheap::RunTest(const FString& Parameters)
+{
+	const FGXPlanetStampParams Params = FGXPlanetStampParams::Earth();
+	const FGXSphereStamp Stamp(Params);
+	const FVector3f PlusX(1, 0, 0);
+	const double T0 = FPlatformTime::Seconds();
+	const float R = Stamp.SampleSurfaceRadius(PlusX);
+	const double Ms = (FPlatformTime::Seconds() - T0) * 1000.0;
+	TestTrue(TEXT("surface radius above mean"), R > Params.Radius);
+	TestTrue(TEXT("one sample is cheap"), Ms < 15.0);
 	return true;
 }

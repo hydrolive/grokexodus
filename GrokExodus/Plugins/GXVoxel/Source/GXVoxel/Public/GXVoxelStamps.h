@@ -52,6 +52,9 @@ struct FGXPlanetStampParams
 	float OceanDepthFrac = 0.30f;
 	float TrenchAmp = 0.50f;
 
+	/** Stable id for crust cache / atlas files. Changes when the planet would look different. */
+	uint64 Fingerprint() const;
+
 	/** Defaults matching the current Earth-like prototype mapper (4 km). */
 	static FGXPlanetStampParams LegacyPrototype()
 	{
@@ -145,6 +148,7 @@ public:
 	void SetParams(const FGXPlanetStampParams& InParams) { Params = InParams; }
 
 	float SampleHeightDisplacement(const FVector3f& UnitDir) const;
+	float SampleSurfaceRadius(const FVector3f& UnitDir) const;
 	float SampleScarCarveMeters(const FVector3f& UnitDir) const;
 	float SampleMoisture(const FVector3f& UnitDir) const;
 	float SampleDensity(const FVector3d& PlanetLocalM) const;

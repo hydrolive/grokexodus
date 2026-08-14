@@ -233,6 +233,11 @@ float FGXSphereStamp::SampleHeightDisplacement(const FVector3f& UnitDir) const
 	}
 }
 
+float FGXSphereStamp::SampleSurfaceRadius(const FVector3f& UnitDir) const
+{
+	return Params.Radius + SampleHeightDisplacement(UnitDir) - SampleScarCarveMeters(UnitDir);
+}
+
 float FGXSphereStamp::SampleSlopeDegrees(const FVector3f& UnitDir, float OffsetMeters) const
 {
 	FVector Up(UnitDir.X, UnitDir.Y, UnitDir.Z);

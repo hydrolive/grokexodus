@@ -11,6 +11,8 @@
 #include "GXVoxelVolume.h"
 #include "GXTerrainPBR.h"
 #include "GXFoliage.h"
+#include "GXCrustAtlas.h"
+#include "GXCrustCache.h"
 #include "GXVoxelWorld.generated.h"
 
 class AGXVoxelChunkProxy;
@@ -107,13 +109,21 @@ public:
 	float CollisionRadius = 96.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	int32 MaxMeshBuildsPerFrame = 4;
+	int32 MaxMeshBuildsPerFrame = 6;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	int32 WarmupMeshBuildsPerFrame = 24;
+	int32 WarmupMeshBuildsPerFrame = 4;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	float WarmupSeconds = 3.0f;
+	float WarmupSeconds = 1.0f;
+
+	/** Game-thread meshing / apply budget so the load overlay can tick. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
+	float MeshTimeBudgetMs = 6.0f;
+
+	/** Cap worker jobs so the pool is not flooded and PIE teardown does not abort a thousand tasks. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
+	int32 MaxAsyncInFlight = 12;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
 	bool bAsyncMeshing = true;
@@ -207,6 +217,7 @@ protected:
 	TUniquePtr<FGXFoliageScatter> Foliage;
 
 	TMap<FGXChunkKey, TWeakObjectPtr<AGXVoxelChunkProxy>> ChunkActors;
+	TArray<FGXChunkKey> NearMeshQueue;
 	TArray<FGXChunkKey> MeshQueue;
 	TSet<FGXChunkKey> MeshQueued;
 	TSet<FGXChunkKey> AsyncInFlight;
@@ -229,24 +240,36 @@ protected:
 	};
 	FCriticalSection PendingCS;
 	TArray<FPendingMesh> PendingMeshes;
+	TSharedPtr<FGXMeshMailbox, ESPMode::ThreadSafe> MeshMailbox;
+	TSharedPtr<FGXCrustAtlas, ESPMode::ThreadSafe> CrustAtlas;
 
 	float WarmupTimeRemaining = 0.0f;
+	float ActiveStreamRadius = 56.0f;
+	bool bAtlasReady = false;
+	bool bAtlasBuildInFlight = false;
 	bool bWorldReady = false;
 	float LoadProgress = 0.0f;
 	FString LoadStatus = TEXT("Booting planet…");
 	int32 LastDesiredNear = 0;
 	int32 LastMeshedNear = 0;
+	int32 CacheHits = 0;
+	int32 CacheMisses = 0;
 
 	void RebuildParams();
 	void ResetStreamingState();
 	void RefreshLoadState();
-	void EnqueueRemesh(const FGXChunkKey& Coord);
+	void EnqueueRemesh(const FGXChunkKey& Coord, bool bNear = true);
 	void EnqueueRemeshNeighborhood(const FGXChunkKey& Coord);
 	void ProcessMeshQueue(int32 Budget);
 	void BuildChunkMeshSync(const FGXChunkKey& Coord);
 	void EnqueueChunkMeshAsync(const FGXChunkKey& Coord);
 	void DrainPendingMeshes(int32 Budget);
 	void ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshBuffers&& MeshData);
+	void EnsureCrustAtlas();
+	void OnAtlasReady(const TSharedRef<FGXCrustAtlas, ESPMode::ThreadSafe>& Built, bool bFromDisk);
+	bool TryApplyCachedChunk(const FGXChunkKey& Coord, int32 LOD);
+	void PersistChunkMesh(const FGXChunkKey& Coord, const FGXMeshBuffers& Mesh) const;
+	TSharedRef<FGXVoxelSnapshot, ESPMode::ThreadSafe> PublishMeshSnapshot() const;
 	int32 SelectLOD(float DistanceM) const;
 	FString GetSavePath() const;
 	void SetupDistantSphere();

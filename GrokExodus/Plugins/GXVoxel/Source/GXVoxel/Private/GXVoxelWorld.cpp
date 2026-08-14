@@ -20,6 +20,9 @@
 #include "Misc/Paths.h"
 #include "UObject/ConstructorHelpers.h"
 #include "GXBodyMovement.h"
+#include "GXCrustAtlas.h"
+#include "GXCrustCache.h"
+#include "Async/Async.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
@@ -71,6 +74,20 @@ void AGXVoxelWorld::ResetStreamingState()
 	{
 		Jobs->BumpStamp();
 	}
+	if (MeshMailbox)
+	{
+		MeshMailbox->bAlive.Store(false);
+		FScopeLock Lock(&MeshMailbox->CS);
+		MeshMailbox->Pending.Empty();
+	}
+	MeshMailbox = MakeShared<FGXMeshMailbox, ESPMode::ThreadSafe>();
+	CrustAtlas.Reset();
+	bAtlasReady = false;
+	bAtlasBuildInFlight = false;
+	ActiveStreamRadius = 56.0f;
+	NearMeshQueue.Empty();
+	CacheHits = 0;
+	CacheMisses = 0;
 	for (auto& Pair : ChunkActors)
 	{
 		if (AGXVoxelChunkProxy* Proxy = Pair.Value.Get())
@@ -142,12 +159,14 @@ void AGXVoxelWorld::ApplyEarthPlayDefaults()
 	StreamRadius = 280.0f;
 	UnloadRadius = 400.0f;
 	NearFieldRadius = 96.0f;
-	CollisionRadius = 96.0f;
+	CollisionRadius = 64.0f;
 	bForceLOD0 = true;
 	bAsyncMeshing = true;
-	WarmupSeconds = 2.5f;
-	WarmupMeshBuildsPerFrame = 24;
-	MaxMeshBuildsPerFrame = 4;
+	WarmupSeconds = 1.0f;
+	WarmupMeshBuildsPerFrame = 4;
+	MaxMeshBuildsPerFrame = 6;
+	MeshTimeBudgetMs = 6.0f;
+	MaxAsyncInFlight = 12;
 	bAutoLoadOnBeginPlay = false;
 	ConfigurePlanet(E.Radius, E.MaxRelief, StreamRadius, static_cast<int32>(E.Seed));
 }
@@ -193,8 +212,12 @@ void AGXVoxelWorld::BeginPlay()
 	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s AGXVoxelWorld BeginPlay radius=%.0f stream=%.0f async=%d"),
 		GX_VERSION_STRING, PlanetRadius, StreamRadius, bAsyncMeshing ? 1 : 0);
 	RebuildParams();
+	MeshMailbox = MakeShared<FGXMeshMailbox, ESPMode::ThreadSafe>();
 	SetupDistantSphere();
 	WarmupTimeRemaining = WarmupSeconds;
+	ActiveStreamRadius = 56.0f;
+	LoadStatus = TEXT("Preparing planet…");
+	LoadProgress = 0.03f;
 	TerrainPBR = MakeUnique<FGXTerrainPBR>();
 	TerrainPBR->Initialize(this);
 	Foliage = MakeUnique<FGXFoliageScatter>();
@@ -217,8 +240,8 @@ void AGXVoxelWorld::BeginPlay()
 		LoadWorld();
 	}
 
-	UpdateStreaming(GetPrimaryInvokerLocation());
-	FlushMeshQueue(WarmupMeshBuildsPerFrame);
+	// Do not mesh here. BeginPlay must return so the Slate overlay can tick.
+	EnsureCrustAtlas();
 }
 
 void AGXVoxelWorld::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -226,6 +249,10 @@ void AGXVoxelWorld::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (bAutoSaveOnEndPlay)
 	{
 		SaveWorld();
+	}
+	if (MeshMailbox)
+	{
+		MeshMailbox->bAlive.Store(false);
 	}
 	if (Foliage)
 	{
@@ -239,7 +266,8 @@ void AGXVoxelWorld::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	}
 	if (Jobs)
 	{
-		Jobs->Flush(2.0f);
+		// Do not wait on long Earth-field jobs — they check mailbox->bAlive and exit.
+		Jobs->Flush(0.25f);
 	}
 	Super::EndPlay(EndPlayReason);
 }
@@ -258,10 +286,17 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	}
 
 	CachedViewerWorld = GetPrimaryInvokerLocation();
+	EnsureCrustAtlas();
+
+	if (bAtlasReady && ActiveStreamRadius < StreamRadius)
+	{
+		ActiveStreamRadius = FMath::Min(StreamRadius, ActiveStreamRadius + FMath::Max(16.0f, StreamRadius * 0.12f));
+	}
+
 	StreamCooldown -= DeltaSeconds;
 	double StreamMs = 0.0;
 	const float MovedSq = FVector::DistSquared(CachedViewerWorld, LastStreamViewerWorld);
-	if (StreamCooldown <= 0.0f || MovedSq > FMath::Square(600.0f) || WarmupTimeRemaining > 0.0f)
+	if (bAtlasReady && (StreamCooldown <= 0.0f || MovedSq > FMath::Square(600.0f) || WarmupTimeRemaining > 0.0f))
 	{
 		const double S0 = FPlatformTime::Seconds();
 		UpdateStreaming(CachedViewerWorld);
@@ -273,10 +308,10 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	const double M0 = FPlatformTime::Seconds();
 	DrainPendingMeshes(MaxMeshBuildsPerFrame);
 	const int32 Budget = (WarmupTimeRemaining > 0.0f) ? WarmupMeshBuildsPerFrame : MaxMeshBuildsPerFrame;
-	const int32 QueueBefore = MeshQueue.Num();
+	const int32 QueueBefore = NearMeshQueue.Num() + MeshQueue.Num();
 	ProcessMeshQueue(Budget);
 	const double MeshMs = (FPlatformTime::Seconds() - M0) * 1000.0;
-	if (Foliage && Volume && WarmupTimeRemaining <= 0.0f)
+	if (Foliage && Volume && bWorldReady)
 	{
 		Foliage->Sync(this, Volume->GetStamp(), CachedViewerWorld, PlanetRadius);
 	}
@@ -295,7 +330,7 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			DeltaSeconds * 1000.0,
 			DeltaSeconds > KINDA_SMALL_NUMBER ? 1.0 / DeltaSeconds : 0.0,
 			ChunkActors.Num(), HollowChunks.Num(),
-			QueueBefore, MeshQueue.Num(),
+			QueueBefore, NearMeshQueue.Num() + MeshQueue.Num(),
 			bWorldReady ? 1 : 0,
 			*LoadStatus,
 			WorldToLocalMeters(CachedViewerWorld).Size());
@@ -325,9 +360,7 @@ FVector AGXVoxelWorld::GetPrimaryInvokerLocation() const
 	{
 		return CachedViewerWorld;
 	}
-	const FVector Surface = FindSurfaceWorldLocation(FVector(1, 0, 0));
-	const FVector Up = -GetGravityDirectionAt(Surface);
-	return Surface + Up * 200.0f;
+	return LocalMetersToWorld(FVector(PlanetRadius + 2.0f, 0.0f, 0.0f));
 }
 
 FVector AGXVoxelWorld::WorldToLocalMeters(const FVector& WorldCm) const
@@ -342,12 +375,40 @@ FVector AGXVoxelWorld::LocalMetersToWorld(const FVector& LocalM) const
 
 float AGXVoxelWorld::SampleDensityMeters(const FVector3d& PlanetLocalMeters) const
 {
-	return Volume ? Volume->SampleDensity(PlanetLocalMeters) : -1.0f;
+	FGXVoxelPacked Stored;
+	if (Volume && Volume->TryGetAuthoritative(PlanetLocalMeters, Stored))
+	{
+		return Stored.ToDensityMeters();
+	}
+	if (CrustAtlas.IsValid())
+	{
+		float Dens = 0.0f;
+		uint8 Mat = 0;
+		if (CrustAtlas->TrySample(PlanetLocalMeters, Dens, Mat))
+		{
+			return Dens;
+		}
+	}
+	return Volume ? Volume->GetStamp().SampleDensity(PlanetLocalMeters) : -1.0f;
 }
 
 int32 AGXVoxelWorld::SampleMaterial(const FVector3d& PlanetLocalMeters) const
 {
-	return Volume ? Volume->Sample(PlanetLocalMeters).Material : 0;
+	FGXVoxelPacked Stored;
+	if (Volume && Volume->TryGetAuthoritative(PlanetLocalMeters, Stored))
+	{
+		return Stored.Material;
+	}
+	if (CrustAtlas.IsValid())
+	{
+		float Dens = 0.0f;
+		uint8 Mat = 0;
+		if (CrustAtlas->TrySample(PlanetLocalMeters, Dens, Mat))
+		{
+			return static_cast<int32>(Mat);
+		}
+	}
+	return Volume ? Volume->GetStamp().SampleMaterial(PlanetLocalMeters, 1.0f) : 0;
 }
 
 FVector AGXVoxelWorld::GetGravityCmS2(const FVector& ScenePositionCm) const
@@ -418,14 +479,23 @@ FVector AGXVoxelWorld::FindSurfaceWorldLocation(FVector RadialDirection) const
 {
 	FVector Dir = RadialDirection.GetSafeNormal();
 	if (Dir.IsNearlyZero()) Dir = FVector(1, 0, 0);
-	const FVector Center = GetActorLocation();
-	const float OuterCm = (PlanetRadius + MaxRelief + 100.0f) * GMetersToUU;
-	const FGXVoxelHit Hit = RaycastVoxels(Center + Dir * OuterCm, -Dir, OuterCm + 2000.0f);
-	if (Hit.bHit)
+	const FVector3f D(Dir.X, Dir.Y, Dir.Z);
+	float SurfaceR = PlanetRadius;
+	if (CrustAtlas.IsValid())
 	{
-		return Hit.Location;
+		float Dens = 0.0f;
+		uint8 Mat = 0;
+		const FVector3d Probe(Dir.X * PlanetRadius, Dir.Y * PlanetRadius, Dir.Z * PlanetRadius);
+		if (CrustAtlas->TrySample(Probe, Dens, Mat))
+		{
+			SurfaceR = PlanetRadius + Dens;
+		}
 	}
-	return Center + Dir * (PlanetRadius * GMetersToUU);
+	else if (Volume)
+	{
+		SurfaceR = Volume->GetStamp().SampleSurfaceRadius(D);
+	}
+	return GetActorLocation() + Dir * (SurfaceR * GMetersToUU);
 }
 
 FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float DigSpeedMul, float RecoveryMul, float WearMul)
@@ -446,10 +516,11 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	if (Jobs) Jobs->BumpStamp();
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
+		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
 		BrushForceLOD0.Add(C);
-		EnqueueRemesh(C);
+		EnqueueRemesh(C, true);
 	}
-	FlushMeshQueue(4);
+	FlushMeshQueue(2);
 	return Out;
 }
 
@@ -468,10 +539,11 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	if (Jobs) Jobs->BumpStamp();
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
+		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
 		BrushForceLOD0.Add(C);
-		EnqueueRemesh(C);
+		EnqueueRemesh(C, true);
 	}
-	FlushMeshQueue(4);
+	FlushMeshQueue(2);
 	return Out;
 }
 
@@ -514,7 +586,7 @@ void AGXVoxelWorld::RefreshLoadState()
 		}
 	}
 
-	const int32 Queue = MeshQueue.Num() + AsyncInFlight.Num();
+	const int32 Queue = NearMeshQueue.Num() + MeshQueue.Num() + AsyncInFlight.Num();
 	const int32 Desired = FMath::Max(LastDesiredNear, LastMeshedNear + HollowNear);
 	const int32 Resolved = FMath::Min(LastMeshedNear + HollowNear, Desired);
 	const float MeshFrac = (Desired > 0)
@@ -522,15 +594,24 @@ void AGXVoxelWorld::RefreshLoadState()
 		: 0.0f;
 	const float QueueFrac = (Queue <= 0) ? 1.0f : FMath::Clamp(1.0f - Queue / 80.0f, 0.0f, 0.85f);
 
-	if (LastMeshedNear == 0 && Resolved == 0)
+	if (!bAtlasReady)
 	{
-		LoadStatus = TEXT("Generating crust density…");
-		LoadProgress = 0.08f;
+		LoadStatus = bAtlasBuildInFlight
+			? TEXT("Baking crust height field…")
+			: TEXT("Preparing planet…");
+		LoadProgress = bAtlasBuildInFlight ? 0.08f : 0.03f;
+	}
+	else if (LastMeshedNear == 0 && Resolved == 0)
+	{
+		LoadStatus = CacheHits + CacheMisses > 0
+			? TEXT("Streaming cached crust…")
+			: TEXT("Generating crust density…");
+		LoadProgress = 0.12f;
 	}
 	else if (Queue > 0 && MeshFrac < 0.95f)
 	{
 		LoadStatus = FString::Printf(TEXT("Meshing near-field terrain  %d / %d"), Resolved, FMath::Max(Desired, 1));
-		LoadProgress = 0.10f + 0.70f * MeshFrac;
+		LoadProgress = 0.14f + 0.70f * MeshFrac;
 	}
 	else if (Queue > 8)
 	{
@@ -550,10 +631,10 @@ void AGXVoxelWorld::RefreshLoadState()
 
 	// A spherical near-field is mostly hollow. Ready when the queue is quiet and
 	// we have real ground — do not require 85% of the ball to have a visible mesh.
-	const bool bHaveGround = LastMeshedNear >= 4;
-	const bool bNearFilled = Desired == 0 || MeshFrac >= 0.85f;
-	const bool bQueueQuiet = Queue <= 2;
-	if (bHaveGround && bQueueQuiet && (bNearFilled || Queue == 0) && WarmupTimeRemaining <= 0.0f)
+	const bool bHaveGround = LastMeshedNear >= 2;
+	const bool bNearFilled = Desired == 0 || MeshFrac >= 0.70f;
+	const bool bNearQuiet = NearMeshQueue.Num() == 0 && AsyncInFlight.Num() <= 2;
+	if (bAtlasReady && bHaveGround && bNearQuiet && (bNearFilled || NearMeshQueue.Num() == 0) && WarmupTimeRemaining <= 0.0f)
 	{
 		LoadStatus = TEXT("Ready");
 		LoadProgress = 1.0f;
@@ -579,7 +660,7 @@ void AGXVoxelWorld::EnqueueRemeshNeighborhood(const FGXChunkKey& Coord)
 	}
 }
 
-void AGXVoxelWorld::EnqueueRemesh(const FGXChunkKey& Coord)
+void AGXVoxelWorld::EnqueueRemesh(const FGXChunkKey& Coord, bool bNear)
 {
 	HollowChunks.Remove(Coord);
 	if (AsyncInFlight.Contains(Coord))
@@ -592,7 +673,14 @@ void AGXVoxelWorld::EnqueueRemesh(const FGXChunkKey& Coord)
 		return;
 	}
 	MeshQueued.Add(Coord);
-	MeshQueue.Add(Coord);
+	if (bNear)
+	{
+		NearMeshQueue.Add(Coord);
+	}
+	else
+	{
+		MeshQueue.Add(Coord);
+	}
 }
 
 void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
@@ -603,13 +691,13 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 	}
 	const FVector Local = WorldToLocalMeters(WorldViewerLocation);
 	const float ChunkM = VoxelSize * FGXVoxelConstants::ChunkSize;
-	const int32 ChunkRadius = FMath::CeilToInt(StreamRadius / ChunkM) + 1;
+	const float StreamNow = FMath::Clamp(ActiveStreamRadius, 48.0f, StreamRadius);
+	const int32 ChunkRadius = FMath::CeilToInt(StreamNow / ChunkM) + 1;
 	const FGXChunkKey Center = FGXVoxelVolume::VoxelToChunk(
 		FGXVoxelVolume::WorldToVoxel(FVector3d(Local.X, Local.Y, Local.Z), VoxelSize));
 
-	const float ShellInner = PlanetRadius - MaxRelief - 24.0f;
-	const float ShellOuter = PlanetRadius + MaxRelief + 16.0f;
 	const float ChunkHalf = ChunkM * 0.866f;
+	const float Band = 72.0f + ChunkHalf;
 
 	int32 NearWanted = 0;
 	TSet<FGXChunkKey> Desired;
@@ -625,12 +713,19 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 					(CC.Y + 0.5f) * ChunkM,
 					(CC.Z + 0.5f) * ChunkM);
 				const float Dist = FVector::Dist(ChunkCenter, Local);
-				if (Dist > StreamRadius)
+				if (Dist > StreamNow)
 				{
 					continue;
 				}
 				const float R = ChunkCenter.Size();
-				if ((R + ChunkHalf) < ShellInner || (R - ChunkHalf) > ShellOuter)
+				float LocalSurfaceR = PlanetRadius;
+				if (CrustAtlas.IsValid() && R > 1.0f)
+				{
+					const FVector3f Dir(
+						ChunkCenter.X / R, ChunkCenter.Y / R, ChunkCenter.Z / R);
+					LocalSurfaceR = PlanetRadius + CrustAtlas->SampleHeight(Dir);
+				}
+				if ((R + ChunkHalf) < (LocalSurfaceR - Band) || (R - ChunkHalf) > (LocalSurfaceR + Band))
 				{
 					continue;
 				}
@@ -648,7 +743,7 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 				const bool bNeedCollision = Dist <= CollisionRadius && bHaveMesh && !Existing->Get()->HasCollision();
 				if (!bHaveMesh || bNeedCollision)
 				{
-					EnqueueRemesh(CC);
+					EnqueueRemesh(CC, Dist <= NearFieldRadius);
 				}
 			}
 		}
@@ -690,10 +785,22 @@ void AGXVoxelWorld::FlushMeshQueue(int32 MaxBuilds)
 void AGXVoxelWorld::ProcessMeshQueue(int32 Budget)
 {
 	int32 Built = 0;
-	const bool bAsync = bAsyncMeshing && WarmupTimeRemaining <= 0.0f && Jobs.IsValid();
-	while (Built < Budget && MeshQueue.Num() > 0)
+	const double Deadline = FPlatformTime::Seconds() + FMath::Max(MeshTimeBudgetMs, 2.0f) * 0.001;
+	const bool bAsync = bAsyncMeshing && Jobs.IsValid();
+	auto PopNext = [this]() -> FGXChunkKey
 	{
-		const FGXChunkKey Coord = MeshQueue.Pop(EAllowShrinking::No);
+		if (NearMeshQueue.Num() > 0)
+		{
+			return NearMeshQueue.Pop(EAllowShrinking::No);
+		}
+		return MeshQueue.Pop(EAllowShrinking::No);
+	};
+
+	while (Built < Budget
+		&& (NearMeshQueue.Num() + MeshQueue.Num()) > 0
+		&& FPlatformTime::Seconds() < Deadline)
+	{
+		const FGXChunkKey Coord = PopNext();
 		MeshQueued.Remove(Coord);
 		if (AsyncInFlight.Contains(Coord))
 		{
@@ -704,14 +811,44 @@ void AGXVoxelWorld::ProcessMeshQueue(int32 Budget)
 		{
 			continue;
 		}
-		const bool bSync = !bAsync || (BrushForceLOD0.Contains(Coord) && Built < 2);
-		if (bSync)
+
+		const FVector Local = WorldToLocalMeters(CachedViewerWorld.IsNearlyZero() ? GetPrimaryInvokerLocation() : CachedViewerWorld);
+		const float ChunkM = VoxelSize * FGXVoxelConstants::ChunkSize;
+		const FVector Center((Coord.X + 0.5f) * ChunkM, (Coord.Y + 0.5f) * ChunkM, (Coord.Z + 0.5f) * ChunkM);
+		const int32 LOD = BrushForceLOD0.Contains(Coord) ? 0 : SelectLOD(FVector::Dist(Center, Local));
+
+		if (TryApplyCachedChunk(Coord, LOD))
+		{
+			BrushForceLOD0.Remove(Coord);
+			++CacheHits;
+			++Built;
+			continue;
+		}
+		++CacheMisses;
+
+		const int32 InFlight = Jobs ? Jobs->NumInFlight() : AsyncInFlight.Num();
+		const bool bUnderfoot = BrushForceLOD0.Contains(Coord) && Built < 1;
+		if (!bAsync || bUnderfoot)
 		{
 			BuildChunkMeshSync(Coord);
 		}
-		else
+		else if (InFlight < MaxAsyncInFlight && AsyncInFlight.Num() < MaxAsyncInFlight)
 		{
 			EnqueueChunkMeshAsync(Coord);
+		}
+		else
+		{
+			// Pool is full — put the chunk back and yield this tick.
+			MeshQueued.Add(Coord);
+			if (FVector::Dist(Center, Local) <= NearFieldRadius)
+			{
+				NearMeshQueue.Add(Coord);
+			}
+			else
+			{
+				MeshQueue.Add(Coord);
+			}
+			break;
 		}
 		++Built;
 	}
@@ -723,7 +860,7 @@ void AGXVoxelWorld::BuildChunkMeshSync(const FGXChunkKey& Coord)
 	{
 		return;
 	}
-	TSharedRef<FGXVoxelSnapshot, ESPMode::ThreadSafe> Snap = Volume->PublishSnapshot();
+	TSharedRef<FGXVoxelSnapshot, ESPMode::ThreadSafe> Snap = PublishMeshSnapshot();
 	const FVector Local = WorldToLocalMeters(CachedViewerWorld.IsNearlyZero() ? GetPrimaryInvokerLocation() : CachedViewerWorld);
 	const float ChunkM = VoxelSize * FGXVoxelConstants::ChunkSize;
 	const FVector Center((Coord.X + 0.5f) * ChunkM, (Coord.Y + 0.5f) * ChunkM, (Coord.Z + 0.5f) * ChunkM);
@@ -732,21 +869,18 @@ void AGXVoxelWorld::BuildChunkMeshSync(const FGXChunkKey& Coord)
 	FGXMesher::FSettings S;
 	S.LOD = LOD;
 	FGXMeshBuffers Mesh = FGXMesher::MeshChunk(*Snap, Coord, S);
+	PersistChunkMesh(Coord, Mesh);
 	ApplyBuiltMesh(Coord, LOD, MoveTemp(Mesh));
 }
 
 void AGXVoxelWorld::EnqueueChunkMeshAsync(const FGXChunkKey& Coord)
 {
-	if (!Volume || !Jobs || AsyncInFlight.Contains(Coord))
+	if (!Volume || !Jobs || AsyncInFlight.Contains(Coord) || !MeshMailbox.IsValid())
 	{
 		return;
 	}
 	AsyncInFlight.Add(Coord);
-	TSharedRef<FGXVoxelSnapshot, ESPMode::ThreadSafe> Snap = Volume->PublishSnapshot();
-	if (Jobs)
-	{
-		Snap->Stamp = Jobs->GetStamp();
-	}
+	TSharedRef<FGXVoxelSnapshot, ESPMode::ThreadSafe> Snap = PublishMeshSnapshot();
 	const FGXGenerationStamp Stamp = Snap->Stamp;
 	const FVector Local = WorldToLocalMeters(GetPrimaryInvokerLocation());
 	const float ChunkM = VoxelSize * FGXVoxelConstants::ChunkSize;
@@ -754,44 +888,55 @@ void AGXVoxelWorld::EnqueueChunkMeshAsync(const FGXChunkKey& Coord)
 	const int32 LOD = BrushForceLOD0.Contains(Coord) ? 0 : SelectLOD(FVector::Dist(Center, Local));
 	BrushForceLOD0.Remove(Coord);
 
+	TSharedPtr<FGXMeshMailbox, ESPMode::ThreadSafe> Box = MeshMailbox;
 	Jobs->Enqueue(EGXJobPriority::NearMesh, Stamp,
-		[this, Coord, LOD, Snap, Stamp]()
+		[Box, Coord, LOD, Snap, Stamp]()
 		{
+			if (!Box.IsValid() || !Box->bAlive.Load())
+			{
+				return;
+			}
 			FGXMesher::FSettings S;
 			S.LOD = LOD;
 			FGXMeshBuffers Built = FGXMesher::MeshChunk(*Snap, Coord, S);
-			FScopeLock Lock(&PendingCS);
-			FPendingMesh& P = PendingMeshes.AddDefaulted_GetRef();
-			P.Coord = Coord;
-			P.LOD = LOD;
-			P.Stamp = Stamp;
-			P.Mesh = MoveTemp(Built);
+			if (!Box->bAlive.Load())
+			{
+				return;
+			}
+			FScopeLock Lock(&Box->CS);
+			FGXMeshMailbox::FItem& Item = Box->Pending.AddDefaulted_GetRef();
+			Item.Coord = Coord;
+			Item.LOD = LOD;
+			Item.Stamp = Stamp;
+			Item.Mesh = MoveTemp(Built);
 		});
 }
 
 void AGXVoxelWorld::DrainPendingMeshes(int32 Budget)
 {
-	TArray<FPendingMesh> Local;
+	TArray<FGXMeshMailbox::FItem> Local;
+	if (MeshMailbox.IsValid())
 	{
-		FScopeLock Lock(&PendingCS);
-		const int32 N = FMath::Min(Budget, PendingMeshes.Num());
+		FScopeLock Lock(&MeshMailbox->CS);
+		const int32 N = FMath::Min(Budget, MeshMailbox->Pending.Num());
 		for (int32 I = 0; I < N; ++I)
 		{
-			Local.Add(MoveTemp(PendingMeshes[I]));
+			Local.Add(MoveTemp(MeshMailbox->Pending[I]));
 		}
-		PendingMeshes.RemoveAt(0, N, EAllowShrinking::No);
+		MeshMailbox->Pending.RemoveAt(0, N, EAllowShrinking::No);
 	}
-	for (FPendingMesh& P : Local)
+	for (FGXMeshMailbox::FItem& P : Local)
 	{
 		AsyncInFlight.Remove(P.Coord);
 		if (RemeshWhenIdle.Remove(P.Coord))
 		{
-			EnqueueRemesh(P.Coord);
+			EnqueueRemesh(P.Coord, true);
 		}
 		if (Jobs && !Jobs->ShouldApply(P.Stamp))
 		{
 			continue;
 		}
+		PersistChunkMesh(P.Coord, P.Mesh);
 		ApplyBuiltMesh(P.Coord, P.LOD, MoveTemp(P.Mesh));
 	}
 }
@@ -810,6 +955,10 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 			ChunkActors.Remove(Coord);
 		}
 		HollowChunks.Add(Coord);
+		if (Volume && !Volume->ChunkHasEdits(Coord))
+		{
+			FGXCrustCache::SaveHollow(FGXCrustCache::ChunkPath(Volume->GetStamp().GetParams(), Coord));
+		}
 		return;
 	}
 	HollowChunks.Remove(Coord);
@@ -841,7 +990,7 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 	Proxy->LOD = LOD;
 	const FVector ViewerLocal = WorldToLocalMeters(CachedViewerWorld.IsNearlyZero() ? GetPrimaryInvokerLocation() : CachedViewerWorld);
 	const FVector CenterM = OriginM + FVector(ChunkM * 0.5f);
-	const bool bCollision = FVector::Dist(CenterM, ViewerLocal) <= CollisionRadius || WarmupTimeRemaining > 0.0f;
+	const bool bCollision = FVector::Dist(CenterM, ViewerLocal) <= CollisionRadius;
 	Proxy->ApplyMesh(MeshData, OriginM, GMetersToUU, TerrainMaterial, bCollision);
 }
 
@@ -857,8 +1006,12 @@ bool AGXVoxelWorld::PlacePawnOnSurface(APawn* Pawn, FVector RadialHint)
 	const FVector SpawnLoc = Surface + Up * 180.0f;
 	CachedViewerWorld = SpawnLoc;
 	LastStreamViewerWorld = FVector(1e12f, 0, 0);
-	UpdateStreaming(SpawnLoc);
-	FlushMeshQueue(256);
+	ActiveStreamRadius = FMath::Max(ActiveStreamRadius, 56.0f);
+	EnsureCrustAtlas();
+	if (bAtlasReady)
+	{
+		UpdateStreaming(SpawnLoc);
+	}
 
 	Pawn->SetActorLocation(SpawnLoc, false, nullptr, ETeleportType::TeleportPhysics);
 	FVector Forward = FVector::VectorPlaneProject(FVector(0, 1, 0), Up).GetSafeNormal();
@@ -884,8 +1037,10 @@ bool AGXVoxelWorld::PlacePawnOnSurface(APawn* Pawn, FVector RadialHint)
 	}
 
 	CachedViewerWorld = Pawn->GetActorLocation();
-	UpdateStreaming(CachedViewerWorld);
-	FlushMeshQueue(96);
+	if (bAtlasReady)
+	{
+		UpdateStreaming(CachedViewerWorld);
+	}
 
 	UE_LOG(LogGXVoxel, Warning,
 		TEXT("GX-%s PlacePawnOnSurface r=%.1fm want=%.1fm loc=%s"),
@@ -894,6 +1049,102 @@ bool AGXVoxelWorld::PlacePawnOnSurface(APawn* Pawn, FVector RadialHint)
 		PlanetRadius,
 		*Pawn->GetActorLocation().ToCompactString());
 	return true;
+}
+
+TSharedRef<FGXVoxelSnapshot, ESPMode::ThreadSafe> AGXVoxelWorld::PublishMeshSnapshot() const
+{
+	TSharedRef<FGXVoxelSnapshot, ESPMode::ThreadSafe> Snap = Volume
+		? Volume->PublishSnapshot()
+		: MakeShared<FGXVoxelSnapshot, ESPMode::ThreadSafe>();
+	Snap->Atlas = CrustAtlas;
+	if (Jobs)
+	{
+		Snap->Stamp = Jobs->GetStamp();
+	}
+	return Snap;
+}
+
+void AGXVoxelWorld::EnsureCrustAtlas()
+{
+	if (bAtlasReady || bAtlasBuildInFlight || !Volume)
+	{
+		return;
+	}
+	const FGXPlanetStampParams Params = Volume->GetStamp().GetParams();
+	if (TSharedPtr<FGXCrustAtlas, ESPMode::ThreadSafe> Loaded = FGXCrustAtlas::LoadFromFile(FGXCrustCache::AtlasPath(Params)))
+	{
+		OnAtlasReady(Loaded.ToSharedRef(), true);
+		return;
+	}
+
+	bAtlasBuildInFlight = true;
+	LoadStatus = TEXT("Baking crust height field…");
+	LoadProgress = 0.06f;
+	FVector Dir = WorldToLocalMeters(CachedViewerWorld.IsNearlyZero()
+		? LocalMetersToWorld(FVector(PlanetRadius, 0, 0))
+		: CachedViewerWorld).GetSafeNormal();
+	if (Dir.IsNearlyZero())
+	{
+		Dir = FVector(1, 0, 0);
+	}
+	const float HalfExtent = StreamRadius + 48.0f;
+	TWeakObjectPtr<AGXVoxelWorld> WeakThis(this);
+	Async(EAsyncExecution::ThreadPool, [Params, Dir, HalfExtent, WeakThis]()
+	{
+		TSharedRef<FGXCrustAtlas, ESPMode::ThreadSafe> Built =
+			FGXCrustAtlas::Build(Params, Dir, HalfExtent, 2.5f);
+		Built->SaveToFile(FGXCrustCache::AtlasPath(Params));
+		AsyncTask(ENamedThreads::GameThread, [WeakThis, Built]()
+		{
+			if (AGXVoxelWorld* World = WeakThis.Get())
+			{
+				World->OnAtlasReady(Built, false);
+			}
+		});
+	});
+}
+
+void AGXVoxelWorld::OnAtlasReady(const TSharedRef<FGXCrustAtlas, ESPMode::ThreadSafe>& Built, bool bFromDisk)
+{
+	CrustAtlas = Built;
+	bAtlasReady = true;
+	bAtlasBuildInFlight = false;
+	LoadStatus = bFromDisk ? TEXT("Loaded crust cache…") : TEXT("Height field ready…");
+	LoadProgress = 0.12f;
+	LastStreamViewerWorld = FVector(1e12f, 0, 0);
+	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s crust atlas ready disk=%d dim=%d"),
+		GX_VERSION_STRING, bFromDisk ? 1 : 0, Built->Dim);
+}
+
+bool AGXVoxelWorld::TryApplyCachedChunk(const FGXChunkKey& Coord, int32 LOD)
+{
+	if (!Volume || Volume->ChunkHasEdits(Coord))
+	{
+		return false;
+	}
+	const FString Path = FGXCrustCache::ChunkPath(Volume->GetStamp().GetParams(), Coord);
+	int32 FileLOD = LOD;
+	FGXMeshBuffers Mesh;
+	if (!FGXCrustCache::LoadMesh(Path, FileLOD, Mesh))
+	{
+		return false;
+	}
+	ApplyBuiltMesh(Coord, FileLOD, MoveTemp(Mesh));
+	return true;
+}
+
+void AGXVoxelWorld::PersistChunkMesh(const FGXChunkKey& Coord, const FGXMeshBuffers& Mesh) const
+{
+	if (!Volume || Volume->ChunkHasEdits(Coord))
+	{
+		return;
+	}
+	const FString Path = FGXCrustCache::ChunkPath(Volume->GetStamp().GetParams(), Coord);
+	FGXMeshBuffers Copy = Mesh;
+	Async(EAsyncExecution::ThreadPool, [Path, Copy = MoveTemp(Copy)]()
+	{
+		FGXCrustCache::SaveMesh(Path, 0, Copy);
+	});
 }
 
 FString AGXVoxelWorld::GetSavePath() const
