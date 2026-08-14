@@ -20,7 +20,7 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 - Full-screen load overlay + progress + status, ≥2.5 s hold, then fade. Gold stamp stays top-left. Brush sphere only when aiming at terrain.
 - `GrokExodus/Saved/GX_RUNNING_VERSION.txt` is written when GXPresentation starts. Console: `gx.version`.
 - Terrain: lit vertex-color. Hardware RT on; voxel RT only on near collision chunks. Collision ≤80 m.
-- Live Coding often blocks `Build.bat`. **Quit the editor** before compiling.
+- Live Coding often blocks `Build.bat`. The agent **closes Unreal and rebuilds Development Editor `-NoUBA`** (see `AGENTS.md`). Do not ask the user to do that.
 - **Plugin GXCore failed to load / GetLastError=4551:** Development `UnrealEditor-GXCore.dll` was an unloadable image (UBA served a bad cached link). DebugGame DLL was fine; the editor loads Development. Fix: delete `Plugins/*/Binaries/Win64/UnrealEditor-GX*.dll` and `Binaries/Win64/UnrealEditor-GrokExodus.dll`, rebuild `GrokExodusEditor Win64 Development -NoUBA`. All six project DLLs now map with `LoadLibraryEx(DONT_RESOLVE)`.
 
 ## Next work

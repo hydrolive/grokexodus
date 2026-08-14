@@ -50,6 +50,56 @@ Docs-only / AGENTS-only commits may skip the version bump if no binary/HUD chang
 
 ---
 
+## Mandatory: close editor + rebuild Development `-NoUBA`
+
+Do **not** tell the user to close Unreal or run Build.bat. After any change that needs a new editor binary (C++, `.Build.cs`, `.Target.cs`, `GXVersion.h`, plugin modules), the agent does this itself.
+
+### 1. Close Unreal if it is running
+
+Live Coding locks `UnrealEditor-GX*.dll` and UBT will fail or write a 4551 image.
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name = 'UnrealEditor.exe'" |
+  Where-Object { $_.CommandLine -match 'GrokExodus' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+```
+
+If that matches nothing, stop every `UnrealEditor` / `UnrealEditor-Cmd` / `UnrealEditor-Win64-DebugGame` process. Wait until they are gone before compiling. Do not kill Visual Studio.
+
+### 2. Rebuild Development Editor with `-NoUBA`
+
+```
+"C:\Program Files\Epic Games\UE_5.8\Engine\Build\BatchFiles\Build.bat" GrokExodusEditor Win64 Development -Project="E:\Github\grokexodus\GrokExodus\GrokExodus.uproject" -WaitMutex -NoUBA
+```
+
+- Always **Development** (the editor loads those DLLs, not DebugGame).
+- Always **`-NoUBA`**. UBA has served corrupt `UnrealEditor-GXCore.dll` (`GetLastError=4551`).
+- Give the build several minutes. Fix compile errors and rebuild until UBT reports success.
+- **Do not** VS-Rebuild Solution first after a 4551 failure.
+
+### 3. 4551 / plugin failed to load
+
+If the last launch said **Plugin 'GXCore' failed to load** or the link looks suspect, delete then rebuild:
+
+```
+GrokExodus/Plugins/*/Binaries/Win64/UnrealEditor-GX*.dll
+GrokExodus/Binaries/Win64/UnrealEditor-GrokExodus.dll
+```
+
+Then run the same `Build.bat … Development … -NoUBA`. Do not launch the editor until that link finishes.
+
+### 4. Relaunch so the user can PIE
+
+After a successful link, start the editor on the play map (do not wait for them to do it):
+
+```
+"C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe" "E:\Github\grokexodus\GrokExodus\GrokExodus.uproject" /Game/Voxel/Maps/Lvl_VoxelPlanet -skipcompile
+```
+
+Skip this close/rebuild/relaunch loop for docs-only or Python-only changes that do not touch C++.
+
+---
+
 ## Product rules
 
 - **Creativity + hard spaceflight.** No bunkers, no walkers, no new work in `Source/GrokExodus/Voxel/` except crash fixes or routing that file onto GX.
@@ -57,8 +107,7 @@ Docs-only / AGENTS-only commits may skip the version bump if no binary/HUD chang
 - **Do not rotate or translate the voxel planet actor.** Dual-layer ephemeris: Kepler in math, body-fixed UE scene.
 - **Plugins own simulation:** `GXCore`, `GXVoxel`, `GXCelestial`, `GXConstruct`, `GXPresentation`.
 - Hardware ray tracing is **on** (`r.RayTracing=True`, Lumen HW RT). Only **near-field collision** voxel chunks are visible to RT. Do not enable `RayTracingProxies` on every PMC chunk (that was ~2 FPS).
-- Close the editor before `Build.bat` if Live Coding is active.
-- If the editor says **Plugin 'GXCore' failed to load** (`GetLastError=4551`), the Development DLL is a bad image (UBA cache or a VS rebuild while Live Coding was active). Delete `Plugins/*/Binaries/Win64/UnrealEditor-GX*.dll` and `Binaries/Win64/UnrealEditor-GrokExodus.dll`, then rebuild **Development Editor** with `-NoUBA`. Do not launch until that link finishes. DebugGame DLLs are a different binary and will not fix the default editor.
+- The agent closes the editor and rebuilds Development `-NoUBA` (see above). Do not leave those steps to the user.
 
 ---
 
@@ -76,7 +125,7 @@ Docs-only / AGENTS-only commits may skip the version bump if no binary/HUD chang
 
 ## Play / verify
 
-1. Close Unreal. Reopen. Map `Lvl_VoxelPlanet`.
+1. Agent already closed Unreal, rebuilt Development `-NoUBA`, and relaunched `Lvl_VoxelPlanet`.
 2. PIE: top-left gold `GX X.Y.Z` from the Slate overlay (not the Canvas HUD).
 3. Loading overlay ≥ 2.5 s, then fade. Version stamp stays.
 4. Log: `********** GX BUILD X.Y.Z` and `overlay attached`.
