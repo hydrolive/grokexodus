@@ -324,10 +324,12 @@ def main():
     rock_mac = scalar("RockMacroMul", 0.07, x0, 960)
     fade_a = scalar("DistanceFadeStart", 3500.0, x0, 1080)
     fade_b = scalar("DistanceFadeEnd", 22000.0, x0, 1200)
-    slope_a = scalar("SlopeStart", 0.32, x0, 1320)
-    slope_b = scalar("SlopeEnd", 0.72, x0, 1440)
+    slope_a = scalar("SlopeStart", 0.18, x0, 1320)
+    slope_b = scalar("SlopeMid", 0.38, x0, 1440)
+    slope_c = scalar("SlopeEnd", 0.70, x0, 1560)
 
-    # +X spawn: YZ is the tangent plane (planar = no per-triangle warp).
+    # Dominant-axis planar UVs so cliffs are not stretched YZ wood grain.
+    px = mask(wp, "", True, False, False, x0 + 280, -120, "Px")
     py = mask(wp, "", False, True, False, x0 + 280, -40, "Py")
     pz = mask(wp, "", False, False, True, x0 + 280, 40, "Pz")
 
@@ -351,9 +353,9 @@ def main():
     radial = node(unreal.MaterialExpressionNormalize, x0 + 560, 800, "radial")
     connect(wp, "", radial, "")
 
-    def atlas_sample(param, texture, tnode, cell_u, cell_v, ox, oy, linear):
-        fu = frac(mul(py, "", tnode, "", ox, oy), "", ox + 240, oy)
-        fv = frac(mul(pz, "", tnode, "", ox, oy + 70), "", ox + 240, oy + 70)
+    def atlas_sample_axes(param, texture, tnode, cell_u, cell_v, ua, va, ox, oy, linear):
+        fu = frac(mul(ua, "", tnode, "", ox, oy), "", ox + 240, oy)
+        fv = frac(mul(va, "", tnode, "", ox, oy + 70), "", ox + 240, oy + 70)
         pu = add(mul(fu, "", c_096, "", ox + 480, oy), "", c_002, "", ox + 720, oy)
         pv = add(mul(fv, "", c_096, "", ox + 480, oy + 70), "", c_002, "", ox + 720, oy + 70)
         au = mul(add(cell_u, "", pu, "", ox + 960, oy), "", c_025, "", ox + 1200, oy)
@@ -361,14 +363,40 @@ def main():
         uv = append(au, "", av, "", ox + 1440, oy)
         return tex(param, uv, texture, ox + 1680, oy, linear)
 
+    def atlas_sample(param, texture, tnode, cell_u, cell_v, ox, oy, linear):
+        return atlas_sample_axes(param, texture, tnode, cell_u, cell_v, py, pz, ox, oy, linear)
+
+    nx = mask(vn, "", True, False, False, x0 + 560, 1180, "Nx")
+    ny = mask(vn, "", False, True, False, x0 + 560, 1260, "Ny")
+    nz = mask(vn, "", False, False, True, x0 + 560, 1340, "Nz")
+    ax = node(unreal.MaterialExpressionAbs, x0 + 800, 1180, "aX")
+    connect(nx, "", ax, "")
+    ay = node(unreal.MaterialExpressionAbs, x0 + 800, 1260, "aY")
+    connect(ny, "", ay, "")
+    az = node(unreal.MaterialExpressionAbs, x0 + 800, 1340, "aZ")
+    connect(nz, "", az, "")
+    wsum = add(add(ax, "", ay, "", x0 + 1040, 1220), "", az, "", x0 + 1280, 1220, "wSum")
+    wx = div(ax, "", wsum, "", x0 + 1520, 1180, "wX")
+    wy = div(ay, "", wsum, "", x0 + 1520, 1260, "wY")
+    wz = div(az, "", wsum, "", x0 + 1520, 1340, "wZ")
+
+    def triplanar_albedo(param, texture, tnode, cell_u, cell_v, ox, oy):
+        s_yz = atlas_sample_axes(param, texture, tnode, cell_u, cell_v, py, pz, ox, oy, False)
+        s_xz = atlas_sample_axes(param, texture, tnode, cell_u, cell_v, px, pz, ox, oy + 220, False)
+        s_xy = atlas_sample_axes(param, texture, tnode, cell_u, cell_v, px, py, ox, oy + 440, False)
+        a = add(mul(s_yz, "", wx, "", ox + 2000, oy), "", mul(s_xz, "", wy, "", ox + 2000, oy + 220), "", ox + 2300, oy)
+        return add(a, "", mul(s_xy, "", wz, "", ox + 2000, oy + 440), "", ox + 2600, oy, "tri")
+
     far_tile = mul(tile, "", macro, "", x0 + 560, 0, "FarTile")
     rock_near = mul(tile, "", rock_mul, "", x0 + 560, 80, "RockNear")
     rock_far = mul(tile, "", rock_mac, "", x0 + 560, 160, "RockFar")
 
-    grass_n = atlas_sample("AlbedoAtlas", albedo_tex, tile, col, row, x0 + 1900, -80, False)
+    grass_n = triplanar_albedo("AlbedoAtlas", albedo_tex, tile, col, row, x0 + 1900, -80)
     grass_f = atlas_sample("AlbedoAtlas", albedo_tex, far_tile, col, row, x0 + 1900, 160, False)
-    rock_n = atlas_sample("AlbedoAtlas", albedo_tex, rock_near, c_2, c_0, x0 + 1900, 400, False)
+    rock_n = triplanar_albedo("AlbedoAtlas", albedo_tex, rock_near, c_2, c_0, x0 + 1900, 400)
     rock_f = atlas_sample("AlbedoAtlas", albedo_tex, rock_far, c_2, c_0, x0 + 1900, 640, False)
+    dirt_col = const(3.0, x0 + 1700, 800, "dirtCol")
+    dirt_n = atlas_sample("AlbedoAtlas", albedo_tex, tile, dirt_col, c_0, x0 + 1900, 800, False)
 
     # Macro as variation up close (breaks repeats) then take over with distance.
     half = const(0.5, x0 + 7500, -200, "0.5")
@@ -406,12 +434,20 @@ def main():
     connect(radial, "", ndot, "B")
     one = const(1.0, x0 + 820, 1080, "1")
     slope = sub(one, "", sat(ndot, "", x0 + 820, 1000), "", x0 + 1080, 1000, "slope")
-    w_rock = sat(div(sub(slope, "", slope_a, "", x0 + 1340, 1000), "",
+    w_dirt = sat(div(sub(slope, "", slope_a, "", x0 + 1340, 1000), "",
                      sub(slope_b, "", slope_a, "", x0 + 1340, 1080), "", x0 + 1600, 1000),
-                 "", x0 + 1860, 1000, "wRock")
+                 "", x0 + 1860, 1000, "wDirt")
+    w_rock = sat(div(sub(slope, "", slope_b, "", x0 + 1340, 1160), "",
+                     sub(slope_c, "", slope_b, "", x0 + 1340, 1240), "", x0 + 1600, 1160),
+                 "", x0 + 1860, 1160, "wRock")
 
+    dirt = dirt_n
+    skirt = node(unreal.MaterialExpressionLinearInterpolate, x0 + 9100, -40, "GrassDirt")
+    connect(grass, "", skirt, "A")
+    connect(dirt, "", skirt, "B")
+    connect(w_dirt, "", skirt, "Alpha")
     albedo = node(unreal.MaterialExpressionLinearInterpolate, x0 + 9100, 80, "Albedo")
-    connect(grass, "", albedo, "A")
+    connect(skirt, "", albedo, "A")
     connect(rock, "", albedo, "B")
     connect(w_rock, "", albedo, "Alpha")
 

@@ -99,21 +99,21 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	const float Mountains = FGXNoise::Ridged(
 		Ux * Params.MountainFreq, Uy * Params.MountainFreq, Uz * Params.MountainFreq,
 		Params.Seed + 7u, 3);
-	// Continuous range: slow highland envelope * soft ridge. No saturate-to-flat.
+	// 4 km ranges: enough relief to silhouette, slow enough not to terrace a 32 m chunk.
 	const float RangeBody = Highland * Mountains;
-	const float Orogeny = LandMask * (0.10f * Highland + 0.20f * RangeBody + 0.10f * Belt * RangeBody);
+	const float Orogeny = LandMask * (0.08f * Highland + 0.28f * RangeBody + 0.08f * Belt * RangeBody);
 	Out.Orogeny = Orogeny;
 
 	const float Foothills = LandMask * Highland * FGXNoise::FBm(
-		Ux * Params.MountainFreq * 0.55f, Uy * Params.MountainFreq * 0.55f, Uz * Params.MountainFreq * 0.55f,
-		Params.Seed + 8u, 3, 2.0f, 0.5f) * 0.05f;
+		Ux * Params.MountainFreq * 0.45f, Uy * Params.MountainFreq * 0.45f, Uz * Params.MountainFreq * 0.45f,
+		Params.Seed + 8u, 3, 2.0f, 0.5f) * 0.06f;
 
 	const float Hills = LandMask * FGXNoise::FBm(
 		Ux * Params.HillFreq, Uy * Params.HillFreq, Uz * Params.HillFreq,
-		Params.Seed + 17u, 3, 2.0f, 0.5f) * 0.04f;
+		Params.Seed + 17u, 3, 2.0f, 0.5f) * 0.035f;
 
-	const float Shield = LandMask * (1.0f - Highland) * 0.03f;
-	const float Plateau = LandMask * Highland * 0.06f;
+	const float Shield = LandMask * (1.0f - Highland) * 0.025f;
+	const float Plateau = LandMask * Highland * 0.05f;
 
 	const float Wx = FGXNoise::FBm(
 		Ux * Params.RiverFreq * 0.32f, Uy * Params.RiverFreq * 0.32f, Uz * Params.RiverFreq * 0.32f,
@@ -141,7 +141,7 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	const float LocalGully = LandMask * FGXNoise::Ridged(
 		Ux * Params.LocalGullyFreq, Uy * Params.LocalGullyFreq, Uz * Params.LocalGullyFreq,
 		Params.Seed + 71u, 2);
-	const float Local = LocalRidge * 0.018f - FMath::Pow(LocalGully, 3.4f) * 0.012f;
+	const float Local = LocalRidge * 0.008f - FMath::Pow(FMath::Abs(LocalGully), 3.8f) * 0.004f;
 
 	float VF1 = 0.0f;
 	float VF2 = 0.0f;
@@ -169,7 +169,7 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 
 	const float Detail = FGXNoise::FBm(
 		Ux * Params.DetailFreq, Uy * Params.DetailFreq, Uz * Params.DetailFreq,
-		Params.Seed + 19u, 3, 2.0f, 0.5f) * 0.010f * LandMask;
+		Params.Seed + 19u, 3, 2.0f, 0.5f) * 0.0035f * LandMask;
 
 	const float Abyssal = -Params.OceanDepthFrac * (0.35f + 0.25f * (0.5f + 0.5f * FGXNoise::FBm(
 		Ux * 1.55f, Uy * 1.55f, Uz * 1.55f, Params.Seed + 5u, 3, 2.0f, 0.5f)));

@@ -13,6 +13,7 @@
 #include "GXFoliage.h"
 #include "GXCrustAtlas.h"
 #include "GXCrustCache.h"
+#include "GXHorizonClipmap.h"
 #include "GXVoxelWorld.generated.h"
 
 class AGXVoxelChunkProxy;
@@ -96,7 +97,7 @@ public:
 	int32 Seed = 1337;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	float StreamRadius = 280.0f;
+	float StreamRadius = 360.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
 	float UnloadRadius = 400.0f;
@@ -130,7 +131,11 @@ public:
 
 	/** No LOD cracks. Turn off later when transvoxel skirts land. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	bool bForceLOD0 = true;
+	bool bForceLOD0 = false;
+
+	/** Far clipmap outer radius (meters). Independent of voxel stream. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
+	float HorizonOuterM = 8000.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rendering")
 	TObjectPtr<UMaterialInterface> TerrainMaterial;
@@ -215,6 +220,7 @@ protected:
 	TUniquePtr<FGXJobGraph> Jobs;
 	TUniquePtr<FGXTerrainPBR> TerrainPBR;
 	TUniquePtr<FGXFoliageScatter> Foliage;
+	TUniquePtr<FGXHorizonClipmap> HorizonClipmap;
 
 	TMap<FGXChunkKey, TWeakObjectPtr<AGXVoxelChunkProxy>> ChunkActors;
 	TArray<FGXChunkKey> NearMeshQueue;

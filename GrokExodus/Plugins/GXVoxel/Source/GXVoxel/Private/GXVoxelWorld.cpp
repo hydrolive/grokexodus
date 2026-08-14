@@ -124,7 +124,7 @@ void AGXVoxelWorld::ConfigurePlanet(float InRadius, float InRelief, float InStre
 
 	PlanetRadius = InRadius;
 	MaxRelief = InRelief;
-	StreamRadius = FMath::Clamp(InStream, 220.0f, 420.0f);
+	StreamRadius = FMath::Clamp(InStream, 200.0f, 900.0f);
 	UnloadRadius = StreamRadius + 120.0f;
 	NearFieldRadius = FMath::Clamp(NearFieldRadius, 80.0f, StreamRadius * 0.5f);
 	CollisionRadius = FMath::Max(CollisionRadius, NearFieldRadius);
@@ -156,11 +156,12 @@ void AGXVoxelWorld::ConfigurePlanet(float InRadius, float InRelief, float InStre
 void AGXVoxelWorld::ApplyEarthPlayDefaults()
 {
 	const FGXPlanetStampParams E = FGXPlanetStampParams::Earth();
-	StreamRadius = 280.0f;
-	UnloadRadius = 400.0f;
-	NearFieldRadius = 96.0f;
-	CollisionRadius = 64.0f;
-	bForceLOD0 = true;
+	StreamRadius = 360.0f;
+	UnloadRadius = 500.0f;
+	NearFieldRadius = 110.0f;
+	CollisionRadius = 72.0f;
+	bForceLOD0 = false;
+	HorizonOuterM = 8000.0f;
 	bAsyncMeshing = true;
 	WarmupSeconds = 1.0f;
 	WarmupMeshBuildsPerFrame = 4;
@@ -200,10 +201,9 @@ void AGXVoxelWorld::SetupDistantSphere()
 		DistantPlanetSphere->SetVisibility(true);
 		DistantPlanetSphere->SetHiddenInGame(false);
 	}
-	else
-	{
-		DistantPlanetSphere->SetVisibility(false);
-	}
+	// Mean-radius sphere hid every peak. Clipmap is the far terrain.
+	DistantPlanetSphere->SetVisibility(false);
+	DistantPlanetSphere->SetHiddenInGame(true);
 }
 
 void AGXVoxelWorld::BeginPlay()
@@ -222,6 +222,8 @@ void AGXVoxelWorld::BeginPlay()
 	TerrainPBR->Initialize(this);
 	Foliage = MakeUnique<FGXFoliageScatter>();
 	Foliage->Initialize(this);
+	HorizonClipmap = MakeUnique<FGXHorizonClipmap>();
+	HorizonClipmap->Initialize(this);
 	if (UMaterialInterface* PBR = TerrainPBR->GetMaterial())
 	{
 		TerrainMaterial = PBR;
@@ -253,6 +255,11 @@ void AGXVoxelWorld::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	if (MeshMailbox)
 	{
 		MeshMailbox->bAlive.Store(false);
+	}
+	if (HorizonClipmap)
+	{
+		HorizonClipmap->Shutdown();
+		HorizonClipmap.Reset();
 	}
 	if (Foliage)
 	{
@@ -311,6 +318,16 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	const int32 QueueBefore = NearMeshQueue.Num() + MeshQueue.Num();
 	ProcessMeshQueue(Budget);
 	const double MeshMs = (FPlatformTime::Seconds() - M0) * 1000.0;
+	if (HorizonClipmap && Volume && bAtlasReady)
+	{
+		HorizonClipmap->Update(
+			this,
+			Volume->GetStamp(),
+			WorldToLocalMeters(CachedViewerWorld),
+			StreamRadius,
+			HorizonOuterM,
+			TerrainMaterial);
+	}
 	if (Foliage && Volume && bWorldReady)
 	{
 		Foliage->Sync(this, Volume->GetStamp(), CachedViewerWorld, PlanetRadius);
@@ -549,11 +566,20 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 
 int32 AGXVoxelWorld::SelectLOD(float DistanceM) const
 {
-	if (bForceLOD0 || WarmupTimeRemaining > 0.0f || DistanceM < NearFieldRadius)
+	if (bForceLOD0 || DistanceM < NearFieldRadius)
 	{
 		return 0;
 	}
-	if (DistanceM < StreamRadius * 0.65f) return 1;
+	// Screenspace: keep a voxel near ~3 px at 1080p / 90° (ε ≈ v/d).
+	const float WantM = FMath::Max(VoxelSize, DistanceM * 0.018f);
+	if (WantM < VoxelSize * 2.0f)
+	{
+		return 0;
+	}
+	if (WantM < VoxelSize * 4.0f)
+	{
+		return 1;
+	}
 	return 2;
 }
 

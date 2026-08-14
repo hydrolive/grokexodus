@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-13** · On-disk build stamp: **GX 0.6.3**  
+Last updated: **2026-08-13** · On-disk build stamp: **GX 0.7.0**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.7.0** Far crust is a 3-ring height clipmap (to 8 km), not a mean-radius sphere. Voxel LOD is screenspace (`v/d`). Stamp has ~4 km ranges plus walkable 200 m undulation. PBR: dominant-axis UVs + grass→dirt→rock by slope. Review shots: `Saved/Review/` (gitignored).
 - **GX 0.6.3** Mesa/block terrain was Worley plates hashed to a height plus a saturating massif (flat top, vertical suture walls). Height is continuous FBm + soft ridges now; coasts ramp through a shelf. New crust fingerprint.
 - **GX 0.6.2** Wider Earth landforms: mountain wavelength ~90 km (was ~30 km spikes), plains/plateaus are the default, local ridge/gully is gentle fBm not 200 m needles. Stream starts at 140 m so more than a handful of chunks appear. Stamp fingerprint changed — old `crust_*` cache is ignored.
 - **GX 0.6.1** First PIE no longer freezes the editor. BeginPlay does not mesh. Surface query is one stamp sample (not a 6 km ray). Height atlas is baked on a worker (or loaded from `Saved/VoxelWorld/crust_<fingerprint>/`). Chunks mesh async with a 6 ms tick budget and a 12-job cap; workers never capture the world actor. Subsequent PIE loads the atlas + `.gxm` meshes and only regenerates if the stamp / radius / relief / seed changes.
