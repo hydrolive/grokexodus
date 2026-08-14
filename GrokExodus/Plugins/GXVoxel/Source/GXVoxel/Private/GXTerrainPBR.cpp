@@ -8,7 +8,6 @@
 #include "Engine/TextureDefines.h"
 #include "IImageWrapper.h"
 #include "IImageWrapperModule.h"
-#include "Materials/Material.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "Misc/FileHelper.h"
@@ -111,11 +110,6 @@ void FGXTerrainPBR::Initialize(UObject* Outer)
 			TEXT("/Game/Voxel/Materials/M_VoxelTerrain_VertexColor.M_VoxelTerrain_VertexColor"));
 		UE_LOG(LogGXVoxel, Warning, TEXT("GXTerrainPBR: PBR parent missing — using vertex-color material"));
 	}
-	if (UMaterial* Base = Parent ? Parent->GetMaterial() : nullptr)
-	{
-		Base->CheckMaterialUsage(MATUSAGE_ProceduralMesh);
-	}
-
 	// The authored parent already has T_VoxelAlbedoAtlas. A MID that binds a
 	// transient runtime atlas (or a cube leftover) turns the crust black while
 	// the material editor still looks fine.
