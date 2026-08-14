@@ -20,6 +20,7 @@ class AGXVoxelChunkProxy;
 class UGXVoxelInvokerComponent;
 class UMaterialInterface;
 class UStaticMeshComponent;
+class UProceduralMeshComponent;
 class APawn;
 
 USTRUCT(BlueprintType)
@@ -223,6 +224,19 @@ protected:
 	TUniquePtr<FGXHorizonClipmap> HorizonClipmap;
 
 	TMap<FGXChunkKey, TWeakObjectPtr<AGXVoxelChunkProxy>> ChunkActors;
+
+	struct FChunkVisual
+	{
+		int32 Bank = INDEX_NONE;
+		int32 Section = INDEX_NONE;
+		int32 LOD = 0;
+	};
+	TMap<FGXChunkKey, FChunkVisual> ChunkVisuals;
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UProceduralMeshComponent>> MeshBanks;
+	TArray<int32> FreeVisualSlots;
+	static constexpr int32 VisualBankCount = 16;
+	static constexpr int32 VisualSectionsPerBank = 48;
 	TArray<FGXChunkKey> NearMeshQueue;
 	TArray<FGXChunkKey> MeshQueue;
 	TSet<FGXChunkKey> MeshQueued;
@@ -275,6 +289,10 @@ protected:
 	void EnqueueChunkMeshAsync(const FGXChunkKey& Coord);
 	void DrainPendingMeshes(int32 Budget);
 	void ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshBuffers&& MeshData);
+	void EnsureMeshBanks();
+	bool AcquireVisual(const FGXChunkKey& Key, int32& OutBank, int32& OutSection);
+	void ReleaseVisual(const FGXChunkKey& Key);
+	void EvictFurthestVisual(const FVector& ViewerLocalM, float ChunkM);
 	void EnsureCrustAtlas();
 	void OnAtlasReady(const TSharedRef<FGXCrustAtlas, ESPMode::ThreadSafe>& Built, bool bFromDisk);
 	bool TryApplyCachedChunk(const FGXChunkKey& Coord, int32 LOD);

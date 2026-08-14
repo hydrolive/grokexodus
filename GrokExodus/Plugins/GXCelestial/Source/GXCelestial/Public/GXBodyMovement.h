@@ -34,7 +34,7 @@ public:
 	bool bSnapWhenAirborne = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GX|Gravity")
-	float AirborneSnapSeconds = 0.35f;
+	float AirborneSnapSeconds = 0.08f;
 
 	UFUNCTION(BlueprintCallable, Category = "GX|Gravity")
 	FVector GetGravityDir() const;

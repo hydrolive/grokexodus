@@ -99,6 +99,13 @@ void AGXVoxelWorld::ResetStreamingState()
 		}
 	}
 	ChunkActors.Empty();
+	TArray<FGXChunkKey> VisKeys;
+	ChunkVisuals.GetKeys(VisKeys);
+	for (const FGXChunkKey& K : VisKeys)
+	{
+		ReleaseVisual(K);
+	}
+	ChunkVisuals.Empty();
 	MeshQueue.Empty();
 	MeshQueued.Empty();
 	AsyncInFlight.Empty();
@@ -231,6 +238,7 @@ void AGXVoxelWorld::BeginPlay()
 	Foliage->Initialize(this);
 	HorizonClipmap = MakeUnique<FGXHorizonClipmap>();
 	HorizonClipmap->Initialize(this);
+	EnsureMeshBanks();
 	if (UMaterialInterface* PBR = TerrainPBR->GetMaterial())
 	{
 		TerrainMaterial = PBR;
@@ -263,6 +271,21 @@ void AGXVoxelWorld::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	{
 		MeshMailbox->bAlive.Store(false);
 	}
+	TArray<FGXChunkKey> VisKeys;
+	ChunkVisuals.GetKeys(VisKeys);
+	for (const FGXChunkKey& K : VisKeys)
+	{
+		ReleaseVisual(K);
+	}
+	for (TObjectPtr<UProceduralMeshComponent>& Bank : MeshBanks)
+	{
+		if (Bank)
+		{
+			Bank->DestroyComponent();
+		}
+	}
+	MeshBanks.Reset();
+	FreeVisualSlots.Reset();
 	if (HorizonClipmap)
 	{
 		HorizonClipmap->Shutdown();
@@ -372,7 +395,7 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			TickMs, StreamMs, MeshMs,
 			DeltaSeconds * 1000.0,
 			DeltaSeconds > KINDA_SMALL_NUMBER ? 1.0 / DeltaSeconds : 0.0,
-			ChunkActors.Num(), HollowChunks.Num(),
+			ChunkVisuals.Num(), HollowChunks.Num(),
 			LastMeshedNear, LastDesiredNear, LastSettledEmpty,
 			QueueBefore, QAfter,
 			InF, Jobs ? Jobs->NumInFlight() : 0, MailboxN,
@@ -633,9 +656,9 @@ void AGXVoxelWorld::RefreshLoadState()
 		return FVector::DistSquared(Center, Local) <= NearSq;
 	};
 
-	for (const auto& Pair : ChunkActors)
+	for (const auto& Pair : ChunkVisuals)
 	{
-		if (IsNear(Pair.Key) && Pair.Value.IsValid() && Pair.Value->HasRenderableMesh())
+		if (IsNear(Pair.Key) && Pair.Value.Bank >= 0)
 		{
 			++LastMeshedNear;
 		}
@@ -877,11 +900,7 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 					++DeferredFar;
 					continue;
 				}
-				const TWeakObjectPtr<AGXVoxelChunkProxy>* Existing = ChunkActors.Find(CC);
-				const bool bHaveMesh = Existing && Existing->IsValid() && Existing->Get()->HasRenderableMesh();
-				// Do not remesh just to add collision — that was the 81 ms
-				// walk hitch (0.7.18). First mesh already cooks collision.
-				if (!bHaveMesh)
+				if (!ChunkVisuals.Contains(CC))
 				{
 					EnqueueRemesh(CC, Dist <= NearFieldRadius);
 				}
@@ -890,7 +909,7 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 	}
 
 	TArray<FGXChunkKey> ToRemove;
-	for (const auto& Pair : ChunkActors)
+	for (const auto& Pair : ChunkVisuals)
 	{
 		if (Desired.Contains(Pair.Key))
 		{
@@ -907,6 +926,7 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 	}
 	for (const FGXChunkKey& K : ToRemove)
 	{
+		ReleaseVisual(K);
 		if (AGXVoxelChunkProxy* A = ChunkActors.FindRef(K).Get())
 		{
 			A->Destroy();
@@ -1123,59 +1143,74 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 {
 	if (MeshData.IsEmpty())
 	{
-		if (AGXVoxelChunkProxy* Existing = ChunkActors.FindRef(Coord).Get())
+		if (ChunkVisuals.Contains(Coord))
 		{
-			if (Existing->HasRenderableMesh())
-			{
-				return;
-			}
-			Existing->Destroy();
-			ChunkActors.Remove(Coord);
+			return;
 		}
-		// Session-settle. Near-surface empties used to skip this and then
-		// UpdateStreaming re-enqueued them forever (32/164 stuck overlay).
 		MarkChunkEmpty(Coord, LOD, TEXT("mesh"));
 		return;
 	}
 	HollowChunks.Remove(Coord);
+	EnsureMeshBanks();
 
 	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
 	const FVector OriginM(Coord.X * ChunkM, Coord.Y * ChunkM, Coord.Z * ChunkM);
+	const FVector ViewerLocal = WorldToLocalMeters(CachedViewerWorld.IsNearlyZero() ? GetPrimaryInvokerLocation() : CachedViewerWorld);
 
-	TWeakObjectPtr<AGXVoxelChunkProxy>& Slot = ChunkActors.FindOrAdd(Coord);
-	AGXVoxelChunkProxy* Proxy = Slot.Get();
-	if (!Proxy)
+	int32 Bank = INDEX_NONE;
+	int32 Section = INDEX_NONE;
+	if (!AcquireVisual(Coord, Bank, Section))
 	{
-		FActorSpawnParameters SP;
-		SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-		SP.Owner = this;
-		Proxy = GetWorld()->SpawnActor<AGXVoxelChunkProxy>(
-			LocalMetersToWorld(OriginM), GetActorRotation(), SP);
-		if (!Proxy)
+		EvictFurthestVisual(ViewerLocal, ChunkM);
+		if (!AcquireVisual(Coord, Bank, Section))
 		{
+			UE_LOG(LogGXVoxel, Warning, TEXT("GX-visual bank full, drop %d_%d_%d"), Coord.X, Coord.Y, Coord.Z);
 			return;
 		}
-		Proxy->AttachToActor(this, FAttachmentTransformRules::KeepWorldTransform);
-		Proxy->InitializeChunk(Coord, LOD);
-		Slot = Proxy;
 	}
-	else
+
+	UProceduralMeshComponent* PMC = MeshBanks.IsValidIndex(Bank) ? MeshBanks[Bank].Get() : nullptr;
+	if (!PMC)
 	{
-		Proxy->SetActorLocation(LocalMetersToWorld(OriginM));
+		ReleaseVisual(Coord);
+		return;
 	}
-	Proxy->LOD = LOD;
-	const FVector ViewerLocal = WorldToLocalMeters(CachedViewerWorld.IsNearlyZero() ? GetPrimaryInvokerLocation() : CachedViewerWorld);
-	const FVector CenterM = OriginM + FVector(ChunkM * 0.5f);
-	// Visual first. Collision on the whole 360 m stream was the 81 ms /
-	// 11 FPS walk hitch (0.7.19). Only the 90 m pad cooks collision.
-	const bool bCollision = FVector::Dist(CenterM, ViewerLocal) <= CollisionRadius;
-	Proxy->ApplyMesh(MeshData, OriginM, GMetersToUU, TerrainMaterial, bCollision);
-	if (Proxy->Mesh)
+
+	TArray<FVector> LocalPos;
+	TArray<FProcMeshTangent> Tangents;
+	LocalPos.Reserve(MeshData.Positions.Num());
+	Tangents.Reserve(MeshData.Positions.Num());
+	for (int32 I = 0; I < MeshData.Positions.Num(); ++I)
 	{
-		const bool bNearCol = FVector::Dist(CenterM, ViewerLocal) <= CollisionRadius;
-		Proxy->Mesh->SetCastShadow(bNearCol);
-		Proxy->Mesh->SetVisibleInRayTracing(bNearCol);
+		LocalPos.Add((MeshData.Positions[I] - OriginM) * GMetersToUU);
+		FVector T = FVector::CrossProduct(
+			MeshData.Normals.IsValidIndex(I) ? MeshData.Normals[I] : FVector::UpVector,
+			FVector::UpVector);
+		if (T.SizeSquared() < 1e-6f)
+		{
+			T = FVector::RightVector;
+		}
+		T.Normalize();
+		Tangents.Add(FProcMeshTangent(T, false));
 	}
+
+	PMC->bUseAsyncCooking = true;
+	PMC->ClearMeshSection(Section);
+	PMC->CreateMeshSection_LinearColor(
+		Section, LocalPos, MeshData.Indices, MeshData.Normals, MeshData.UV0, MeshData.Colors, Tangents, false);
+	if (TerrainMaterial)
+	{
+		PMC->SetMaterial(Section, TerrainMaterial);
+	}
+	PMC->SetMeshSectionVisible(Section, true);
+	if (FChunkVisual* V = ChunkVisuals.Find(Coord))
+	{
+		V->LOD = LOD;
+	}
+
+	// No per-chunk actor. Stamp snap is the floor. PMC collision on 600
+	// actors was the 81 ms walk hitch.
+	(void)CollisionRadius;
 }
 
 bool AGXVoxelWorld::PlacePawnOnSurface(APawn* Pawn, FVector RadialHint)
@@ -1323,6 +1358,99 @@ bool AGXVoxelWorld::TryApplyCachedChunk(const FGXChunkKey& Coord, int32 LOD)
 	}
 	ApplyBuiltMesh(Coord, FileLOD, MoveTemp(Mesh));
 	return true;
+}
+
+void AGXVoxelWorld::EnsureMeshBanks()
+{
+	if (MeshBanks.Num() >= VisualBankCount)
+	{
+		return;
+	}
+	USceneComponent* Root = GetRootComponent();
+	for (int32 B = MeshBanks.Num(); B < VisualBankCount; ++B)
+	{
+		UProceduralMeshComponent* PMC = NewObject<UProceduralMeshComponent>(this);
+		if (!PMC)
+		{
+			continue;
+		}
+		PMC->SetupAttachment(Root);
+		PMC->RegisterComponent();
+		PMC->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		PMC->bUseAsyncCooking = true;
+		PMC->SetCastShadow(false);
+		PMC->SetVisibleInRayTracing(false);
+		PMC->bNeverDistanceCull = true;
+		PMC->SetBoundsScale(8.0f);
+		MeshBanks.Add(PMC);
+		for (int32 S = 0; S < VisualSectionsPerBank; ++S)
+		{
+			FreeVisualSlots.Add(B * VisualSectionsPerBank + S);
+		}
+	}
+	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s visual banks=%d slots=%d"),
+		GX_VERSION_STRING, MeshBanks.Num(), FreeVisualSlots.Num());
+}
+
+bool AGXVoxelWorld::AcquireVisual(const FGXChunkKey& Key, int32& OutBank, int32& OutSection)
+{
+	if (const FChunkVisual* Have = ChunkVisuals.Find(Key))
+	{
+		OutBank = Have->Bank;
+		OutSection = Have->Section;
+		return OutBank >= 0 && OutSection >= 0;
+	}
+	if (FreeVisualSlots.Num() == 0)
+	{
+		return false;
+	}
+	const int32 Packed = FreeVisualSlots.Pop(EAllowShrinking::No);
+	OutBank = Packed / VisualSectionsPerBank;
+	OutSection = Packed % VisualSectionsPerBank;
+	FChunkVisual V;
+	V.Bank = OutBank;
+	V.Section = OutSection;
+	ChunkVisuals.Add(Key, V);
+	return true;
+}
+
+void AGXVoxelWorld::ReleaseVisual(const FGXChunkKey& Key)
+{
+	FChunkVisual Slot;
+	if (!ChunkVisuals.RemoveAndCopyValue(Key, Slot))
+	{
+		return;
+	}
+	if (MeshBanks.IsValidIndex(Slot.Bank) && MeshBanks[Slot.Bank])
+	{
+		MeshBanks[Slot.Bank]->ClearMeshSection(Slot.Section);
+	}
+	if (Slot.Bank >= 0 && Slot.Section >= 0)
+	{
+		FreeVisualSlots.Add(Slot.Bank * VisualSectionsPerBank + Slot.Section);
+	}
+}
+
+void AGXVoxelWorld::EvictFurthestVisual(const FVector& ViewerLocalM, float ChunkM)
+{
+	float BestDs = -1.0f;
+	FGXChunkKey Best = FGXChunkKey();
+	bool bFound = false;
+	for (const auto& Pair : ChunkVisuals)
+	{
+		const FVector C((Pair.Key.X + 0.5f) * ChunkM, (Pair.Key.Y + 0.5f) * ChunkM, (Pair.Key.Z + 0.5f) * ChunkM);
+		const float Ds = FVector::DistSquared(C, ViewerLocalM);
+		if (Ds > BestDs)
+		{
+			BestDs = Ds;
+			Best = Pair.Key;
+			bFound = true;
+		}
+	}
+	if (bFound)
+	{
+		ReleaseVisual(Best);
+	}
 }
 
 void AGXVoxelWorld::PersistChunkMesh(const FGXChunkKey& Coord, const FGXMeshBuffers& Mesh) const
