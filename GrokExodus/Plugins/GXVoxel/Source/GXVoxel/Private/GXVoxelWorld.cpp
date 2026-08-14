@@ -600,7 +600,7 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 
 int32 AGXVoxelWorld::SelectLOD(float DistanceM) const
 {
-	if (bForceLOD0 || DistanceM < NearFieldRadius)
+	if (bForceLOD0 || DistanceM < FMath::Max(NearFieldRadius, StreamRadius * 0.55f))
 	{
 		return 0;
 	}
@@ -711,8 +711,18 @@ void AGXVoxelWorld::InvalidateHollow(const FGXChunkKey& Coord)
 	HollowChunks.Remove(Coord);
 }
 
-void AGXVoxelWorld::MarkChunkEmpty(const FGXChunkKey& Coord, const TCHAR* Reason)
+void AGXVoxelWorld::MarkChunkEmpty(const FGXChunkKey& Coord, int32 LOD, const TCHAR* Reason)
 {
+	if (LOD > 0)
+	{
+		// Coarse LOD often misses a 1 m crust. Retry at LOD0 — do not settle
+		// a hole the player will walk into.
+		GX_PERF(2, TEXT("GX-empty lod%d retry %d_%d_%d %s"), LOD, Coord.X, Coord.Y, Coord.Z,
+			Reason ? Reason : TEXT("?"));
+		BrushForceLOD0.Add(Coord);
+		EnqueueRemesh(Coord, true);
+		return;
+	}
 	if (HollowChunks.Contains(Coord))
 	{
 		return;
@@ -761,8 +771,8 @@ bool AGXVoxelWorld::ChunkOverlapsSurface(const FGXChunkKey& Coord, float ChunkM)
 		}
 	}
 	Acc(Origin + FVector(ChunkM * 0.5f));
-	// 8 m slack: FBm can sit just inside a cell the corners miss.
-	constexpr float Slack = 8.0f;
+	// Half-chunk slack so a ridge that only clips a face is still meshed.
+	const float Slack = ChunkM * 0.5f;
 	return !(SMax < -Slack || SMin > Slack);
 }
 
@@ -1102,7 +1112,7 @@ void AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 		}
 		// Session-settle. Near-surface empties used to skip this and then
 		// UpdateStreaming re-enqueued them forever (32/164 stuck overlay).
-		MarkChunkEmpty(Coord, TEXT("mesh"));
+		MarkChunkEmpty(Coord, LOD, TEXT("mesh"));
 		return;
 	}
 	HollowChunks.Remove(Coord);
@@ -1275,9 +1285,10 @@ bool AGXVoxelWorld::TryApplyCachedChunk(const FGXChunkKey& Coord, int32 LOD)
 	}
 	if (Mesh.IsEmpty())
 	{
+		// Stale empty files are not proof. Remesh at LOD0 instead of settling.
 		IFileManager::Get().Delete(*Path, false, true, true);
-		MarkChunkEmpty(Coord, TEXT("cache"));
-		return true;
+		GX_PERF(2, TEXT("GX-cache empty-delete %d_%d_%d"), Coord.X, Coord.Y, Coord.Z);
+		return false;
 	}
 	ApplyBuiltMesh(Coord, FileLOD, MoveTemp(Mesh));
 	return true;

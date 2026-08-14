@@ -240,7 +240,8 @@ void FGXHorizonClipmap::Update(
 
 	// Start just inside the voxel stream. Drawing clipmap over L0 caused the
 	// lattice seams in the screenshots (12 m grid z-fighting 1 m voxels).
-	Rings[0].InnerM = FMath::Clamp(InnerHoleM * 0.98f, 240.0f, 420.0f);
+	// Overlap the outer voxel shell by ~10% so a missing L1 chunk is not a pit.
+	Rings[0].InnerM = FMath::Clamp(InnerHoleM * 0.88f, 180.0f, 360.0f);
 	if (Rings.Num() > 2)
 	{
 		Rings.Last().OuterM = FMath::Max(OuterM, 4000.0f);

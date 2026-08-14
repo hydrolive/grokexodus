@@ -285,6 +285,6 @@ protected:
 	void SetupDistantSphere();
 	FVector GetPrimaryInvokerLocation() const;
 	void InvalidateHollow(const FGXChunkKey& Coord);
-	void MarkChunkEmpty(const FGXChunkKey& Coord, const TCHAR* Reason);
+	void MarkChunkEmpty(const FGXChunkKey& Coord, int32 LOD, const TCHAR* Reason);
 	bool ChunkOverlapsSurface(const FGXChunkKey& Coord, float ChunkM) const;
 };

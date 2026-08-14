@@ -218,30 +218,38 @@ FGXMeshBuffers FGXMesher::MeshChunk(
 
 	if (Settings.bComputeNormals && Mesh.Positions.Num() > 0)
 	{
-		for (FVector& N : Mesh.Normals)
+		// SDF gradient is continuous across chunk faces. Face-averaged normals
+		// were a different vector on each side of the 32 m grid (dark seams).
+		auto SampleClamp = [&](int32 X, int32 Y, int32 Z) -> float
 		{
-			N = FVector::ZeroVector;
-		}
-		for (int32 I = 0; I + 2 < Mesh.Indices.Num(); I += 3)
+			X = FMath::Clamp(X, 0, SizeX - 1);
+			Y = FMath::Clamp(Y, 0, SizeY - 1);
+			Z = FMath::Clamp(Z, 0, SizeZ - 1);
+			return Densities[GridIndex(X, Y, Z, SizeX, SizeY)];
+		};
+		for (int32 I = 0; I < Mesh.Positions.Num(); ++I)
 		{
-			const FVector FN = FVector::CrossProduct(
-				Mesh.Positions[Mesh.Indices[I + 1]] - Mesh.Positions[Mesh.Indices[I]],
-				Mesh.Positions[Mesh.Indices[I + 2]] - Mesh.Positions[Mesh.Indices[I]]);
-			Mesh.Normals[Mesh.Indices[I]] += FN;
-			Mesh.Normals[Mesh.Indices[I + 1]] += FN;
-			Mesh.Normals[Mesh.Indices[I + 2]] += FN;
-		}
-		for (int32 I = 0; I < Mesh.Normals.Num(); ++I)
-		{
-			if (!Mesh.Normals[I].Normalize())
+			const FVector G(
+				(Mesh.Positions[I].X - Origin.X) / VoxelSize,
+				(Mesh.Positions[I].Y - Origin.Y) / VoxelSize,
+				(Mesh.Positions[I].Z - Origin.Z) / VoxelSize);
+			const int32 IX = FMath::RoundToInt(G.X);
+			const int32 IY = FMath::RoundToInt(G.Y);
+			const int32 IZ = FMath::RoundToInt(G.Z);
+			FVector Grad(
+				SampleClamp(IX + 1, IY, IZ) - SampleClamp(IX - 1, IY, IZ),
+				SampleClamp(IX, IY + 1, IZ) - SampleClamp(IX, IY - 1, IZ),
+				SampleClamp(IX, IY, IZ + 1) - SampleClamp(IX, IY, IZ - 1));
+			if (!Grad.Normalize())
 			{
-				const FVector R = Mesh.Positions[I].GetSafeNormal();
-				Mesh.Normals[I] = R.IsNearlyZero() ? FVector::UpVector : R;
+				Grad = Mesh.Positions[I].GetSafeNormal();
 			}
-			if (FVector::DotProduct(Mesh.Normals[I], Mesh.Positions[I]) < 0.f)
+			// Density increases inward. Outward shading needs the opposite.
+			if (FVector::DotProduct(Grad, Mesh.Positions[I]) > 0.f)
 			{
-				Mesh.Normals[I] = -Mesh.Normals[I];
+				Grad = -Grad;
 			}
+			Mesh.Normals[I] = Grad;
 		}
 	}
 

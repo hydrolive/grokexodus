@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.6**  
+Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.7**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.7.7** Screenshots: plains OK, **no mountains**, **missing chunks** (pit to the horizon), **grass tiles + hard edges**. Spawn basin is ~2.2 km; a range ring at 3–16 km puts ~1.2 km peaks on the 8 km clipmap. Empty meshes settle only at LOD0 (LOD>0 retries). Clipmap hole overlaps the voxel shell (0.88× stream). SDF-gradient normals (chunk-grid lighting seams). Grass tiles ~11 m / macro ~400 m. New crust fingerprint — first PIE rebakes the atlas.
 - **GX 0.7.6** Overlay stuck at **32/164 28%**: 32 real crust meshes, 132 band-air chunks remeshed forever (`hollow=0`, `queue=126+2170`, `inflight=6`). Empty remesh / empty `.gxm` now session-settle; HUD counts settled as done; stream uses 8-corner overlap (not a 76 m band); far jobs wait until near is quiet; inflight chunks are not re-queued every 200 ms. `LogGXPerf` stream is on-change / 2 s; 1 Hz line has cache/inflight/mailbox; `GX-mesh STALL` after 3 s. Play 0.7.6 — overlay should hit Ready without walking.
 - **GX 0.7.5** Near-field HUD was 14/171 because Desired counted the whole 110 m ball (air+interior). Stream only enqueues crust-intersecting chunks; empty cache files are rejected. Spawn plains are ~6 km so mountains appear on the 8 km clipmap. `gx.perf.trace` + `LogGXPerf` — check each pass; set 0 when stable.
 - **GX 0.7.4** Wider plains (spawn is pushed onto a lake-flat). Soft FBm mountains (no ridged cliffs). Clipmap builds a complete disk (no dropped quads). Near-surface empty meshes are not stored as hollow. Atlas inset 9% + larger grass tiles. Clipmap rebuilds every 400 m (was 90 m — that 3 FPS hitch was the “crash”).

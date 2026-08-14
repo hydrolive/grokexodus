@@ -316,10 +316,10 @@ def main():
     _set(tc, "coordinate_index", 0)
     vc = node(unreal.MaterialExpressionVertexColor, x0, 460, "VColor")
 
-    # Landscape-grade dual scale (cm). Near grass ~2.2 m. Macro ~20 m.
-    # Rock tiles coarser than grass so mountains keep color without wallpaper.
-    tile = scalar("TileScale", 0.0028, x0, 600)
-    macro = scalar("MacroScale", 0.12, x0, 720)
+    # Landscape-grade dual scale (cm). Near grass ~11 m. Macro ~400 m.
+    # 3 m tiles + a 30 m macro (old 0.0028 / 0.12) read as a grid of edges.
+    tile = scalar("TileScale", 0.0009, x0, 600)
+    macro = scalar("MacroScale", 0.028, x0, 720)
     rock_mul = scalar("RockTileMul", 0.28, x0, 840)
     rock_mac = scalar("RockMacroMul", 0.07, x0, 960)
     fade_a = scalar("DistanceFadeStart", 3500.0, x0, 1080)
