@@ -47,9 +47,11 @@ FGXMeshBuffers FGXMesher::MeshChunk(
 					static_cast<double>(BaseMinZ + Z * Stride) * BaseVoxel);
 				const FGXVoxelPacked Packed = Snapshot.Sample(Corner);
 				const int32 Idx = GridIndex(X, Y, Z, Samples, Samples);
-				// Allocated pages are authoritative (brush writes the same corners).
-				// Unallocated space stays on the high-precision stamp.
-				if (Snapshot.HasStored(Corner))
+				// Only edited cells override the stamp. Allocating an 8³ page
+				// fills neighbors from the packed stamp; using those for MC
+				// turns a smooth hillside into 1 m stairs around every dig.
+				const bool bEdited = (Packed.Flags & (EGXVoxelFlags::Deformed | EGXVoxelFlags::PlayerPlaced)) != 0;
+				if (bEdited)
 				{
 					Densities[Idx] = Packed.ToDensityMeters();
 				}

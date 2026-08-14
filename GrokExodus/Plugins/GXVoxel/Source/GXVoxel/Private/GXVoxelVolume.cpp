@@ -221,6 +221,17 @@ FGXVoxelVolume::FBrushResult FGXVoxelVolume::ApplySphereBrush(
 
 				SetVoxel(VC, Cell);
 				Dirty.Add(VoxelToChunk(VC));
+				// MC pads one voxel: remesh the face-neighbor only if we edited the seam.
+				constexpr int32 CS = FGXVoxelConstants::ChunkSize;
+				const int32 LX = GXVoxelPrivate::PositiveMod(VC.X, CS);
+				const int32 LY = GXVoxelPrivate::PositiveMod(VC.Y, CS);
+				const int32 LZ = GXVoxelPrivate::PositiveMod(VC.Z, CS);
+				if (LX == 0) Dirty.Add(VoxelToChunk(FIntVector(VC.X - 1, VC.Y, VC.Z)));
+				if (LX == CS - 1) Dirty.Add(VoxelToChunk(FIntVector(VC.X + 1, VC.Y, VC.Z)));
+				if (LY == 0) Dirty.Add(VoxelToChunk(FIntVector(VC.X, VC.Y - 1, VC.Z)));
+				if (LY == CS - 1) Dirty.Add(VoxelToChunk(FIntVector(VC.X, VC.Y + 1, VC.Z)));
+				if (LZ == 0) Dirty.Add(VoxelToChunk(FIntVector(VC.X, VC.Y, VC.Z - 1)));
+				if (LZ == CS - 1) Dirty.Add(VoxelToChunk(FIntVector(VC.X, VC.Y, VC.Z + 1)));
 			}
 		}
 	}

@@ -83,7 +83,8 @@ void AGXVoxelChunkProxy::ApplyMesh(
 		Tangents.Add(FProcMeshTangent(T, false));
 	}
 
-	Mesh->bUseAsyncCooking = !bCollision;
+	// Always async-cook. Sync collision on every brush remesh froze the frame.
+	Mesh->bUseAsyncCooking = true;
 	Mesh->ClearAllMeshSections();
 	Mesh->CreateMeshSection_LinearColor(
 		0,

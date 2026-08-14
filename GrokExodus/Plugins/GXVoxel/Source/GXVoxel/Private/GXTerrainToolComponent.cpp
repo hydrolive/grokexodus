@@ -131,7 +131,7 @@ void UGXTerrainToolComponent::TickComponent(float DeltaTime, ELevelTick TickType
 	if (bPrimaryHeld && FireCooldown <= 0.0f && World)
 	{
 		ApplyTool();
-		FireCooldown = 0.08f;
+		FireCooldown = 0.14f;
 	}
 
 	const FVector Start = GetTraceStart();

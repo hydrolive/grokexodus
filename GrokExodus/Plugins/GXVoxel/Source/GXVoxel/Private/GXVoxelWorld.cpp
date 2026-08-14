@@ -332,9 +332,10 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	if (Jobs) Jobs->BumpStamp();
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
-		EnqueueRemeshNeighborhood(C);
+		BrushForceLOD0.Add(C);
+		EnqueueRemesh(C);
 	}
-	FlushMeshQueue(48);
+	FlushMeshQueue(4);
 	return Out;
 }
 
@@ -353,9 +354,10 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	if (Jobs) Jobs->BumpStamp();
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
-		EnqueueRemeshNeighborhood(C);
+		BrushForceLOD0.Add(C);
+		EnqueueRemesh(C);
 	}
-	FlushMeshQueue(48);
+	FlushMeshQueue(4);
 	return Out;
 }
 
@@ -588,7 +590,7 @@ void AGXVoxelWorld::ProcessMeshQueue(int32 Budget)
 		{
 			continue;
 		}
-		const bool bSync = !bAsync || BrushForceLOD0.Contains(Coord);
+		const bool bSync = !bAsync || (BrushForceLOD0.Contains(Coord) && Built < 2);
 		if (bSync)
 		{
 			BuildChunkMeshSync(Coord);
