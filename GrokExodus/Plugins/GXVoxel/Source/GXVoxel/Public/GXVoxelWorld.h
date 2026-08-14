@@ -254,7 +254,8 @@ protected:
 	TSet<FGXChunkKey> RemeshWhenIdle;
 	TSet<FGXChunkKey> BrushForceLOD0;
 	TMap<FGXChunkKey, int32> EmptyRetries;
-	TArray<FVector> EditHolesLocalM;
+	/** xyz = brush center (planet-local m), W = signed radius (neg=dig, pos=place). */
+	TArray<FVector4> EditHolesLocalM;
 	TMap<FGXChunkKey, double> NextEmptyRetryAt;
 
 	FVector CachedViewerWorld = FVector::ZeroVector;

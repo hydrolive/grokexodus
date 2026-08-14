@@ -616,7 +616,26 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			EnqueueRemesh(C, true);
 		}
 	}
-	EditHolesLocalM.Add(L);
+	{
+		const float SignedR = -(RadiusM * DigSpeedMul);
+		bool bMerged = false;
+		for (FVector4& H : EditHolesLocalM)
+		{
+			if (FVector::DistSquared(FVector(H.X, H.Y, H.Z), L) < 0.25f && H.W < 0.0f)
+			{
+				if (FMath::Abs(SignedR) > FMath::Abs(H.W))
+				{
+					H = FVector4(L.X, L.Y, L.Z, SignedR);
+				}
+				bMerged = true;
+				break;
+			}
+		}
+		if (!bMerged)
+		{
+			EditHolesLocalM.Add(FVector4(L.X, L.Y, L.Z, SignedR));
+		}
+	}
 	if (EditHolesLocalM.Num() > 48)
 	{
 		EditHolesLocalM.RemoveAt(0, EditHolesLocalM.Num() - 48, EAllowShrinking::No);
@@ -656,7 +675,26 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 			EnqueueRemesh(C, true);
 		}
 	}
-	EditHolesLocalM.Add(L);
+	{
+		const float SignedR = RadiusM;
+		bool bMerged = false;
+		for (FVector4& H : EditHolesLocalM)
+		{
+			if (FVector::DistSquared(FVector(H.X, H.Y, H.Z), L) < 0.25f && H.W > 0.0f)
+			{
+				if (SignedR > H.W)
+				{
+					H = FVector4(L.X, L.Y, L.Z, SignedR);
+				}
+				bMerged = true;
+				break;
+			}
+		}
+		if (!bMerged)
+		{
+			EditHolesLocalM.Add(FVector4(L.X, L.Y, L.Z, SignedR));
+		}
+	}
 	if (EditHolesLocalM.Num() > 48)
 	{
 		EditHolesLocalM.RemoveAt(0, EditHolesLocalM.Num() - 48, EAllowShrinking::No);

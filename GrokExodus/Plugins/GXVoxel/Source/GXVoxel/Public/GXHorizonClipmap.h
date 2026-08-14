@@ -30,7 +30,7 @@ public:
 		UMaterialInterface* NearMaterial,
 		UMaterialInterface* FarMaterial = nullptr,
 		const FGXCrustAtlas* Atlas = nullptr,
-		const TArray<FVector>* EditHolesLocalM = nullptr,
+		const TArray<FVector4>* EditHolesLocalM = nullptr,
 		TFunction<float(const FVector&)> DensityAt = nullptr);
 
 	void Invalidate();
@@ -48,6 +48,7 @@ private:
 	};
 
 	TArray<FRing> Rings;
+	TWeakObjectPtr<UProceduralMeshComponent> EditPatch;
 	FVector LastViewerLocal = FVector(1e12f, 0, 0);
 	bool bReady = false;
 
@@ -63,6 +64,13 @@ private:
 		float SinkM,
 		UMaterialInterface* Material,
 		const FGXCrustAtlas* Atlas,
-		const TArray<FVector>* EditHolesLocalM,
+		const TArray<FVector4>* EditHolesLocalM,
 		const TFunction<float(const FVector&)>& DensityAt);
+
+	static void BuildEditPatch(
+		UProceduralMeshComponent* Comp,
+		const FGXSphereStamp& Stamp,
+		const FVector& ViewerLocalM,
+		UMaterialInterface* Material,
+		const TArray<FVector4>* EditHolesLocalM);
 };

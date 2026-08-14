@@ -8,6 +8,89 @@
 #include "Materials/MaterialInterface.h"
 #include "GameFramework/Actor.h"
 
+namespace
+{
+	UProceduralMeshComponent* MakeClipPMC(AActor* Owner)
+	{
+		UProceduralMeshComponent* PMC = NewObject<UProceduralMeshComponent>(Owner, NAME_None, RF_Transient);
+		if (!PMC)
+		{
+			return nullptr;
+		}
+		PMC->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		PMC->SetCastShadow(false);
+		PMC->SetVisibleInRayTracing(false);
+		PMC->bUseAsyncCooking = true;
+		PMC->bNeverDistanceCull = true;
+		PMC->SetCullDistance(0.0f);
+		PMC->SetBoundsScale(8.0f);
+		PMC->SetupAttachment(Owner->GetRootComponent());
+		PMC->RegisterComponent();
+		return PMC;
+	}
+
+	/** Sphere centered on the surface. W<0 digs, W>0 places. Only inside |W|. */
+	float ApplyEditSpheres(float SurfR, const FVector& Guess, const TArray<FVector4>* Edits)
+	{
+		if (!Edits || Edits->Num() == 0)
+		{
+			return SurfR;
+		}
+		for (const FVector4& E : *Edits)
+		{
+			const float Rad = FMath::Abs(E.W);
+			if (Rad < 0.05f)
+			{
+				continue;
+			}
+			const FVector C(E.X, E.Y, E.Z);
+			const float D2 = FVector::DistSquared(Guess, C);
+			if (D2 >= Rad * Rad)
+			{
+				continue;
+			}
+			const float Drop = FMath::Sqrt(FMath::Max(0.0f, Rad * Rad - D2));
+			const float HoleR = C.Size();
+			if (E.W < 0.0f)
+			{
+				SurfR = FMath::Min(SurfR, HoleR - Drop);
+			}
+			else
+			{
+				SurfR = FMath::Max(SurfR, HoleR + Drop);
+			}
+		}
+		return SurfR;
+	}
+
+	float EditCoverM(const FVector4& E, float CellM)
+	{
+		return CellM + FMath::Abs(E.W) + 1.5f;
+	}
+
+	bool VertCoveredByEdit(const FVector& Guess, const TArray<FVector4>* Edits, float CellM)
+	{
+		if (!Edits)
+		{
+			return false;
+		}
+		for (const FVector4& E : *Edits)
+		{
+			const float Rad = FMath::Abs(E.W);
+			if (Rad < 0.05f)
+			{
+				continue;
+			}
+			const float Cover = CellM + Rad + 1.2f;
+			if (FVector::DistSquared(Guess, FVector(E.X, E.Y, E.Z)) < Cover * Cover)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+}
+
 void FGXHorizonClipmap::Initialize(AActor* Owner)
 {
 	Shutdown();
@@ -26,20 +109,11 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	};
 	for (const FSpec& S : Specs)
 	{
-		UProceduralMeshComponent* PMC = NewObject<UProceduralMeshComponent>(Owner, NAME_None, RF_Transient);
+		UProceduralMeshComponent* PMC = MakeClipPMC(Owner);
 		if (!PMC)
 		{
 			continue;
 		}
-		PMC->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		PMC->SetCastShadow(false);
-		PMC->SetVisibleInRayTracing(false);
-		PMC->bUseAsyncCooking = true;
-		PMC->bNeverDistanceCull = true;
-		PMC->SetCullDistance(0.0f);
-		PMC->SetBoundsScale(8.0f);
-		PMC->SetupAttachment(Owner->GetRootComponent());
-		PMC->RegisterComponent();
 		FRing Ring;
 		Ring.Comp = PMC;
 		Ring.InnerM = S.Inner;
@@ -48,7 +122,8 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 		Ring.SinkM = S.Sink;
 		Rings.Add(Ring);
 	}
-	UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap: %d rings"), Rings.Num());
+	EditPatch = MakeClipPMC(Owner);
+	UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap: %d rings + edit patch"), Rings.Num());
 }
 
 void FGXHorizonClipmap::Invalidate()
@@ -70,6 +145,11 @@ void FGXHorizonClipmap::Shutdown()
 		}
 	}
 	Rings.Reset();
+	if (UProceduralMeshComponent* C = EditPatch.Get())
+	{
+		C->DestroyComponent();
+	}
+	EditPatch.Reset();
 	bReady = false;
 }
 
@@ -85,7 +165,7 @@ void FGXHorizonClipmap::BuildRing(
 	float SinkM,
 	UMaterialInterface* Material,
 	const FGXCrustAtlas* Atlas,
-	const TArray<FVector>* EditHolesLocalM,
+	const TArray<FVector4>* EditHolesLocalM,
 	const TFunction<float(const FVector&)>& DensityAt)
 {
 	if (!Comp)
@@ -116,6 +196,9 @@ void FGXHorizonClipmap::BuildRing(
 
 	TArray<int32> IndexOf;
 	IndexOf.Init(INDEX_NONE, Dim * Dim);
+	TArray<uint8> Covered;
+	Covered.Reserve(VertGuess);
+	const bool bCutEdits = (CellM <= 10.0f);
 
 	for (int32 J = 0; J < Dim; ++J)
 	{
@@ -140,49 +223,22 @@ void FGXHorizonClipmap::BuildRing(
 			// One height function for every ring. Mixing atlas + stamp made a crease.
 			const float HeightM = Field.HeightM;
 			(void)Atlas;
+			(void)DensityAt;
 			float SurfR = Stamp.GetParams().Radius + HeightM;
-			// Dig/place must displace the height field — never drop verts.
-			// 0.7.33 skipped a 30 m disk and the crust vanished (teal void).
-			if (EditHolesLocalM && EditHolesLocalM->Num() > 0)
+			const FVector Guess = Dir * SurfR;
+			// 0.7.34 density-searched a 24 m disk and the whole near crust
+			// heaved. Carve is the brush sphere only. The 8 m ring opens a
+			// one-cell window; BuildEditPatch fills it at 0.4 m.
+			if (bCutEdits)
 			{
-				const FVector Guess = Dir * SurfR;
-				const float Infl = FMath::Max(24.0f, CellM * 3.0f);
-				const float Infl2 = Infl * Infl;
-				bool bNearEdit = false;
-				for (const FVector& Hole : *EditHolesLocalM)
-				{
-					if (FVector::DistSquared(Guess, Hole) < Infl2)
-					{
-						bNearEdit = true;
-						break;
-					}
-				}
-				if (bNearEdit && DensityAt)
-				{
-					// Density > 0 is solid. Walk the radial until air so a
-					// subtract becomes a crater and a place becomes a mound.
-					float Lo = SurfR - 12.0f;
-					float Hi = SurfR + 6.0f;
-					for (int32 K = 0; K < 12; ++K)
-					{
-						const float Mid = 0.5f * (Lo + Hi);
-						if (DensityAt(Dir * Mid) >= 0.0f)
-						{
-							Lo = Mid;
-						}
-						else
-						{
-							Hi = Mid;
-						}
-					}
-					SurfR = Hi;
-				}
+				SurfR = ApplyEditSpheres(SurfR, Guess, EditHolesLocalM);
 			}
 			const FVector P = Dir * (SurfR - Sink) * 100.0f;
 			const int32 Idx = I + J * Dim;
 			IndexOf[Idx] = Positions.Num();
 			Positions.Add(P);
 			Normals.Add(Dir);
+			Covered.Add(bCutEdits && VertCoveredByEdit(Guess, EditHolesLocalM, CellM) ? 1 : 0);
 			// Same atlas ids the near PBR reads from UV0.X (1 grass, 3 dirt, 2 rock).
 			float AtlasId = 1.0f;
 			if (Field.SlopeProxy > 0.16f || Field.Orogeny > 0.15f || Field.Volcano > 0.18f)
@@ -230,6 +286,10 @@ void FGXHorizonClipmap::BuildRing(
 			const float CV = (static_cast<float>(J - Half) + 0.5f) * CellM;
 			const float CD2 = CU * CU + CV * CV;
 			if (CD2 < InnerPad * 0.82f || CD2 > OuterPad * 1.10f)
+			{
+				continue;
+			}
+			if (bCutEdits && (Covered[A] || Covered[B] || Covered[C] || Covered[D]))
 			{
 				continue;
 			}
@@ -302,6 +362,189 @@ void FGXHorizonClipmap::BuildRing(
 	}
 }
 
+void FGXHorizonClipmap::BuildEditPatch(
+	UProceduralMeshComponent* Comp,
+	const FGXSphereStamp& Stamp,
+	const FVector& ViewerLocalM,
+	UMaterialInterface* Material,
+	const TArray<FVector4>* EditHolesLocalM)
+{
+	if (!Comp)
+	{
+		return;
+	}
+	Comp->ClearAllMeshSections();
+	if (!EditHolesLocalM || EditHolesLocalM->Num() == 0)
+	{
+		Comp->SetVisibility(false);
+		return;
+	}
+
+	const float R0 = Stamp.GetParams().Radius;
+	const float CellM = 0.40f;
+	const float RingCell = 8.0f;
+	constexpr int32 MaxPatches = 12;
+
+	struct FCand { float Dist2; int32 Index; };
+	TArray<FCand> Cands;
+	Cands.Reserve(EditHolesLocalM->Num());
+	for (int32 I = 0; I < EditHolesLocalM->Num(); ++I)
+	{
+		const FVector4& E = (*EditHolesLocalM)[I];
+		if (FMath::Abs(E.W) < 0.05f)
+		{
+			continue;
+		}
+		const FVector C(E.X, E.Y, E.Z);
+		const float D2 = FVector::DistSquared(C, ViewerLocalM);
+		if (D2 > 80.0f * 80.0f)
+		{
+			continue;
+		}
+		Cands.Add({ D2, I });
+	}
+	Cands.Sort([](const FCand& A, const FCand& B) { return A.Dist2 < B.Dist2; });
+	const int32 UseN = FMath::Min(MaxPatches, Cands.Num());
+	if (UseN == 0)
+	{
+		Comp->SetVisibility(false);
+		return;
+	}
+
+	int32 Sections = 0;
+	int32 TotalVerts = 0;
+	for (int32 P = 0; P < UseN; ++P)
+	{
+		const FVector4& E = (*EditHolesLocalM)[Cands[P].Index];
+		const FVector Hole(E.X, E.Y, E.Z);
+		FVector CenterDir = Hole.GetSafeNormal();
+		if (CenterDir.IsNearlyZero())
+		{
+			CenterDir = FVector(1, 0, 0);
+		}
+		FVector TanU, TanV;
+		CenterDir.FindBestAxisVectors(TanU, TanV);
+		const float Cover = EditCoverM(E, RingCell);
+		const int32 Half = FMath::Max(4, FMath::CeilToInt(Cover / CellM));
+		const int32 Dim = Half * 2 + 1;
+		const float Cover2 = Cover * Cover;
+
+		TArray<FVector> Positions;
+		TArray<FVector> Normals;
+		TArray<FVector2D> UV0;
+		TArray<FLinearColor> Colors;
+		TArray<int32> Indices;
+		TArray<FProcMeshTangent> Tangents;
+		TArray<int32> IndexOf;
+		IndexOf.Init(INDEX_NONE, Dim * Dim);
+		Positions.Reserve(Dim * Dim);
+
+		for (int32 J = 0; J < Dim; ++J)
+		{
+			const float V = (static_cast<float>(J - Half) + 0.5f) * CellM;
+			for (int32 I = 0; I < Dim; ++I)
+			{
+				const float U = (static_cast<float>(I - Half) + 0.5f) * CellM;
+				if (U * U + V * V > Cover2)
+				{
+					continue;
+				}
+				FVector Dir = (CenterDir * R0 + TanU * U + TanV * V).GetSafeNormal();
+				if (Dir.IsNearlyZero())
+				{
+					Dir = CenterDir;
+				}
+				const FGXEarthField Field = Stamp.SampleEarthField(FVector3f(Dir.X, Dir.Y, Dir.Z), false);
+				float SurfR = R0 + Field.HeightM;
+				const FVector Guess = Dir * SurfR;
+				SurfR = ApplyEditSpheres(SurfR, Guess, EditHolesLocalM);
+				SurfR += 0.02f; // sit 2 cm above the opened clipmap rim
+				const FVector Pos = Dir * SurfR * 100.0f;
+				IndexOf[I + J * Dim] = Positions.Num();
+				Positions.Add(Pos);
+				Normals.Add(Dir);
+				float AtlasId = 1.0f;
+				if (Field.SlopeProxy > 0.16f || Field.Orogeny > 0.15f || Field.Volcano > 0.18f)
+				{
+					AtlasId = 2.0f;
+				}
+				UV0.Add(FVector2D(AtlasId, 0.0f));
+				Colors.Add(FLinearColor(0.54f, 0.42f, 0.28f, 1.0f));
+				FVector Tan = FVector::CrossProduct(Dir, FVector::ZAxisVector);
+				if (Tan.SizeSquared() < 1e-6f)
+				{
+					Tan = FVector::CrossProduct(Dir, FVector::YAxisVector);
+				}
+				Tan.Normalize();
+				Tangents.Add(FProcMeshTangent(Tan, false));
+			}
+		}
+
+		auto Vert = [&](int32 I, int32 J) -> int32
+		{
+			if (I < 0 || J < 0 || I >= Dim || J >= Dim)
+			{
+				return INDEX_NONE;
+			}
+			return IndexOf[I + J * Dim];
+		};
+		for (int32 J = 0; J < Dim - 1; ++J)
+		{
+			for (int32 I = 0; I < Dim - 1; ++I)
+			{
+				const int32 A = Vert(I, J);
+				const int32 B = Vert(I + 1, J);
+				const int32 C = Vert(I, J + 1);
+				const int32 D = Vert(I + 1, J + 1);
+				if (A == INDEX_NONE || B == INDEX_NONE || C == INDEX_NONE || D == INDEX_NONE)
+				{
+					continue;
+				}
+				Indices.Add(A); Indices.Add(B); Indices.Add(C);
+				Indices.Add(B); Indices.Add(D); Indices.Add(C);
+			}
+		}
+
+		TArray<FVector> AccN;
+		AccN.Init(FVector::ZeroVector, Positions.Num());
+		for (int32 T0 = 0; T0 + 2 < Indices.Num(); T0 += 3)
+		{
+			const int32 IA = Indices[T0], IB = Indices[T0 + 1], IC = Indices[T0 + 2];
+			const FVector FN = FVector::CrossProduct(Positions[IB] - Positions[IA], Positions[IC] - Positions[IA]);
+			AccN[IA] += FN; AccN[IB] += FN; AccN[IC] += FN;
+		}
+		for (int32 V = 0; V < Positions.Num(); ++V)
+		{
+			FVector N = AccN[V].GetSafeNormal();
+			if (N.IsNearlyZero())
+			{
+				N = Normals[V];
+			}
+			if (FVector::DotProduct(N, Positions[V].GetSafeNormal()) < 0.0f)
+			{
+				N = -N;
+			}
+			Normals[V] = N;
+		}
+
+		if (Positions.Num() >= 3 && Indices.Num() >= 3)
+		{
+			Comp->CreateMeshSection_LinearColor(Sections, Positions, Indices, Normals, UV0, Colors, Tangents, false);
+			if (Material)
+			{
+				Comp->SetMaterial(Sections, Material);
+			}
+			TotalVerts += Positions.Num();
+			++Sections;
+		}
+	}
+
+	Comp->SetVisibility(Sections > 0);
+	Comp->SetHiddenInGame(false);
+	Comp->UpdateBounds();
+	GX_PERF(1, TEXT("GX-editpatch sections=%d verts=%d holes=%d"), Sections, TotalVerts, UseN);
+}
+
 void FGXHorizonClipmap::Update(
 	AActor* Owner,
 	const FGXSphereStamp& Stamp,
@@ -311,7 +554,7 @@ void FGXHorizonClipmap::Update(
 	UMaterialInterface* NearMaterial,
 	UMaterialInterface* FarMaterial,
 	const FGXCrustAtlas* Atlas,
-	const TArray<FVector>* EditHolesLocalM,
+	const TArray<FVector4>* EditHolesLocalM,
 	TFunction<float(const FVector&)> DensityAt)
 {
 	if (!Owner || Rings.Num() == 0)
@@ -384,6 +627,10 @@ void FGXHorizonClipmap::Update(
 			Ring.LastBuild = ViewerLocalM;
 			++Built;
 		}
+	}
+	if (UProceduralMeshComponent* Patch = EditPatch.Get())
+	{
+		BuildEditPatch(Patch, Stamp, ViewerLocalM, NearLit, EditHolesLocalM);
 	}
 	LastViewerLocal = ViewerLocalM;
 	bReady = true;

@@ -289,6 +289,17 @@ def main():
         connect(a, ao, n, "")
         return n
 
+    def oneminus(a, ao, px, py, desc=""):
+        n = node(unreal.MaterialExpressionOneMinus, px, py, desc)
+        connect(a, ao, n, "")
+        return n
+
+    def minn(a, ao, b, bo, px, py, desc=""):
+        n = node(unreal.MaterialExpressionMin, px, py, desc)
+        connect(a, ao, n, "A")
+        connect(b, bo, n, "B")
+        return n
+
     def frac(a, ao, px, py, desc=""):
         n = node(unreal.MaterialExpressionFrac, px, py, desc)
         connect(a, ao, n, "")
@@ -355,8 +366,12 @@ def main():
     py = mask(wp, "", False, True, False, x0 + 280, -40, "Py")
     pz = mask(wp, "", False, False, True, x0 + 280, 40, "Pz")
 
-    c_096 = const(0.68, x0 + 280, 200, "0.68")
-    c_002 = const(0.16, x0 + 280, 260, "0.16")
+    # 2% atlas inset. 0.7.34 used 16%/68% and the frac wrap became a dark cross.
+    c_096 = const(0.96, x0 + 280, 200, "0.96")
+    c_002 = const(0.02, x0 + 280, 260, "0.02")
+    c_wrap = const(0.02, x0 + 280, 760, "wrapEdge")
+    c_wrapw = const(0.10, x0 + 280, 820, "wrapW")
+    c_eps = const(0.001, x0 + 280, 880, "eps")
     c_0 = const(0.0, x0 + 280, 400, "0")
     c_2 = const(2.0, x0 + 280, 460, "2")
     c_4 = const(4.0, x0 + 280, 520, "4")
@@ -375,14 +390,20 @@ def main():
     radial = node(unreal.MaterialExpressionNormalize, x0 + 560, 800, "radial")
     connect(wp, "", radial, "")
 
-    # Rotate YZ 32° so wrap planes are not world Y=0 / Z=0 under the pawn.
-    # (lon/lat Atan2/Asin in 0.7.33 compiled to a black/brown untextured crust.)
+    # Two YZ frames 45° apart. Near a wrap of one, the other is mid-tile.
+    # (lon/lat Atan2 in 0.7.33 never compiled — Missing Arctangent2 input.)
     c32 = const(0.8480, x0 + 820, -200, "c32")
     s32 = const(0.5299, x0 + 820, -120, "s32")
     rot_u = sub(mul(py, "", c32, "", x0 + 1080, -200), "",
                 mul(pz, "", s32, "", x0 + 1080, -120), "", x0 + 1340, -200, "rotU")
     rot_v = add(mul(py, "", s32, "", x0 + 1080, -40), "",
                 mul(pz, "", c32, "", x0 + 1080, 40), "", x0 + 1340, -40, "rotV")
+    c77 = const(0.2250, x0 + 820, -320, "c77")
+    s77 = const(0.9744, x0 + 820, -260, "s77")
+    rot2_u = sub(mul(py, "", c77, "", x0 + 1080, -320), "",
+                 mul(pz, "", s77, "", x0 + 1080, -260), "", x0 + 1340, -320, "rot2U")
+    rot2_v = add(mul(py, "", s77, "", x0 + 1080, -200), "",
+                 mul(pz, "", c77, "", x0 + 1080, -140), "", x0 + 1340, -140, "rot2V")
 
     def atlas_sample_axes(param, texture, tnode, cell_u, cell_v, ua, va, ox, oy, linear):
         fu = frac(mul(ua, "", tnode, "", ox, oy), "", ox + 240, oy)
@@ -394,8 +415,27 @@ def main():
         uv = append(au, "", av, "", ox + 1440, oy)
         return tex(param, uv, texture, ox + 1680, oy, linear)
 
+    def wrap_keep(ua, va, tnode, ox, oy):
+        fu = frac(mul(ua, "", tnode, "", ox, oy), "", ox + 240, oy)
+        fv = frac(mul(va, "", tnode, "", ox, oy + 70), "", ox + 240, oy + 70)
+        du = minn(fu, "", oneminus(fu, "", ox + 480, oy), "", ox + 720, oy)
+        dv = minn(fv, "", oneminus(fv, "", ox + 480, oy + 70), "", ox + 720, oy + 70)
+        edge = minn(du, "", dv, "", ox + 960, oy)
+        return sat(div(sub(edge, "", c_wrap, "", ox + 1200, oy), "",
+                       c_wrapw, "", ox + 1440, oy), "", ox + 1680, oy)
+
+    def atlas_sample_blend(param, texture, tnode, cell_u, cell_v, ox, oy, linear):
+        s1 = atlas_sample_axes(param, texture, tnode, cell_u, cell_v, rot_u, rot_v, ox, oy, linear)
+        s2 = atlas_sample_axes(param, texture, tnode, cell_u, cell_v, rot2_u, rot2_v, ox, oy + 90, linear)
+        w1 = wrap_keep(rot_u, rot_v, tnode, ox + 2000, oy)
+        w2 = wrap_keep(rot2_u, rot2_v, tnode, ox + 2000, oy + 90)
+        num = add(mul(s1, "", w1, "", ox + 2300, oy), "",
+                  mul(s2, "", w2, "", ox + 2300, oy + 90), "", ox + 2560, oy)
+        den = add(add(w1, "", w2, "", ox + 2300, oy + 180), "", c_eps, "", ox + 2560, oy + 180)
+        return div(num, "", den, "", ox + 2820, oy, "uvBlend")
+
     def atlas_sample(param, texture, tnode, cell_u, cell_v, ox, oy, linear):
-        return atlas_sample_axes(param, texture, tnode, cell_u, cell_v, rot_u, rot_v, ox, oy, linear)
+        return atlas_sample_blend(param, texture, tnode, cell_u, cell_v, ox, oy, linear)
 
     nx = mask(vn, "", True, False, False, x0 + 560, 1180, "Nx")
     ny = mask(vn, "", False, True, False, x0 + 560, 1260, "Ny")
@@ -412,7 +452,7 @@ def main():
     wz = div(az, "", wsum, "", x0 + 1520, 1340, "wZ")
 
     def triplanar_albedo(param, texture, tnode, cell_u, cell_v, ox, oy):
-        s_yz = atlas_sample_axes(param, texture, tnode, cell_u, cell_v, rot_u, rot_v, ox, oy, False)
+        s_yz = atlas_sample_blend(param, texture, tnode, cell_u, cell_v, ox, oy, False)
         s_xz = atlas_sample_axes(param, texture, tnode, cell_u, cell_v, px, pz, ox, oy + 220, False)
         s_xy = atlas_sample_axes(param, texture, tnode, cell_u, cell_v, px, py, ox, oy + 440, False)
         a = add(mul(s_yz, "", wx, "", ox + 2000, oy), "", mul(s_xz, "", wy, "", ox + 2000, oy + 220), "", ox + 2300, oy)
