@@ -368,8 +368,9 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			WorldToLocalMeters(CachedViewerWorld),
 			0.0f,
 			HorizonOuterM,
-			TerrainMaterial,
-			TerrainMaterial,
+			TerrainMaterial.Get(),
+			TerrainMaterial.Get(),
+			TerrainPBR ? TerrainPBR->GetPatchMaterial() : TerrainMaterial.Get(),
 			CrustAtlas.Get(),
 			&EditHolesLocalM,
 			[this](const FVector& LocalM)
@@ -640,6 +641,10 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	{
 		EditHolesLocalM.RemoveAt(0, EditHolesLocalM.Num() - 48, EAllowShrinking::No);
 	}
+	if (TerrainPBR)
+	{
+		TerrainPBR->SetEditHoles(EditHolesLocalM);
+	}
 	if (HorizonClipmap)
 	{
 		HorizonClipmap->NotifyEdits();
@@ -698,6 +703,10 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	if (EditHolesLocalM.Num() > 48)
 	{
 		EditHolesLocalM.RemoveAt(0, EditHolesLocalM.Num() - 48, EAllowShrinking::No);
+	}
+	if (TerrainPBR)
+	{
+		TerrainPBR->SetEditHoles(EditHolesLocalM);
 	}
 	if (HorizonClipmap)
 	{

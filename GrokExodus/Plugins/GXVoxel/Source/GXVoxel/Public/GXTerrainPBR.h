@@ -17,6 +17,8 @@ public:
 	void Shutdown();
 
 	UMaterialInterface* GetMaterial() const;
+	UMaterialInterface* GetPatchMaterial() const;
+	void SetEditHoles(const TArray<FVector4>& HolesLocalM);
 
 	static FString GetSourceDir();
 
@@ -30,6 +32,7 @@ private:
 	TObjectPtr<UTexture2D> NormalAtlas;
 	TObjectPtr<UTexture2D> RoughAtlas;
 	TObjectPtr<UMaterialInstanceDynamic> Mid;
+	TObjectPtr<UMaterialInstanceDynamic> PatchMid;
 	TObjectPtr<UMaterialInterface> Applied;
 	TArray<TObjectPtr<UObject>> Roots;
 

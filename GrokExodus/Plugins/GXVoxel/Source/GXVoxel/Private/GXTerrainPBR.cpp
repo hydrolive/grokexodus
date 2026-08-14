@@ -118,15 +118,29 @@ void FGXTerrainPBR::Initialize(UObject* Outer)
 	if (Parent && Outer)
 	{
 		Mid = UMaterialInstanceDynamic::Create(Parent, Outer);
+		PatchMid = UMaterialInstanceDynamic::Create(Parent, Outer);
+		auto Bind = [](UMaterialInstanceDynamic* M)
+		{
+			if (!M)
+			{
+				return;
+			}
+			M->SetScalarParameterValue(TEXT("TileScale"), 0.00038f);
+			M->SetScalarParameterValue(TEXT("MacroScale"), 0.040f);
+			M->SetScalarParameterValue(TEXT("SlopeStart"), 0.09f);
+			M->SetScalarParameterValue(TEXT("SlopeMid"), 0.15f);
+			M->SetScalarParameterValue(TEXT("SlopeEnd"), 0.30f);
+		};
+		Bind(Mid);
+		Bind(PatchMid);
 		if (Mid)
 		{
-			Mid->SetScalarParameterValue(TEXT("TileScale"), 0.00038f);
-			Mid->SetScalarParameterValue(TEXT("MacroScale"), 0.040f);
-			Mid->SetScalarParameterValue(TEXT("SlopeStart"), 0.09f);
-			Mid->SetScalarParameterValue(TEXT("SlopeMid"), 0.15f);
-			Mid->SetScalarParameterValue(TEXT("SlopeEnd"), 0.30f);
 			Roots.Add(Mid);
 			Applied = Mid;
+		}
+		if (PatchMid)
+		{
+			Roots.Add(PatchMid);
 		}
 	}
 	if (!Applied)
@@ -156,6 +170,7 @@ void FGXTerrainPBR::Shutdown()
 	NormalAtlas = nullptr;
 	RoughAtlas = nullptr;
 	Mid = nullptr;
+	PatchMid = nullptr;
 	Applied = nullptr;
 	bReady = false;
 }
@@ -163,6 +178,39 @@ void FGXTerrainPBR::Shutdown()
 UMaterialInterface* FGXTerrainPBR::GetMaterial() const
 {
 	return Applied;
+}
+
+UMaterialInterface* FGXTerrainPBR::GetPatchMaterial() const
+{
+	if (PatchMid)
+	{
+		return PatchMid.Get();
+	}
+	return Applied.Get();
+}
+
+void FGXTerrainPBR::SetEditHoles(const TArray<FVector4>& HolesLocalM)
+{
+	if (!Mid)
+	{
+		return;
+	}
+	for (int32 I = 0; I < 8; ++I)
+	{
+		const FString Name = FString::Printf(TEXT("EditHole%d"), I);
+		FLinearColor V(0.f, 0.f, 0.f, 0.f);
+		const int32 Src = HolesLocalM.Num() - 8 + I;
+		if (Src >= 0 && Src < HolesLocalM.Num())
+		{
+			const FVector4& H = HolesLocalM[Src];
+			V = FLinearColor(H.X * 100.0f, H.Y * 100.0f, H.Z * 100.0f, FMath::Abs(H.W) * 100.0f);
+		}
+		Mid->SetVectorParameterValue(*Name, V);
+		if (PatchMid)
+		{
+			PatchMid->SetVectorParameterValue(*Name, FLinearColor(0.f, 0.f, 0.f, 0.f));
+		}
+	}
 }
 
 bool FGXTerrainPBR::LoadJpg(const FString& Path, TArray<uint8>& OutBGRA, int32& OutW, int32& OutH)

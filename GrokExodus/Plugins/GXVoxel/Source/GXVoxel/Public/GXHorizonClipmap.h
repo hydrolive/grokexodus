@@ -29,12 +29,13 @@ public:
 		float OuterM,
 		UMaterialInterface* NearMaterial,
 		UMaterialInterface* FarMaterial = nullptr,
+		UMaterialInterface* PatchMaterial = nullptr,
 		const FGXCrustAtlas* Atlas = nullptr,
 		const TArray<FVector4>* EditHolesLocalM = nullptr,
 		TFunction<float(const FVector&)> DensityAt = nullptr);
 
 	void Invalidate();
-	/** Rebuild the fine walk ring so the crust itself rises or drops. */
+	/** Rebuild only the circular brush patch. Do not remesh the walk ring. */
 	void NotifyEdits();
 	bool IsReady() const { return bReady; }
 
@@ -50,6 +51,7 @@ private:
 	};
 
 	TArray<FRing> Rings;
+	TWeakObjectPtr<UProceduralMeshComponent> EditPatch;
 	FVector LastViewerLocal = FVector(1e12f, 0, 0);
 	bool bReady = false;
 	bool bEditsDirty = false;
@@ -68,4 +70,10 @@ private:
 		const FGXCrustAtlas* Atlas,
 		const TArray<FVector4>* EditHolesLocalM,
 		const TFunction<float(const FVector&)>& DensityAt);
+
+	static void BuildEditPatch(
+		UProceduralMeshComponent* Comp,
+		const FGXSphereStamp& Stamp,
+		UMaterialInterface* Material,
+		const TArray<FVector4>* EditHolesLocalM);
 };
