@@ -178,6 +178,7 @@ void AGXVoxelWorld::ApplyEarthPlayDefaults()
 	StreamInterval = 0.45f;
 	// Mixed LOD0/1 is the black polygonal crack. Transvoxel skirts are 0.8.
 	bForceLOD0 = true;
+	bDrawVoxelVisuals = false;
 	HorizonOuterM = 10000.0f;
 	bAsyncMeshing = true;
 	WarmupSeconds = 1.5f;
@@ -350,10 +351,13 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 
 	const double M0 = FPlatformTime::Seconds();
 	MeshCreatesThisTick = 0;
-	DrainPendingMeshes(MaxMeshBuildsPerFrame);
-	const int32 Budget = (WarmupTimeRemaining > 0.0f) ? WarmupMeshBuildsPerFrame : MaxMeshBuildsPerFrame;
 	const int32 QueueBefore = NearMeshQueue.Num() + MeshQueue.Num();
-	ProcessMeshQueue(Budget);
+	if (bDrawVoxelVisuals)
+	{
+		DrainPendingMeshes(MaxMeshBuildsPerFrame);
+		const int32 Budget = (WarmupTimeRemaining > 0.0f) ? WarmupMeshBuildsPerFrame : MaxMeshBuildsPerFrame;
+		ProcessMeshQueue(Budget);
+	}
 	const double MeshMs = (FPlatformTime::Seconds() - M0) * 1000.0;
 	if (HorizonClipmap && Volume && bAtlasReady)
 	{
@@ -361,7 +365,7 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			this,
 			Volume->GetStamp(),
 			WorldToLocalMeters(CachedViewerWorld),
-			48.0f,
+			0.0f,
 			HorizonOuterM,
 			TerrainMaterial,
 			TerrainMaterial,
@@ -732,9 +736,10 @@ void AGXVoxelWorld::RefreshLoadState()
 		LoadProgress = 0.96f;
 	}
 
-	// Clipmap is the continuous crust. Two near voxel shells + atlas = playable.
-	// Requiring 90% and holding warmup forever was the 0.7.28 92% deadlock.
-	if (bAtlasReady && LastMeshedNear >= 2)
+	// Clipmap is the walkable planet. Voxel shells are optional detail.
+	const bool bClipReady = HorizonClipmap && HorizonClipmap->IsReady();
+	const bool bHaveGround = bDrawVoxelVisuals ? (LastMeshedNear >= 2) : bClipReady;
+	if (bAtlasReady && bHaveGround && bClipReady)
 	{
 		LoadStatus = TEXT("Ready");
 		LoadProgress = 1.0f;
@@ -974,6 +979,10 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 				if (bNearBusy && Dist > StreamNow * 0.90f)
 				{
 					++DeferredFar;
+					continue;
+				}
+				if (!bDrawVoxelVisuals)
+				{
 					continue;
 				}
 				if (!ChunkVisuals.Contains(CC))

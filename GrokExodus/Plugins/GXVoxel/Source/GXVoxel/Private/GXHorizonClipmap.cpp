@@ -20,9 +20,9 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// Overlap ~150 m so rings never leave a sky gap. Outer rings sit a
 	// little deeper so the shared band does not z-fight.
 	const FSpec Specs[] = {
-		{ 48.0f, 1800.0f, 24.0f, 8.0f },
-		{ 1650.0f, 4800.0f, 48.0f, 9.0f },
-		{ 4500.0f, 10000.0f, 96.0f, 10.0f },
+		{ 0.0f, 400.0f, 8.0f, 0.0f },
+		{ 360.0f, 2200.0f, 24.0f, 0.0f },
+		{ 2000.0f, 10000.0f, 72.0f, 0.0f },
 	};
 	for (const FSpec& S : Specs)
 	{
@@ -283,11 +283,10 @@ void FGXHorizonClipmap::Update(
 	FVector T, B;
 	CenterDir.FindBestAxisVectors(T, B);
 
-	// Continuous crust. Tiny hole under the pawn only — a 300 m hole was the
-	// teal river in 0.7.27 when voxels were still loading.
+	// Full disk. A hole was the teal river / island cliff.
 	if (Rings.Num() > 0)
 	{
-		Rings[0].InnerM = FMath::Clamp(InnerHoleM, 32.0f, 64.0f);
+		Rings[0].InnerM = FMath::Max(0.0f, InnerHoleM);
 	}
 	if (Rings.Num() > 2)
 	{
@@ -312,7 +311,9 @@ void FGXHorizonClipmap::Update(
 	for (int32 I = 0; I < Rings.Num() && Built < MaxRings; ++I)
 	{
 		FRing& Ring = Rings[I];
-		const float RebuildM = FMath::Max(600.0f, Ring.CellM * 20.0f);
+		const float RebuildM = (I == 0)
+			? 80.0f
+			: FMath::Max(600.0f, Ring.CellM * 20.0f);
 		if (bReady && FVector::DistSquared(ViewerLocalM, Ring.LastBuild) < FMath::Square(RebuildM))
 		{
 			continue;

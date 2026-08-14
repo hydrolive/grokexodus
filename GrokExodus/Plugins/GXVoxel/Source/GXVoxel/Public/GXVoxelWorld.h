@@ -134,6 +134,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
 	bool bForceLOD0 = false;
 
+	/** Draw marching-cubes voxel shells. Off: clipmap is the only crust (no layering, no island cliff). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
+	bool bDrawVoxelVisuals = false;
+
 	/** Far clipmap outer radius (meters). Independent of voxel stream. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
 	float HorizonOuterM = 10000.0f;
