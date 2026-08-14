@@ -5,6 +5,7 @@
 #include "Modules/ModuleManager.h"
 
 DECLARE_LOG_CATEGORY_EXTERN(LogGXCore, Log, All);
+#include "GXPerf.h"
 
 class FGXCoreModule : public IModuleInterface
 {

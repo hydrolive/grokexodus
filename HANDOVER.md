@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-13** · On-disk build stamp: **GX 0.7.4**  
+Last updated: **2026-08-13** · On-disk build stamp: **GX 0.7.5**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.7.5** Near-field HUD was 14/171 because Desired counted the whole 110 m ball (air+interior). Stream only enqueues crust-intersecting chunks; empty cache files are rejected. Spawn plains are ~6 km so mountains appear on the 8 km clipmap. `gx.perf.trace` + `LogGXPerf` — check each pass; set 0 when stable.
 - **GX 0.7.4** Wider plains (spawn is pushed onto a lake-flat). Soft FBm mountains (no ridged cliffs). Clipmap builds a complete disk (no dropped quads). Near-surface empty meshes are not stored as hollow. Atlas inset 9% + larger grass tiles. Clipmap rebuilds every 400 m (was 90 m — that 3 FPS hitch was the “crash”).
 - **GX 0.7.3** Plains (lake-flat valley floors) + foothills only at the mountain skirt. Clipmap starts at 0.9× stream so it no longer z-fights voxels (that was the grid). Far mesh uses `M_VoxelHorizonFar` (lit vertex color).
 - **GX 0.7.2** Sparse ~10 km range/valley domains with talus fill. Clipmap rings share a 12/36/72 m grid and overlap; hole sits under the voxel stream. Far rings use vertex-color slope, not the 2 m atlas. **Voxel HLOD is 0.8; cluster “Nanite analog” is 0.9.**

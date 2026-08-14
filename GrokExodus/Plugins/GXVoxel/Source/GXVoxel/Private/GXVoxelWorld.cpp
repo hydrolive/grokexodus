@@ -9,6 +9,8 @@
 #include "GXMath.h"
 #include "GXVoxel.h"
 #include "GXVersion.h"
+#include "GXPerf.h"
+#include "HAL/FileManager.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
@@ -613,8 +615,9 @@ void AGXVoxelWorld::RefreshLoadState()
 	}
 
 	const int32 Queue = NearMeshQueue.Num() + MeshQueue.Num() + AsyncInFlight.Num();
-	const int32 Desired = FMath::Max(LastDesiredNear, LastMeshedNear + HollowNear);
-	const int32 Resolved = FMath::Min(LastMeshedNear + HollowNear, Desired);
+	// Desired is crust-intersecting near chunks, not the whole 110 m ball.
+	const int32 Desired = FMath::Max(LastDesiredNear, LastMeshedNear);
+	const int32 Resolved = FMath::Min(LastMeshedNear, FMath::Max(Desired, 1));
 	const float MeshFrac = (Desired > 0)
 		? static_cast<float>(Resolved) / static_cast<float>(Desired)
 		: 0.0f;
@@ -660,12 +663,14 @@ void AGXVoxelWorld::RefreshLoadState()
 	const bool bHaveGround = LastMeshedNear >= 2;
 	const bool bNearFilled = Desired == 0 || MeshFrac >= 0.70f;
 	const bool bNearQuiet = NearMeshQueue.Num() == 0 && AsyncInFlight.Num() <= 2;
-	if (bAtlasReady && bHaveGround && bNearQuiet && (bNearFilled || NearMeshQueue.Num() == 0) && WarmupTimeRemaining <= 0.0f)
+	if (bAtlasReady && bHaveGround && bNearQuiet && WarmupTimeRemaining <= 0.0f)
 	{
 		LoadStatus = TEXT("Ready");
 		LoadProgress = 1.0f;
 		bWorldReady = true;
 	}
+	GX_PERF(2, TEXT("GX-load mesh=%d hollowNear=%d desired=%d queue=%d status=%s"),
+		LastMeshedNear, HollowNear, Desired, Queue, *LoadStatus);
 }
 
 void AGXVoxelWorld::InvalidateHollow(const FGXChunkKey& Coord)
@@ -723,9 +728,12 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 		FGXVoxelVolume::WorldToVoxel(FVector3d(Local.X, Local.Y, Local.Z), VoxelSize));
 
 	const float ChunkHalf = ChunkM * 0.866f;
-	const float Band = 280.0f + ChunkHalf;
+	// Only chunks that can contain the isosurface. A 280 m band turned the
+	// 110 m near ball into 171 air/interior jobs that never become a mesh.
+	const float Band = 48.0f + ChunkHalf;
 
 	int32 NearWanted = 0;
+	int32 SkippedAir = 0;
 	TSet<FGXChunkKey> Desired;
 	for (int32 Z = -ChunkRadius; Z <= ChunkRadius; ++Z)
 	{
@@ -751,8 +759,14 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 						ChunkCenter.X / R, ChunkCenter.Y / R, ChunkCenter.Z / R);
 					LocalSurfaceR = PlanetRadius + CrustAtlas->SampleHeight(Dir);
 				}
+				else if (Volume && R > 1.0f)
+				{
+					const FVector3f Dir(ChunkCenter.X / R, ChunkCenter.Y / R, ChunkCenter.Z / R);
+					LocalSurfaceR = Volume->GetStamp().SampleSurfaceRadius(Dir);
+				}
 				if ((R + ChunkHalf) < (LocalSurfaceR - Band) || (R - ChunkHalf) > (LocalSurfaceR + Band))
 				{
+					++SkippedAir;
 					continue;
 				}
 				Desired.Add(CC);
@@ -800,6 +814,9 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 		ChunkActors.Remove(K);
 	}
 	LastDesiredNear = NearWanted;
+	GX_PERF(1, TEXT("GX-stream wanted=%d near=%d skipAir=%d hollow=%d queue=%d+%d inflight=%d"),
+		Desired.Num(), NearWanted, SkippedAir, HollowChunks.Num(),
+		NearMeshQueue.Num(), MeshQueue.Num(), AsyncInFlight.Num());
 }
 
 void AGXVoxelWorld::FlushMeshQueue(int32 MaxBuilds)
@@ -1167,13 +1184,19 @@ bool AGXVoxelWorld::TryApplyCachedChunk(const FGXChunkKey& Coord, int32 LOD)
 	{
 		return false;
 	}
+	if (Mesh.IsEmpty())
+	{
+		IFileManager::Get().Delete(*Path, false, true, true);
+		GX_PERF(1, TEXT("GX-cache reject empty %d_%d_%d"), Coord.X, Coord.Y, Coord.Z);
+		return false;
+	}
 	ApplyBuiltMesh(Coord, FileLOD, MoveTemp(Mesh));
 	return true;
 }
 
 void AGXVoxelWorld::PersistChunkMesh(const FGXChunkKey& Coord, const FGXMeshBuffers& Mesh) const
 {
-	if (!Volume || Volume->ChunkHasEdits(Coord))
+	if (!Volume || Volume->ChunkHasEdits(Coord) || Mesh.IsEmpty())
 	{
 		return;
 	}

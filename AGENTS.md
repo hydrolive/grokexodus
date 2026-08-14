@@ -70,6 +70,16 @@ Still never commit `Saved/`, `Binaries/`, `Intermediate/`, `DerivedDataCache/`.
 
 ---
 
+## Mandatory: performance traces while features are new
+
+When adding or changing a system (streaming, meshing, clipmap, stamps, atmosphere, foliage), add **`LogGXPerf` / `GX_PERF` traces** so the next pass can see queues, timings, cache hits, and empty work. Console: `gx.perf.trace 0|1|2` (0 off, 1 systems, 2 verbose). Default is **1** until crust LOD is stable.
+
+Each change set, **read** `Saved/Logs/GrokExodus.log` for `LogGXPerf` and `GX-<ver> perf` before calling the work done. Use those lines to find stuck queues, 3 FPS hitches, hollow explosions, and false cache hits. When a subsystem is stable or the trace is noise, set its default to off or drop the verbose sites — do not leave permanent spam.
+
+Do not ask the user to paste logs. The agent opens `GrokExodus/Saved/Logs/GrokExodus.log`.
+
+---
+
 ## Mandatory: close editor + rebuild Development `-NoUBA`
 
 Do **not** tell the user to close Unreal or run Build.bat. After any change that needs a new editor binary (C++, `.Build.cs`, `.Target.cs`, `GXVersion.h`, plugin modules), the agent does this itself.

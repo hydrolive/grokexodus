@@ -2,6 +2,8 @@
 
 #include "GXHorizonClipmap.h"
 #include "GXVoxel.h"
+#include "GXPerf.h"
+#include "HAL/PlatformTime.h"
 #include "ProceduralMeshComponent.h"
 #include "Materials/MaterialInterface.h"
 #include "GameFramework/Actor.h"
@@ -226,6 +228,7 @@ void FGXHorizonClipmap::Update(
 		return;
 	}
 	LastViewerLocal = ViewerLocalM;
+	const double T0 = FPlatformTime::Seconds();
 
 	FVector CenterDir = ViewerLocalM.GetSafeNormal();
 	if (CenterDir.IsNearlyZero())
@@ -263,6 +266,9 @@ void FGXHorizonClipmap::Update(
 		}
 	}
 	bReady = true;
-	UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap rebuilt inner=%.0f outer=%.0f"),
-		Rings[0].InnerM, Rings.Last().OuterM);
+	const double Ms = (FPlatformTime::Seconds() - T0) * 1000.0;
+	UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap rebuilt inner=%.0f outer=%.0f ms=%.1f"),
+		Rings[0].InnerM, Rings.Last().OuterM, Ms);
+	GX_PERF(1, TEXT("GX-clipmap rebuild ms=%.1f inner=%.0f outer=%.0f rings=%d"),
+		Ms, Rings[0].InnerM, Rings.Last().OuterM, Rings.Num());
 }

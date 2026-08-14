@@ -98,8 +98,9 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	float Domain = 0.5f + 0.5f * FGXNoise::FBm(
 		Ux * Params.PlateauFreq, Uy * Params.PlateauFreq, Uz * Params.PlateauFreq,
 		Params.Seed + 21u, 2, 2.0f, 0.5f);
-	const float SpawnPlain = FGXNoise::Smooth01((Ux - 0.55f) / 0.35f);
-	Domain = FMath::Lerp(Domain, 0.22f, SpawnPlain * 0.75f);
+	// ~6 km of plains around +X so spawn is flat but mountains sit on the 8 km clipmap.
+	const float SpawnPlain = FGXNoise::Smooth01((Ux - 0.993f) / 0.006f);
+	Domain = FMath::Lerp(Domain, 0.22f, SpawnPlain * 0.80f);
 	const float PlainsW = 1.0f - FGXNoise::Smooth01((Domain - 0.34f) / 0.26f);
 	const float MountainW = FGXNoise::Smooth01((Domain - 0.70f) / 0.22f);
 	const float HillW = FMath::Clamp(1.0f - PlainsW - MountainW, 0.0f, 1.0f);
