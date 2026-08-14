@@ -124,10 +124,10 @@ void FGXHorizonClipmap::BuildRing(
 			}
 			const FVector3f Df(Dir.X, Dir.Y, Dir.Z);
 			const FGXEarthField Field = Stamp.SampleEarthField(Df, false);
-			// Same height the voxels use (atlas) so the base sits under the
-			// MC shell instead of punching through as a second mesh.
+			// Stamp is global. Atlas SampleHeight returns 0 off-atlas (~400 m
+			// from spawn) — that was the visual "end of the world."
 			float HeightM = Field.HeightM;
-			if (Atlas)
+			if (Atlas && Atlas->ContainsDir(Dir))
 			{
 				HeightM = Atlas->SampleHeight(Df);
 			}
@@ -270,7 +270,8 @@ void FGXHorizonClipmap::Update(
 	{
 		return;
 	}
-	if (FVector::DistSquared(ViewerLocalM, LastViewerLocal) < FMath::Square(400.0f) && bReady)
+	// 400 m early-out meant the 400 m fine ring never followed the pawn.
+	if (FVector::DistSquared(ViewerLocalM, LastViewerLocal) < FMath::Square(60.0f) && bReady)
 	{
 		return;
 	}
@@ -307,13 +308,14 @@ void FGXHorizonClipmap::Update(
 
 	const double T0 = FPlatformTime::Seconds();
 	int32 Built = 0;
-	const int32 MaxRings = bReady ? 1 : Rings.Num();
-	for (int32 I = 0; I < Rings.Num() && Built < MaxRings; ++I)
+	for (int32 I = 0; I < Rings.Num(); ++I)
 	{
 		FRing& Ring = Rings[I];
-		const float RebuildM = (I == 0)
-			? 80.0f
-			: FMath::Max(600.0f, Ring.CellM * 20.0f);
+		const float RebuildM = (I == 0) ? 70.0f : 350.0f;
+		if (bReady && Built >= 1 && I > 0)
+		{
+			break;
+		}
 		if (bReady && FVector::DistSquared(ViewerLocalM, Ring.LastBuild) < FMath::Square(RebuildM))
 		{
 			continue;
@@ -325,25 +327,11 @@ void FGXHorizonClipmap::Update(
 			++Built;
 		}
 	}
+	LastViewerLocal = ViewerLocalM;
+	bReady = true;
 	if (Built == 0)
 	{
-		LastViewerLocal = ViewerLocalM;
-		bReady = true;
 		return;
-	}
-	bReady = true;
-	bool bAllFresh = true;
-	for (const FRing& Ring : Rings)
-	{
-		if (FVector::DistSquared(ViewerLocalM, Ring.LastBuild) > FMath::Square(50.0f))
-		{
-			bAllFresh = false;
-			break;
-		}
-	}
-	if (bAllFresh)
-	{
-		LastViewerLocal = ViewerLocalM;
 	}
 	const double Ms = (FPlatformTime::Seconds() - T0) * 1000.0;
 	UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap rebuilt inner=%.0f outer=%.0f ms=%.1f rings=%d"),
