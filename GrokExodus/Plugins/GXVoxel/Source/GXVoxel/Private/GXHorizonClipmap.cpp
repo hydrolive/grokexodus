@@ -72,11 +72,6 @@ namespace
 		}
 		return SurfR;
 	}
-
-	float EditCoverM(const FVector4& E)
-	{
-		return FMath::Abs(E.W) + 0.8f;
-	}
 }
 
 void FGXHorizonClipmap::Initialize(AActor* Owner)
@@ -90,8 +85,11 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	struct FSpec { float Inner; float Outer; float Cell; float Sink; };
 	// Overlap ~150 m so rings never leave a sky gap. Outer rings sit a
 	// little deeper so the shared band does not z-fight.
+	// Fine inner ring so a 1.2 m brush moves several verts of THE crust.
+	// A second edit mesh sat on the grass (0.7.35–37).
 	const FSpec Specs[] = {
-		{ 0.0f, 560.0f, 8.0f, 0.0f },
+		{ 0.0f, 140.0f, 2.0f, 0.0f },
+		{ 120.0f, 560.0f, 8.0f, 1.0f },
 		{ 520.0f, 2400.0f, 24.0f, 2.5f },
 		{ 2200.0f, 10000.0f, 72.0f, 4.5f },
 	};
@@ -110,8 +108,7 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 		Ring.SinkM = S.Sink;
 		Rings.Add(Ring);
 	}
-	EditPatch = MakeClipPMC(Owner);
-	UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap: %d rings + edit patch"), Rings.Num());
+	UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap: %d rings"), Rings.Num());
 }
 
 void FGXHorizonClipmap::Invalidate()
@@ -143,12 +140,8 @@ void FGXHorizonClipmap::Shutdown()
 		}
 	}
 	Rings.Reset();
-	if (UProceduralMeshComponent* C = EditPatch.Get())
-	{
-		C->DestroyComponent();
-	}
-	EditPatch.Reset();
 	bReady = false;
+	bEditsDirty = false;
 }
 
 void FGXHorizonClipmap::BuildRing(
@@ -351,187 +344,6 @@ void FGXHorizonClipmap::BuildRing(
 	}
 }
 
-void FGXHorizonClipmap::BuildEditPatch(
-	UProceduralMeshComponent* Comp,
-	const FGXSphereStamp& Stamp,
-	const FVector& ViewerLocalM,
-	UMaterialInterface* Material,
-	const TArray<FVector4>* EditHolesLocalM)
-{
-	if (!Comp)
-	{
-		return;
-	}
-	Comp->ClearAllMeshSections();
-	if (!EditHolesLocalM || EditHolesLocalM->Num() == 0)
-	{
-		Comp->SetVisibility(false);
-		return;
-	}
-
-	const float R0 = Stamp.GetParams().Radius;
-	const float CellM = 0.25f;
-	constexpr int32 MaxPatches = 12;
-
-	struct FCand { float Dist2; int32 Index; };
-	TArray<FCand> Cands;
-	Cands.Reserve(EditHolesLocalM->Num());
-	for (int32 I = 0; I < EditHolesLocalM->Num(); ++I)
-	{
-		const FVector4& E = (*EditHolesLocalM)[I];
-		if (FMath::Abs(E.W) < 0.05f)
-		{
-			continue;
-		}
-		const FVector C(E.X, E.Y, E.Z);
-		const float D2 = FVector::DistSquared(C, ViewerLocalM);
-		if (D2 > 80.0f * 80.0f)
-		{
-			continue;
-		}
-		Cands.Add({ D2, I });
-	}
-	Cands.Sort([](const FCand& A, const FCand& B) { return A.Dist2 < B.Dist2; });
-	const int32 UseN = FMath::Min(MaxPatches, Cands.Num());
-	if (UseN == 0)
-	{
-		Comp->SetVisibility(false);
-		return;
-	}
-
-	int32 Sections = 0;
-	int32 TotalVerts = 0;
-	for (int32 P = 0; P < UseN; ++P)
-	{
-		const FVector4& E = (*EditHolesLocalM)[Cands[P].Index];
-		const FVector Hole(E.X, E.Y, E.Z);
-		FVector CenterDir = Hole.GetSafeNormal();
-		if (CenterDir.IsNearlyZero())
-		{
-			CenterDir = FVector(1, 0, 0);
-		}
-		FVector TanU, TanV;
-		CenterDir.FindBestAxisVectors(TanU, TanV);
-		const float Cover = EditCoverM(E);
-		const int32 Half = FMath::Max(4, FMath::CeilToInt(Cover / CellM));
-		const int32 Dim = Half * 2 + 1;
-		const float Cover2 = Cover * Cover;
-
-		TArray<FVector> Positions;
-		TArray<FVector> Normals;
-		TArray<FVector2D> UV0;
-		TArray<FLinearColor> Colors;
-		TArray<int32> Indices;
-		TArray<FProcMeshTangent> Tangents;
-		TArray<int32> IndexOf;
-		IndexOf.Init(INDEX_NONE, Dim * Dim);
-		Positions.Reserve(Dim * Dim);
-
-		for (int32 J = 0; J < Dim; ++J)
-		{
-			const float V = (static_cast<float>(J - Half) + 0.5f) * CellM;
-			for (int32 I = 0; I < Dim; ++I)
-			{
-				const float U = (static_cast<float>(I - Half) + 0.5f) * CellM;
-				if (U * U + V * V > Cover2)
-				{
-					continue;
-				}
-				FVector Dir = (CenterDir * R0 + TanU * U + TanV * V).GetSafeNormal();
-				if (Dir.IsNearlyZero())
-				{
-					Dir = CenterDir;
-				}
-				const FGXEarthField Field = Stamp.SampleEarthField(FVector3f(Dir.X, Dir.Y, Dir.Z), false);
-				float SurfR = R0 + Field.HeightM;
-				const FVector Guess = Dir * SurfR;
-				SurfR = ApplyEditSpheres(SurfR, Guess, EditHolesLocalM);
-				const FVector Pos = Dir * SurfR * 100.0f;
-				IndexOf[I + J * Dim] = Positions.Num();
-				Positions.Add(Pos);
-				Normals.Add(Dir);
-				float AtlasId = 1.0f;
-				if (Field.SlopeProxy > 0.16f || Field.Orogeny > 0.15f || Field.Volcano > 0.18f)
-				{
-					AtlasId = 2.0f;
-				}
-				UV0.Add(FVector2D(AtlasId, 0.0f));
-				Colors.Add(FLinearColor(0.52f, 0.60f, 0.34f, 1.0f));
-				FVector Tan = FVector::CrossProduct(Dir, FVector::ZAxisVector);
-				if (Tan.SizeSquared() < 1e-6f)
-				{
-					Tan = FVector::CrossProduct(Dir, FVector::YAxisVector);
-				}
-				Tan.Normalize();
-				Tangents.Add(FProcMeshTangent(Tan, false));
-			}
-		}
-
-		auto Vert = [&](int32 I, int32 J) -> int32
-		{
-			if (I < 0 || J < 0 || I >= Dim || J >= Dim)
-			{
-				return INDEX_NONE;
-			}
-			return IndexOf[I + J * Dim];
-		};
-		for (int32 J = 0; J < Dim - 1; ++J)
-		{
-			for (int32 I = 0; I < Dim - 1; ++I)
-			{
-				const int32 A = Vert(I, J);
-				const int32 B = Vert(I + 1, J);
-				const int32 C = Vert(I, J + 1);
-				const int32 D = Vert(I + 1, J + 1);
-				if (A == INDEX_NONE || B == INDEX_NONE || C == INDEX_NONE || D == INDEX_NONE)
-				{
-					continue;
-				}
-				Indices.Add(A); Indices.Add(B); Indices.Add(C);
-				Indices.Add(B); Indices.Add(D); Indices.Add(C);
-			}
-		}
-
-		TArray<FVector> AccN;
-		AccN.Init(FVector::ZeroVector, Positions.Num());
-		for (int32 T0 = 0; T0 + 2 < Indices.Num(); T0 += 3)
-		{
-			const int32 IA = Indices[T0], IB = Indices[T0 + 1], IC = Indices[T0 + 2];
-			const FVector FN = FVector::CrossProduct(Positions[IB] - Positions[IA], Positions[IC] - Positions[IA]);
-			AccN[IA] += FN; AccN[IB] += FN; AccN[IC] += FN;
-		}
-		for (int32 V = 0; V < Positions.Num(); ++V)
-		{
-			FVector N = AccN[V].GetSafeNormal();
-			if (N.IsNearlyZero())
-			{
-				N = Normals[V];
-			}
-			if (FVector::DotProduct(N, Positions[V].GetSafeNormal()) < 0.0f)
-			{
-				N = -N;
-			}
-			Normals[V] = N;
-		}
-
-		if (Positions.Num() >= 3 && Indices.Num() >= 3)
-		{
-			Comp->CreateMeshSection_LinearColor(Sections, Positions, Indices, Normals, UV0, Colors, Tangents, false);
-			if (Material)
-			{
-				Comp->SetMaterial(Sections, Material);
-			}
-			TotalVerts += Positions.Num();
-			++Sections;
-		}
-	}
-
-	Comp->SetVisibility(Sections > 0);
-	Comp->SetHiddenInGame(false);
-	Comp->UpdateBounds();
-	GX_PERF(1, TEXT("GX-editpatch sections=%d verts=%d holes=%d"), Sections, TotalVerts, UseN);
-}
-
 void FGXHorizonClipmap::Update(
 	AActor* Owner,
 	const FGXSphereStamp& Stamp,
@@ -600,7 +412,7 @@ void FGXHorizonClipmap::Update(
 	for (int32 I = 0; I < Rings.Num(); ++I)
 	{
 		FRing& Ring = Rings[I];
-		const float RebuildM = (I == 0) ? 220.0f : 400.0f;
+		const float RebuildM = (I == 0) ? 70.0f : 400.0f;
 		if (bReady && Built >= 1 && I > 0)
 		{
 			break;
@@ -616,10 +428,6 @@ void FGXHorizonClipmap::Update(
 			Ring.LastBuild = ViewerLocalM;
 			++Built;
 		}
-	}
-	if (UProceduralMeshComponent* Patch = EditPatch.Get())
-	{
-		BuildEditPatch(Patch, Stamp, ViewerLocalM, NearLit, EditHolesLocalM);
 	}
 	bEditsDirty = false;
 	LastViewerLocal = ViewerLocalM;

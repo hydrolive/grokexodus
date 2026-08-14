@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.37**  
+Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.38**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.7.38** 0.7.37: tiling OK, but add/remove still spawned a **second mesh on the grass**. Deleted the edit patch. Fine walk ring is **2 m cells to 140 m**. Brush deforms that ring only — one surface.
 - **GX 0.7.37** 0.7.36 shots: **tile-edge cross** (atlas+frac jumps inside a cell). Add/subtract sat as a **grey gumdrop on the grass** (place center 30 cm up, `HoleR+Drop` hemisphere, clipmap not rebuilt so the patch is a prop). Place is a shallow cap (sphere sunk 0.55 R). Dig/place rebuild ring 0 so the crust itself moves. Near PBR samples wrap grass/rock/dirt textures — no atlas frac.
 - **GX 0.7.36** 0.7.35 shots: **mirror triangles** (dual-UV blend ÷0 at wrap corners) and a **sawtooth reflective skirt** around every dig (8 m quads deleted, 20 m patch/void). Clipmap stays closed. Patch is brush+1.2 m only. PBR is single rotated YZ + 2% inset. Dig does not rebuild the 560 m ring.
 - **GX 0.7.35** 0.7.34 shot: texture **cross-seam** (atlas inset 16%/68% + single planar wrap). Dig **heaved a 24 m disk** (density search retargeted stamp height). Carve is the **brush sphere only**. 8 m clipmap opens a one-cell window; a 0.4 m **edit patch** fills it. PBR: 2% atlas inset + dual YZ frames (32°/77°) blended off the wrap. No Atan2.
@@ -69,6 +70,10 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 - Live Coding often blocks `Build.bat`. The agent **closes Unreal and rebuilds Development Editor `-NoUBA`** (see `AGENTS.md`). Do not ask the user to do that.
 - **Unreal MCP:** `UnrealMCPython` plugin listens on `127.0.0.1:12029`. Agent **must Start-Process the editor** and confirm a PID before polling the port. Never wait on 12029 with no UnrealEditor process (the user had to launch it by hand). Run Python via `unreal-mcpython__util execute_python`. Unity MCP is disabled.
 - **Plugin GXCore failed to load / GetLastError=4551:** Development `UnrealEditor-GXCore.dll` was an unloadable image (UBA served a bad cached link). DebugGame DLL was fine; the editor loads Development. Fix: delete `Plugins/*/Binaries/Win64/UnrealEditor-GX*.dll` and `Binaries/Win64/UnrealEditor-GrokExodus.dll`, rebuild `GrokExodusEditor Win64 Development -NoUBA`. All six project DLLs now map with `LoadLibraryEx(DONT_RESOLVE)`.
+
+## Verify after 0.7.38
+
+1. Gold `GX 0.7.38`. Add/subtract change the grass under the sphere. No second blob sitting on it.
 
 ## Verify after 0.7.37
 
