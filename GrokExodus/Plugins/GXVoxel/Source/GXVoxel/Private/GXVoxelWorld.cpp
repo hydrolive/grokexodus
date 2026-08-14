@@ -180,7 +180,7 @@ void AGXVoxelWorld::ApplyEarthPlayDefaults()
 	bForceLOD0 = true;
 	HorizonOuterM = 10000.0f;
 	bAsyncMeshing = true;
-	WarmupSeconds = 4.0f;
+	WarmupSeconds = 1.5f;
 	WarmupMeshBuildsPerFrame = 8;
 	MaxMeshBuildsPerFrame = 6;
 	MeshTimeBudgetMs = 6.0f;
@@ -332,10 +332,6 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	if (bAtlasReady && ActiveStreamRadius < StreamRadius)
 	{
 		ActiveStreamRadius = FMath::Min(StreamRadius, ActiveStreamRadius + FMath::Max(40.0f, StreamRadius * 0.22f));
-	}
-	if (bAtlasReady && LastDesiredNear > 0 && LastMeshedNear < LastDesiredNear * 0.90f)
-	{
-		WarmupTimeRemaining = FMath::Max(WarmupTimeRemaining, 0.35f);
 	}
 
 	StreamCooldown -= DeltaSeconds;
@@ -736,17 +732,14 @@ void AGXVoxelWorld::RefreshLoadState()
 		LoadProgress = 0.96f;
 	}
 
-	// A spherical near-field is mostly hollow. Ready when the queue is quiet and
-	// we have real ground — do not require 85% of the ball to have a visible mesh.
-	const bool bHaveGround = LastMeshedNear >= 2;
-	const bool bNearFilled = LastDesiredNear <= 0
-		|| LastMeshedNear >= FMath::CeilToInt(static_cast<float>(LastDesiredNear) * 0.90f);
-	const bool bNearQuiet = NearMeshQueue.Num() == 0 && AsyncInFlight.Num() <= 2 && bNearFilled;
-	if (bAtlasReady && bHaveGround && (bNearQuiet || bNearFilled) && WarmupTimeRemaining <= 0.0f)
+	// Clipmap is the continuous crust. Two near voxel shells + atlas = playable.
+	// Requiring 90% and holding warmup forever was the 0.7.28 92% deadlock.
+	if (bAtlasReady && LastMeshedNear >= 2)
 	{
 		LoadStatus = TEXT("Ready");
 		LoadProgress = 1.0f;
 		bWorldReady = true;
+		WarmupTimeRemaining = 0.0f;
 	}
 	GX_PERF(2, TEXT("GX-load mesh=%d hollowNear=%d desired=%d queue=%d status=%s"),
 		LastMeshedNear, LastHollowNear, Desired, Queue, *LoadStatus);
@@ -784,19 +777,26 @@ void AGXVoxelWorld::MarkChunkEmpty(const FGXChunkKey& Coord, int32 LOD, const TC
 		return;
 	}
 
-	// Overlap test said crust. Hollowing those 173 chunks was the teal river.
-	// Clipmap (same atlas height, sunk 8 m) fills any real miss. Do not hollow.
+	// Overlap said crust but MC produced nothing. Two retries, then stop —
+	// clipmap is the continuous floor. Retrying forever was the overlay flip
+	// and the climbing cache-miss count at 25/32.
 	if (bOnCrust)
 	{
+		int32& Holds = EmptyRetries.FindOrAdd(Coord);
+		if (Holds >= 2)
+		{
+			return;
+		}
 		const double Now = FPlatformTime::Seconds();
 		const double* Next = NextEmptyRetryAt.Find(Coord);
 		if (Next && Now < *Next)
 		{
 			return;
 		}
+		++Holds;
 		NextEmptyRetryAt.Add(Coord, Now + 2.5);
-		GX_PERF(2, TEXT("GX-empty crust-hold %d_%d_%d d=%.0f %s"),
-			Coord.X, Coord.Y, Coord.Z, Dist, Reason ? Reason : TEXT("?"));
+		GX_PERF(2, TEXT("GX-empty crust-hold %d/%d %d_%d_%d d=%.0f %s"),
+			Holds, 2, Coord.X, Coord.Y, Coord.Z, Dist, Reason ? Reason : TEXT("?"));
 		BrushForceLOD0.Add(Coord);
 		EnqueueRemesh(Coord, Dist <= NearFieldRadius);
 		return;
@@ -978,6 +978,10 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 				}
 				if (!ChunkVisuals.Contains(CC))
 				{
+					if (EmptyRetries.FindRef(CC) >= 2)
+					{
+						continue;
+					}
 					const double* Next = NextEmptyRetryAt.Find(CC);
 					if (Next && FPlatformTime::Seconds() < *Next)
 					{
