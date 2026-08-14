@@ -98,16 +98,16 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	float Domain = 0.5f + 0.5f * FGXNoise::FBm(
 		Ux * Params.PlateauFreq, Uy * Params.PlateauFreq, Uz * Params.PlateauFreq,
 		Params.Seed + 21u, 2, 2.0f, 0.5f);
-	// Spawn basin ~2.2 km of lake-flat. A range ring at 3–16 km puts real
-	// mountains on the 8 km clipmap without burying the player in peaks.
+	// Spawn basin ~1.6 km of lake-flat. Ranges from 2 km so peaks read as
+	// mountains on the 8 km clipmap, not just rolling hills.
 	const float ArcM = FMath::Acos(FMath::Clamp(Ux, -1.0f, 1.0f)) * Params.Radius;
-	const float Basin = FGXNoise::Smooth01((2200.0f - ArcM) / 500.0f);
-	const float RangeRing = FGXNoise::Smooth01((ArcM - 2400.0f) / 800.0f)
-		* (1.0f - FGXNoise::Smooth01((ArcM - 16000.0f) / 4000.0f));
+	const float Basin = FGXNoise::Smooth01((1600.0f - ArcM) / 400.0f);
+	const float RangeRing = FGXNoise::Smooth01((ArcM - 1800.0f) / 600.0f)
+		* (1.0f - FGXNoise::Smooth01((ArcM - 18000.0f) / 4000.0f));
 	Domain = FMath::Lerp(Domain, 0.16f, Basin * 0.92f);
-	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.88f, RangeRing));
+	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.94f, RangeRing));
 	const float PlainsW = 1.0f - FGXNoise::Smooth01((Domain - 0.34f) / 0.26f);
-	const float MountainW = FGXNoise::Smooth01((Domain - 0.62f) / 0.20f);
+	const float MountainW = FGXNoise::Smooth01((Domain - 0.55f) / 0.18f);
 	const float HillW = FMath::Clamp(1.0f - PlainsW - MountainW, 0.0f, 1.0f);
 	const float RangeMask = 1.0f - PlainsW;
 	const float Highland = Domain;
@@ -119,8 +119,8 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	const float HillH = PlainsH + 0.028f * (0.4f + 0.6f * FGXNoise::FBm(
 		Ux * Params.HillFreq, Uy * Params.HillFreq, Uz * Params.HillFreq,
 		Params.Seed + 17u, 2, 2.0f, 0.5f));
-	// ~1.2 km peaks, ramped by MountainW so flanks stay walkable.
-	const float PeakH = PlainsH + 0.50f * Mass * MountainW;
+	// ~2 km peaks (0.85 × 2400 m × mass). Walkable flanks via MountainW ramp.
+	const float PeakH = PlainsH + 0.85f * Mass * MountainW;
 	const float Orogeny = LandMask * (PlainsW * PlainsH + HillW * HillH + MountainW * PeakH);
 	Out.Orogeny = LandMask * MountainW * 0.22f * Mass;
 

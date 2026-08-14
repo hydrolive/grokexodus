@@ -76,7 +76,7 @@ struct FGXPlanetStampParams
 		P.CrustDepth = 96.0f;
 		P.Seed = 1337u;
 		P.ContinentFreq = 1.35f;
-		P.MountainFreq = 16.0f;   // ~24 km range masses, visible on the 8 km clipmap
+		P.MountainFreq = 15.0f;   // ~25 km masses; fingerprint bump for taller peaks
 		P.DetailFreq = 900.0f;
 		P.MoistureFreq = 2.4f;
 		P.ScarFreq = 4.5f;

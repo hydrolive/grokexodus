@@ -35,13 +35,6 @@ void UGXBootOverlaySubsystem::OnWorldBeginPlay(UWorld& InWorld)
 {
 	Super::OnWorldBeginPlay(InWorld);
 	TryAttach();
-	if (GEngine)
-	{
-		GEngine->bEnableOnScreenDebugMessages = true;
-		GEngine->bEnableOnScreenDebugMessagesDisplay = true;
-		GEngine->AddOnScreenDebugMessage(9, 25.f, FColor::Yellow,
-			FString::Printf(TEXT("GX %s — Slate overlay (not HUD)"), GX_VERSION_STRING));
-	}
 }
 
 void UGXBootOverlaySubsystem::Tick(float DeltaTime)

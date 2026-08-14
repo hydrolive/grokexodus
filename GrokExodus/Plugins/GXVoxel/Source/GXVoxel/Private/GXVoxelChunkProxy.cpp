@@ -83,8 +83,9 @@ void AGXVoxelChunkProxy::ApplyMesh(
 		Tangents.Add(FProcMeshTangent(T, false));
 	}
 
-	// Always async-cook. Sync collision on every brush remesh froze the frame.
-	Mesh->bUseAsyncCooking = true;
+	// Sync-cook collision so the player is not standing on a mesh with no
+	// floor (that was the "I cannot move" snap-loop). Far visual chunks stay async.
+	Mesh->bUseAsyncCooking = !bCollision;
 	Mesh->ClearAllMeshSections();
 	Mesh->CreateMeshSection_LinearColor(
 		0,

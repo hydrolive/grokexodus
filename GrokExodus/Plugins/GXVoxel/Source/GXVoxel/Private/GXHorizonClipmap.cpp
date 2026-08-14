@@ -114,7 +114,9 @@ void FGXHorizonClipmap::BuildRing(
 			}
 			const FVector3f Df(Dir.X, Dir.Y, Dir.Z);
 			const float SurfR = Stamp.SampleSurfaceRadius(Df);
-			const FVector P = Dir * SurfR * 100.0f;
+			// Sit 1.5 m under the voxel isosurface so L0 wins depth and a
+			// missing chunk still shows crust instead of a black pit.
+			const FVector P = Dir * (SurfR - 1.5f) * 100.0f;
 			const int32 Idx = I + J * Dim;
 			IndexOf[Idx] = Positions.Num();
 			Positions.Add(P);
@@ -238,10 +240,11 @@ void FGXHorizonClipmap::Update(
 	FVector T, B;
 	CenterDir.FindBestAxisVectors(T, B);
 
-	// Start just inside the voxel stream. Drawing clipmap over L0 caused the
-	// lattice seams in the screenshots (12 m grid z-fighting 1 m voxels).
-	// Overlap the outer voxel shell by ~10% so a missing L1 chunk is not a pit.
-	Rings[0].InnerM = FMath::Clamp(InnerHoleM * 0.88f, 180.0f, 360.0f);
+	// Only punch a hole underfoot. A 300 m inner hole was the black pit in
+	// the 0.7.7 shot — missing voxels opened a view into the planet.
+	// Clipmap sits 1.5 m under the stamp so overlapping voxels win depth.
+	(void)InnerHoleM;
+	Rings[0].InnerM = 48.0f;
 	if (Rings.Num() > 2)
 	{
 		Rings.Last().OuterM = FMath::Max(OuterM, 4000.0f);

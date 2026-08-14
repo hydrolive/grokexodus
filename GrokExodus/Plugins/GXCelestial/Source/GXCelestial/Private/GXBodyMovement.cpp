@@ -190,7 +190,9 @@ void UGXBodyMovement::TickComponent(float DeltaTime, ELevelTick TickType, FActor
 			AirborneSeconds += DeltaTime;
 			if (AirborneSeconds >= AirborneSnapSeconds)
 			{
-				SnapToSurface(true);
+				// Keep walk velocity — zeroing this after a 1 s fall into a
+				// missing-chunk pit felt like the pawn was glued in place.
+				SnapToSurface(false);
 				AirborneSeconds = 0.0f;
 			}
 		}

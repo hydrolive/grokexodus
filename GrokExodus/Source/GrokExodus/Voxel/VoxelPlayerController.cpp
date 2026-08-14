@@ -35,13 +35,5 @@ void AVoxelPlayerController::BeginPlay()
 		MyHUD->bShowHUD = true;
 	}
 	ConsoleCommand(TEXT("showhud 1"));
-	ConsoleCommand(TEXT("EnableAllScreenMessages"));
 	UE_LOG(LogTemp, Warning, TEXT("********** GX BUILD %s VoxelPC HUD=AGXHUDLayout **********"), GX_VERSION_STRING);
-	if (GEngine)
-	{
-		GEngine->bEnableOnScreenDebugMessages = true;
-		GEngine->bEnableOnScreenDebugMessagesDisplay = true;
-		GEngine->AddOnScreenDebugMessage(8, 25.f, FColor::Cyan,
-			FString::Printf(TEXT("GX %s HUD forced (Slate overlay is the real stamp)"), GX_VERSION_STRING));
-	}
 }

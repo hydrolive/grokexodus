@@ -27,11 +27,6 @@ void AGXGameMode::BeginPlay()
 {
 	Super::BeginPlay();
 	UE_LOG(LogTemp, Warning, TEXT("********** GX BUILD %s (%s) AGXGameMode **********"), GX_VERSION_STRING, GX_VERSION_DATE);
-	if (GEngine)
-	{
-		GEngine->AddOnScreenDebugMessage(7, 30.f, FColor::Yellow,
-			FString::Printf(TEXT("GX %s — if you do not see this, you are on old binaries"), GX_VERSION_STRING));
-	}
 	if (APlayerController* PC = GetWorld() ? GetWorld()->GetFirstPlayerController() : nullptr)
 	{
 		PC->ClientSetHUD(AGXHUDLayout::StaticClass());

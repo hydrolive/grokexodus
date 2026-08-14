@@ -164,7 +164,7 @@ void AGXVoxelWorld::ApplyEarthPlayDefaults()
 	StreamRadius = 360.0f;
 	UnloadRadius = 500.0f;
 	NearFieldRadius = 110.0f;
-	CollisionRadius = 72.0f;
+	CollisionRadius = 160.0f;
 	bForceLOD0 = false;
 	HorizonOuterM = 8000.0f;
 	bAsyncMeshing = true;
@@ -1165,6 +1165,7 @@ bool AGXVoxelWorld::PlacePawnOnSurface(APawn* Pawn, FVector RadialHint)
 	if (bAtlasReady)
 	{
 		UpdateStreaming(SpawnLoc);
+		FlushMeshQueue(8);
 	}
 
 	Pawn->SetActorLocation(SpawnLoc, false, nullptr, ETeleportType::TeleportPhysics);
