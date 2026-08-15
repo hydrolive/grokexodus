@@ -1048,8 +1048,12 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 					++SkippedAir;
 					continue;
 				}
-				// Unedited crust is the clipmap. Only dirty pages get an MC mesh
-				// so a cave can have a roof and never evict the oldest bowl.
+				// Clipmap is THE surface. Meshing edited crust chunks stacked
+				// a second layer you could walk behind (0.8.15 #1).
+				if (ChunkOverlapsSurface(CC, ChunkM) && !bDrawVoxelVisuals)
+				{
+					continue;
+				}
 				if (!bEdited && !bDrawVoxelVisuals)
 				{
 					continue;

@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.15**  
+Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.16**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.8.16** 0.8.15 #1: walk **behind clipmap** (edited chunks still meshed). #2: new ground only **stained** (2 m verts missed the 1.2 m SDF). Clipmap verts now drop to the **sphere floor** along each radial. Surface edited chunks are **not** meshed.
 - **GX 0.8.15** 0.8.14 shots: brush **not on the hit** (aim-ray offset slid the hole) and **overlapping layers** (voxel remesh + clipmap). Ball sits **into the surface** at the hit (floor = radial, wall = aim). Surface digs do not remesh voxels. Ray step 12 cm.
 - **GX 0.8.14** 0.8.13 shot: dug from **behind** the grass; the lid never moved (3D distance + “cave roof” skip). Extra clicks. Brush now drops verts by **surface** distance so a carve under the lawn pulls the top down. Edited chunks remesh again so the interior exists.
 - **GX 0.8.13** 0.8.12: **untouched grass lid** over spawn and every dig (you could walk under it). `UpdateMeshSection` was given grid-only arrays after rim skirts — UE ignored the update. Live mesh is stored after skirts. Surface-air columns drop. No punch.

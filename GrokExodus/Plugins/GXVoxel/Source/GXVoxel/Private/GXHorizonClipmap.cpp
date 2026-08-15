@@ -211,10 +211,11 @@ void FGXHorizonClipmap::NotifyBrush(
 	float RadiusM,
 	TFunction<float(const FVector&)> DensityAt)
 {
-	if (Rings.Num() == 0 || !DensityAt || RadiusM <= 0.0f)
+	if (Rings.Num() == 0 || RadiusM <= 0.0f)
 	{
 		return;
 	}
+	(void)DensityAt;
 	FRing& Ring = Rings[0];
 	UProceduralMeshComponent* Comp = Ring.Comp.Get();
 	if (!Comp || Ring.StampDir.Num() == 0)
@@ -227,7 +228,8 @@ void FGXHorizonClipmap::NotifyBrush(
 	{
 		return;
 	}
-	const float Cover = RadiusM + FMath::Max(Ring.CellM, 2.0f) * 2.0f;
+	const float R2 = RadiusM * RadiusM;
+	const float Cover = RadiusM + FMath::Max(Ring.CellM, 2.0f);
 	const float Cover2 = Cover * Cover;
 	FVector BrushDir = LocalM.GetSafeNormal();
 	if (BrushDir.IsNearlyZero())
@@ -245,66 +247,27 @@ void FGXHorizonClipmap::NotifyBrush(
 		const FVector Dir = Ring.StampDir[VI];
 		const float Surf = Ring.StampSurfM[VI];
 		const FVector AtSurf = Dir * Surf;
-		// Compare on the crust, not in 3D. A brush under the lid is several
-		// metres below AtSurf — 3D distance skipped every roof vert (0.8.13).
 		const FVector BrushOnSurf = BrushDir * Surf;
 		if (FVector::DistSquared(AtSurf, BrushOnSurf) > Cover2)
 		{
 			continue;
 		}
-		// Air anywhere in the top 2.5 m is a surface dent / undercut lid.
-		// Solid-at-surf used to take the raise path and left the grass plane.
-		bool bAirCol = false;
-		for (float D = 0.0f; D <= 2.5f; D += 0.25f)
-		{
-			// Stamp isosurface is ~0. Real carve air is clearly negative.
-			if (DensityAt(Dir * (Surf - D)) < -0.15f)
-			{
-				bAirCol = true;
-				break;
-			}
-		}
-		float R = Surf;
-		if (!bAirCol)
-		{
-			if (DensityAt(Dir * (Surf + 0.25f)) <= 0.05f)
-			{
-				continue;
-			}
-			for (int32 Step = 0; Step < 80; ++Step)
-			{
-				const float Next = R + 0.25f;
-				if (DensityAt(Dir * Next) <= 0.05f)
-				{
-					break;
-				}
-				R = Next;
-				if (R > Surf + 16.0f)
-				{
-					break;
-				}
-			}
-		}
-		else
-		{
-			for (int32 Step = 0; Step < 160; ++Step)
-			{
-				if (DensityAt(Dir * R) > 0.05f)
-				{
-					break;
-				}
-				R -= 0.25f;
-				if (R < Surf - 48.0f)
-				{
-					break;
-				}
-			}
-			R -= 0.08f;
-		}
-		if (FMath::Abs(R - Surf) < 0.05f)
+		// Geometric CSG on this radial: drop to the inner sphere hit.
+		// Density sampling at 2 m verts missed a 1.2 m ball and only
+		// stained the texture (0.8.15 #2).
+		const float Along = FVector::DotProduct(LocalM, Dir);
+		const float Perp2 = FMath::Max(0.0f, LocalM.SizeSquared() - Along * Along);
+		if (Perp2 >= R2)
 		{
 			continue;
 		}
+		const float Half = FMath::Sqrt(R2 - Perp2);
+		const float FloorR = Along - Half - 0.08f;
+		if (FloorR >= Surf - 0.05f)
+		{
+			continue;
+		}
+		const float R = FMath::Max(FloorR, Surf - 48.0f);
 		Ring.LivePos[VI] = Dir * R * 100.0f;
 		if (Ring.UV0.IsValidIndex(VI))
 		{
