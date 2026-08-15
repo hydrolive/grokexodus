@@ -93,100 +93,6 @@ namespace
 		return FMath::Max(SurfR - Sub + Add, SurfR * 0.5f);
 	}
 
-	/** Subdivide one coarse quad so the crater welds to the landscape. */
-	void EmitRefinedQuad(
-		const FVector& PA, const FVector& PB, const FVector& PC, const FVector& PD,
-		const FVector2D& UVA, const FVector2D& UVB, const FVector2D& UVC, const FVector2D& UVD,
-		const FLinearColor& CA, const FLinearColor& CB, const FLinearColor& CC, const FLinearColor& CD,
-		int32 Sub,
-		const TArray<FVector4>* Edits,
-		TArray<FVector>& Positions,
-		TArray<FVector>& Normals,
-		TArray<FVector2D>& UV0,
-		TArray<FLinearColor>& Colors,
-		TArray<FProcMeshTangent>& Tangents,
-		TArray<int32>& Indices)
-	{
-		Sub = FMath::Clamp(Sub, 8, 20);
-		const int32 Dim = Sub + 1;
-		const int32 Base = Positions.Num();
-		const int32 FirstTri = Indices.Num();
-		// One displace axis for the whole quad. Per-vert radial CSG folded
-		// triangles; FixOutwardWinding then flipped the entire crust
-		// (0.7.48 underside / teal void).
-		FVector QuadN = (PA + PB + PC + PD).GetSafeNormal();
-		if (QuadN.IsNearlyZero())
-		{
-			QuadN = FVector(1, 0, 0);
-		}
-		for (int32 J = 0; J < Dim; ++J)
-		{
-			const float V = static_cast<float>(J) / static_cast<float>(Sub);
-			for (int32 I = 0; I < Dim; ++I)
-			{
-				const float U = static_cast<float>(I) / static_cast<float>(Sub);
-				const FVector P0 = FMath::Lerp(PA, PB, U);
-				const FVector P1 = FMath::Lerp(PC, PD, U);
-				FVector P = FMath::Lerp(P0, P1, V);
-				FVector Dir = P.GetSafeNormal();
-				if (Dir.IsNearlyZero())
-				{
-					Dir = QuadN;
-				}
-				const float Surf = P.Size() * 0.01f;
-				const float NewSurf = ApplyEditSpheres(Surf, Dir * Surf, Edits);
-				P = P + QuadN * ((NewSurf - Surf) * 100.0f);
-				Positions.Add(P);
-				Normals.Add(Dir);
-				UV0.Add(FMath::Lerp(FMath::Lerp(UVA, UVB, U), FMath::Lerp(UVC, UVD, U), V));
-				Colors.Add(FMath::Lerp(FMath::Lerp(CA, CB, U), FMath::Lerp(CC, CD, U), V));
-				FVector Tan = FVector::CrossProduct(Dir, FVector::ZAxisVector);
-				if (Tan.SizeSquared() < 1e-6f)
-				{
-					Tan = FVector::CrossProduct(Dir, FVector::YAxisVector);
-				}
-				Tan.Normalize();
-				Tangents.Add(FProcMeshTangent(Tan, false));
-			}
-		}
-		for (int32 J = 0; J < Sub; ++J)
-		{
-			for (int32 I = 0; I < Sub; ++I)
-			{
-				const int32 A = Base + I + J * Dim;
-				const int32 B = A + 1;
-				const int32 C = A + Dim;
-				const int32 D = C + 1;
-				Indices.Add(A); Indices.Add(B); Indices.Add(C);
-				Indices.Add(B); Indices.Add(D); Indices.Add(C);
-			}
-		}
-		TArray<FVector> AccN;
-		AccN.Init(FVector::ZeroVector, Dim * Dim);
-		for (int32 T0 = FirstTri; T0 + 2 < Indices.Num(); T0 += 3)
-		{
-			const int32 IA = Indices[T0] - Base;
-			const int32 IB = Indices[T0 + 1] - Base;
-			const int32 IC = Indices[T0 + 2] - Base;
-			const FVector FN = FVector::CrossProduct(
-				Positions[Base + IB] - Positions[Base + IA],
-				Positions[Base + IC] - Positions[Base + IA]);
-			AccN[IA] += FN; AccN[IB] += FN; AccN[IC] += FN;
-		}
-		for (int32 V = 0; V < AccN.Num(); ++V)
-		{
-			FVector N = AccN[V].GetSafeNormal();
-			if (N.IsNearlyZero())
-			{
-				N = Normals[Base + V];
-			}
-			if (FVector::DotProduct(N, Positions[Base + V].GetSafeNormal()) < 0.0f)
-			{
-				N = -N;
-			}
-			Normals[Base + V] = N;
-		}
-	}
 }
 
 void FGXHorizonClipmap::Initialize(AActor* Owner)
@@ -585,6 +491,78 @@ void FGXHorizonClipmap::ApplyRingEdits(
 			Dilated = MoveTemp(Next);
 		}
 
+		const int32 StampCount = Ring.StampPos.Num();
+		TSet<int32> CornerCSG;
+		auto CSGStampVert = [&](int32 VI)
+		{
+			if (VI == INDEX_NONE || CornerCSG.Contains(VI)
+				|| !Ring.StampDir.IsValidIndex(VI) || !Ring.StampSurfM.IsValidIndex(VI))
+			{
+				return;
+			}
+			CornerCSG.Add(VI);
+			const FVector Dir = Ring.StampDir[VI];
+			const float Surf = Ring.StampSurfM[VI];
+			const float NewS = ApplyEditSpheres(Surf, Dir * Surf, Edits);
+			Positions[VI] = Dir * NewS * 100.0f;
+		};
+
+		TMap<int64, int32> FineOf;
+		FineOf.Reserve(4096);
+		auto FineKey = [](int32 FI, int32 FJ) -> int64
+		{
+			return (static_cast<int64>(static_cast<uint32>(FI)) << 32) | static_cast<uint32>(FJ);
+		};
+		auto MakeTan = [](const FVector& Dir) -> FProcMeshTangent
+		{
+			FVector Tan = FVector::CrossProduct(Dir, FVector::ZAxisVector);
+			if (Tan.SizeSquared() < 1e-6f)
+			{
+				Tan = FVector::CrossProduct(Dir, FVector::YAxisVector);
+			}
+			Tan.Normalize();
+			return FProcMeshTangent(Tan, false);
+		};
+		auto GetFine = [&](int32 I, int32 J, int32 SI, int32 SJ) -> int32
+		{
+			if (SI == 0 && SJ == 0) { return Grid(I, J); }
+			if (SI == Sub && SJ == 0) { return Grid(I + 1, J); }
+			if (SI == 0 && SJ == Sub) { return Grid(I, J + 1); }
+			if (SI == Sub && SJ == Sub) { return Grid(I + 1, J + 1); }
+			const int64 Key = FineKey(I * Sub + SI, J * Sub + SJ);
+			if (const int32* Found = FineOf.Find(Key))
+			{
+				return *Found;
+			}
+			const int32 CA = Grid(I, J);
+			const int32 CB = Grid(I + 1, J);
+			const int32 CC = Grid(I, J + 1);
+			const int32 CD = Grid(I + 1, J + 1);
+			const float U = static_cast<float>(SI) / static_cast<float>(Sub);
+			const float V = static_cast<float>(SJ) / static_cast<float>(Sub);
+			// Bilinear of the *stamp* corners, then CSG once. Shared key so
+			// adjacent quads cannot open a T-junction hole (0.7.49 #1/#2).
+			FVector P = FMath::Lerp(
+				FMath::Lerp(Ring.StampPos[CA], Ring.StampPos[CB], U),
+				FMath::Lerp(Ring.StampPos[CC], Ring.StampPos[CD], U), V);
+			FVector Dir = P.GetSafeNormal();
+			if (Dir.IsNearlyZero())
+			{
+				Dir = Ring.StampDir[CA];
+			}
+			float Surf = P.Size() * 0.01f;
+			Surf = ApplyEditSpheres(Surf, Dir * Surf, Edits);
+			P = Dir * Surf * 100.0f;
+			const int32 Idx = Positions.Num();
+			Positions.Add(P);
+			Normals.Add(Dir);
+			UV0.Add(FMath::Lerp(FMath::Lerp(Ring.UV0[CA], Ring.UV0[CB], U), FMath::Lerp(Ring.UV0[CC], Ring.UV0[CD], U), V));
+			Colors.Add(FMath::Lerp(FMath::Lerp(Ring.Colors[CA], Ring.Colors[CB], U), FMath::Lerp(Ring.Colors[CC], Ring.Colors[CD], U), V));
+			Tangents.Add(MakeTan(Dir));
+			FineOf.Add(Key, Idx);
+			return Idx;
+		};
+
 		for (int32 J = 0; J < QW; ++J)
 		{
 			for (int32 I = 0; I < QW; ++I)
@@ -599,12 +577,22 @@ void FGXHorizonClipmap::ApplyRingEdits(
 				}
 				if (Dilated[I + J * QW])
 				{
-					EmitRefinedQuad(
-						Positions[A], Positions[B], Positions[C], Positions[D],
-						UV0[A], UV0[B], UV0[C], UV0[D],
-						Colors[A], Colors[B], Colors[C], Colors[D],
-						Sub, Edits,
-						Positions, Normals, UV0, Colors, Tangents, Indices);
+					CSGStampVert(A);
+					CSGStampVert(B);
+					CSGStampVert(C);
+					CSGStampVert(D);
+					for (int32 SJ = 0; SJ < Sub; ++SJ)
+					{
+						for (int32 SI = 0; SI < Sub; ++SI)
+						{
+							const int32 FA = GetFine(I, J, SI, SJ);
+							const int32 FB = GetFine(I, J, SI + 1, SJ);
+							const int32 FC = GetFine(I, J, SI, SJ + 1);
+							const int32 FD = GetFine(I, J, SI + 1, SJ + 1);
+							Indices.Add(FA); Indices.Add(FB); Indices.Add(FC);
+							Indices.Add(FB); Indices.Add(FD); Indices.Add(FC);
+						}
+					}
 					++Refined;
 				}
 				else
@@ -613,6 +601,32 @@ void FGXHorizonClipmap::ApplyRingEdits(
 					Indices.Add(B); Indices.Add(D); Indices.Add(C);
 				}
 			}
+		}
+
+		// New fine verts only. Recomputing stamp verts pulled crater-wall
+		// slope onto neighbouring 8 m tris (0.7.49 #3 dirt smear).
+		TArray<FVector> AccN;
+		AccN.Init(FVector::ZeroVector, Positions.Num());
+		for (int32 T0 = 0; T0 + 2 < Indices.Num(); T0 += 3)
+		{
+			const int32 IA = Indices[T0], IB = Indices[T0 + 1], IC = Indices[T0 + 2];
+			if (IA < StampCount && IB < StampCount && IC < StampCount)
+			{
+				continue;
+			}
+			const FVector FN = FVector::CrossProduct(Positions[IB] - Positions[IA], Positions[IC] - Positions[IA]);
+			if (IA >= StampCount) { AccN[IA] += FN; }
+			if (IB >= StampCount) { AccN[IB] += FN; }
+			if (IC >= StampCount) { AccN[IC] += FN; }
+		}
+		for (int32 V = StampCount; V < Positions.Num(); ++V)
+		{
+			FVector N = AccN[V].GetSafeNormal();
+			if (N.IsNearlyZero())
+			{
+				N = Positions[V].GetSafeNormal();
+			}
+			Normals[V] = N;
 		}
 	}
 	else
@@ -624,41 +638,6 @@ void FGXHorizonClipmap::ApplyRingEdits(
 	{
 		UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap edit left empty ring"));
 		return;
-	}
-
-	{
-		TArray<FVector> AccN;
-		AccN.Init(FVector::ZeroVector, Positions.Num());
-		for (int32 T0 = 0; T0 + 2 < Indices.Num(); T0 += 3)
-		{
-			const int32 IA = Indices[T0], IB = Indices[T0 + 1], IC = Indices[T0 + 2];
-			if (!Positions.IsValidIndex(IA) || !Positions.IsValidIndex(IB) || !Positions.IsValidIndex(IC))
-			{
-				continue;
-			}
-			const FVector FN = FVector::CrossProduct(Positions[IB] - Positions[IA], Positions[IC] - Positions[IA]);
-			AccN[IA] += FN;
-			AccN[IB] += FN;
-			AccN[IC] += FN;
-		}
-		if (Normals.Num() != Positions.Num())
-		{
-			Normals.SetNum(Positions.Num());
-		}
-		for (int32 V = 0; V < Positions.Num(); ++V)
-		{
-			FVector N = AccN[V].GetSafeNormal();
-			if (N.IsNearlyZero())
-			{
-				N = Positions[V].GetSafeNormal();
-			}
-			const FVector Radial = Positions[V].GetSafeNormal();
-			if (!Radial.IsNearlyZero() && FVector::DotProduct(N, Radial) < 0.0f)
-			{
-				N = -N;
-			}
-			Normals[V] = N;
-		}
 	}
 
 	Comp->CreateMeshSection_LinearColor(0, Positions, Indices, Normals, UV0, Colors, Tangents, false);

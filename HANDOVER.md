@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.49**  
+Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.50**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.7.50** 0.7.49 shots: **#1/#2** holes (each refined quad had its own verts — T-junctions). **#3** huge dirt triangle (recomputed stamp normals pulled crater slope onto neighbouring 8 m tris). Fine verts are **shared**. Stamp normals stay.
 - **GX 0.7.49** 0.7.48 shots: **entire crust inside-out** (underside hills, teal void, brush fragments). `FixOutwardWinding` treated planet-outward as front; UE culls the other way, so every triangle flipped. That pass is gone. Bowl displace is along the **quad normal** so winding cannot invert.
 - **GX 0.7.48** 0.7.47 shots: still **missing faces** on remove (2 m rectangle + a pie slice in the bowl). Steep CSG inverted triangles; we flipped the *normal* but the GPU culls on **winding**. Winding is repaired, tessellation is finer, skirt is two cells.
 - **GX 0.7.47** 0.7.46 shots: **#1/#2/#5** 2 m black rectangles (PBR was MASKED on VertexColor.A). **#4** crater had no floor (stacked sphere CSG + no skirt, window to the core). **#3** walk away and look back — edits only lived on ring 0. Material is **opaque**. CSG is a **union**. Refine **dilates one cell**. Rings 0 **and** 1 take edits.
@@ -81,6 +82,11 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 - Live Coding often blocks `Build.bat`. The agent **closes Unreal and rebuilds Development Editor `-NoUBA`** (see `AGENTS.md`). Do not ask the user to do that.
 - **Unreal MCP:** `UnrealMCPython` plugin listens on `127.0.0.1:12029`. Agent **must Start-Process the editor** and confirm a PID before polling the port. Never wait on 12029 with no UnrealEditor process (the user had to launch it by hand). Run Python via `unreal-mcpython__util execute_python`. Unity MCP is disabled.
 - **Plugin GXCore failed to load / GetLastError=4551:** Development `UnrealEditor-GXCore.dll` was an unloadable image (UBA served a bad cached link). DebugGame DLL was fine; the editor loads Development. Fix: delete `Plugins/*/Binaries/Win64/UnrealEditor-GX*.dll` and `Binaries/Win64/UnrealEditor-GrokExodus.dll`, rebuild `GrokExodusEditor Win64 Development -NoUBA`. All six project DLLs now map with `LoadLibraryEx(DONT_RESOLVE)`.
+
+## Verify after 0.7.50
+
+1. Gold `GX 0.7.50`. Subtract is a closed bowl — no window through the wall, no 2 m rectangle.
+2. Grass/dirt blend around the crater stays the hillside, not a huge dirt triangle.
 
 ## Verify after 0.7.49
 
