@@ -200,7 +200,10 @@ void FGXHorizonClipmap::BuildRing(
 	const float OuterPad = OuterM * OuterM;
 	// Ring 0 must sit on the stamp. Max(., 0.5) put the walk surface 50 cm
 	// under the brush patch — add/remove floated above the grass.
-	const float Sink = (InnerM < 1.0f) ? 0.0f : FMath::Max(SinkM, 0.5f);
+	// Only the 2 m walk ring sits on the stamp. Ring 1 is a full disk
+	// (InnerM=0) so look-back has no hole — if we also force sink 0 it
+	// becomes an uncut lid over every dig (0.7.54).
+	const float Sink = (CellM <= 3.0f) ? 0.0f : FMath::Max(SinkM, 0.5f);
 
 	TArray<FVector> Positions;
 	TArray<FVector> Normals;
