@@ -221,25 +221,27 @@ void FGXHorizonClipmap::NotifyBrush(
 	{
 		return;
 	}
-	if (Ring.LivePos.Num() != Ring.StampDir.Num())
+	if (Ring.LivePos.Num() < Ring.StampDir.Num()
+		|| Ring.LiveN.Num() != Ring.LivePos.Num()
+		|| Ring.UV0.Num() != Ring.LivePos.Num())
 	{
-		Ring.LivePos = Ring.StampPos;
+		return;
 	}
 	const float BrushR = LocalM.Size();
-	const float Cover = RadiusM + FMath::Max(Ring.CellM, 2.0f) * 1.25f;
+	const float Cover = RadiusM + FMath::Max(Ring.CellM, 2.0f) * 1.5f;
 	const float Cover2 = Cover * Cover;
 
 	int32 Dropped = 0;
 	for (int32 VI = 0; VI < Ring.StampDir.Num(); ++VI)
 	{
-		if (!Ring.StampSurfM.IsValidIndex(VI))
+		if (!Ring.StampSurfM.IsValidIndex(VI) || !Ring.LivePos.IsValidIndex(VI))
 		{
 			continue;
 		}
 		const FVector Dir = Ring.StampDir[VI];
 		const float Surf = Ring.StampSurfM[VI];
 		// Deep cave under this vert: keep the grass roof.
-		if (BrushR + 1.5f < Surf)
+		if (BrushR + 2.0f < Surf)
 		{
 			continue;
 		}
@@ -248,9 +250,25 @@ void FGXHorizonClipmap::NotifyBrush(
 		{
 			continue;
 		}
-		float R = Surf;
-		if (DensityAt(Dir * Surf) > 0.05f)
+		// Air anywhere in the top 2.5 m is a surface dent / undercut lid.
+		// Solid-at-surf used to take the raise path and left the grass plane.
+		bool bAirCol = false;
+		for (float D = 0.0f; D <= 2.5f; D += 0.25f)
 		{
+			// Stamp isosurface is ~0. Real carve air is clearly negative.
+			if (DensityAt(Dir * (Surf - D)) < -0.15f)
+			{
+				bAirCol = true;
+				break;
+			}
+		}
+		float R = Surf;
+		if (!bAirCol)
+		{
+			if (DensityAt(Dir * (Surf + 0.25f)) <= 0.05f)
+			{
+				continue;
+			}
 			for (int32 Step = 0; Step < 80; ++Step)
 			{
 				const float Next = R + 0.25f;
@@ -515,15 +533,17 @@ void FGXHorizonClipmap::BuildRing(
 		}
 	}
 
-	Ring.UV0 = UV0;
-	Ring.Colors = Colors;
-	Ring.Tangents = Tangents;
-	Ring.LiveN = Normals;
 	Ring.StampIndices = Indices;
-	Ring.LivePos = Positions;
 
 	AppendRimSkirts(Positions, Indices, Normals, UV0, Colors, Tangents,
 		IndexOf, Dim, CellM, InnerM, OuterM, SinkM);
+	// Store AFTER skirts. UpdateMeshSection must keep this count —
+	// 0.8.12 wrote grid-only arrays and the grass lid never moved.
+	Ring.LivePos = Positions;
+	Ring.LiveN = Normals;
+	Ring.UV0 = UV0;
+	Ring.Colors = Colors;
+	Ring.Tangents = Tangents;
 	Ring.GridOf = IndexOf;
 	Ring.GridDim = Dim;
 	Ring.SinkUsed = Sink;
@@ -571,9 +591,11 @@ void FGXHorizonClipmap::ApplyRingEdits(
 	{
 		return;
 	}
-	if (Ring.LivePos.Num() != Ring.StampDir.Num())
+	if (Ring.LivePos.Num() < Ring.StampDir.Num()
+		|| Ring.LiveN.Num() != Ring.LivePos.Num()
+		|| Ring.UV0.Num() != Ring.LivePos.Num())
 	{
-		Ring.LivePos = Ring.StampPos;
+		return;
 	}
 
 	int32 Dropped = 0;
@@ -585,7 +607,15 @@ void FGXHorizonClipmap::ApplyRingEdits(
 		}
 		const FVector Dir = Ring.StampDir[VI];
 		const float Surf = Ring.StampSurfM[VI];
-		if (!ShouldCut(Dir * Surf) && !ShouldCut(Dir * (Surf - 0.8f)))
+		bool bCut = ShouldCut(Dir * Surf);
+		if (!bCut)
+		{
+			for (float D = 0.5f; D <= 2.5f && !bCut; D += 0.5f)
+			{
+				bCut = ShouldCut(Dir * (Surf - D));
+			}
+		}
+		if (!bCut)
 		{
 			continue;
 		}
