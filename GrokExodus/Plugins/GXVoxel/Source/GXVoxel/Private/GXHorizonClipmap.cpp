@@ -53,8 +53,11 @@ namespace
 		Quad += B;
 		Quad += C;
 		Quad += D;
-		Quad = Quad.ExpandBy(FMath::Max(CellM * 0.55f, 1.0f));
+		// 0.8.1 punched 685 walk quads (radial lid + CellM expand + dilate)
+		// and the 10 m ring showed through as flat orange dirt.
+		Quad = Quad.ExpandBy(FMath::Min(CellM * 0.2f, 1.25f));
 		const FVector Mid = (A + B + C + D) * 0.25f;
+		const float MidR = Mid.Size();
 		FVector Rad = Mid.GetSafeNormal();
 		if (Rad.IsNearlyZero())
 		{
@@ -66,9 +69,8 @@ namespace
 			{
 				return true;
 			}
-			// Lid over a cave: the stamp quad sits on the crust, the page is
-			// under it. AABB of the page does not contain the quad.
-			if (RayHitsAabb(FVector::ZeroVector, Rad, Box))
+			const float BoxR = FMath::Max(Box.Min.Size(), Box.Max.Size());
+			if (BoxR + 3.0f < MidR && RayHitsAabb(FVector::ZeroVector, Rad, Box))
 			{
 				return true;
 			}
@@ -414,19 +416,19 @@ void FGXHorizonClipmap::BuildRing(
 		}
 	}
 
-	AppendRimSkirts(Positions, Indices, Normals, UV0, Colors, Tangents,
-		IndexOf, Dim, CellM, InnerM, OuterM, SinkM);
+	const int32 StampTriEnd = Indices.Num();
 
 	// Face normals + slope colors. Do not use radial N — that made far PBR sample
 	// the 2 m grass/volcanic atlas on 72 m triangles (red tiled sheet).
 	TArray<FVector> AccN;
 	AccN.Init(FVector::ZeroVector, Positions.Num());
-	for (int32 T0 = 0; T0 + 2 < Indices.Num(); T0 += 3)
+	for (int32 T0 = 0; T0 + 2 < StampTriEnd; T0 += 3)
 	{
 		const int32 IA = Indices[T0], IB = Indices[T0 + 1], IC = Indices[T0 + 2];
 		const FVector FN = FVector::CrossProduct(Positions[IB] - Positions[IA], Positions[IC] - Positions[IA]);
 		AccN[IA] += FN; AccN[IB] += FN; AccN[IC] += FN;
 	}
+	const float KeepRadial = (CellM > 3.0f) ? FMath::Clamp((CellM - 3.0f) / 28.0f, 0.15f, 0.75f) : 0.0f;
 	for (int32 V = 0; V < Positions.Num(); ++V)
 	{
 		FVector N = AccN[V].GetSafeNormal();
@@ -438,6 +440,10 @@ void FGXHorizonClipmap::BuildRing(
 		if (FVector::DotProduct(N, Radial) < 0.0f)
 		{
 			N = -N;
+		}
+		if (KeepRadial > 0.0f && !Radial.IsNearlyZero())
+		{
+			N = (N * (1.0f - KeepRadial) + Radial * KeepRadial).GetSafeNormal();
 		}
 		Normals[V] = N;
 		const float Slope = 1.0f - FMath::Abs(FVector::DotProduct(N, Radial));
@@ -464,6 +470,9 @@ void FGXHorizonClipmap::BuildRing(
 	Ring.Tangents = Tangents;
 	Ring.LiveN = Normals;
 	Ring.StampIndices = Indices;
+
+	AppendRimSkirts(Positions, Indices, Normals, UV0, Colors, Tangents,
+		IndexOf, Dim, CellM, InnerM, OuterM, SinkM);
 	Ring.GridOf = IndexOf;
 	Ring.GridDim = Dim;
 	Ring.SinkUsed = Sink;
@@ -508,7 +517,7 @@ void FGXHorizonClipmap::ApplyRingEdits(
 	TArray<FProcMeshTangent> Tangents = Ring.Tangents;
 	TArray<int32> Indices;
 
-	const bool bHaveBoxes = EditedPageBoxesM && EditedPageBoxesM->Num() > 0;
+	const bool bHaveBoxes = EditedPageBoxesM && EditedPageBoxesM->Num() > 0 && Ring.CellM <= 12.0f;
 	const bool bHaveGrid = Ring.GridDim >= 2 && Ring.GridOf.Num() == Ring.GridDim * Ring.GridDim;
 	int32 Punched = 0;
 	if (bHaveBoxes && bHaveGrid)
@@ -548,23 +557,26 @@ void FGXHorizonClipmap::ApplyRingEdits(
 			}
 		}
 		TArray<uint8> Dilated = Mark;
-		for (int32 J = 0; J < QW; ++J)
+		if (Ring.CellM <= 3.0f)
 		{
-			for (int32 I = 0; I < QW; ++I)
+			for (int32 J = 0; J < QW; ++J)
 			{
-				if (!Mark[I + J * QW])
+				for (int32 I = 0; I < QW; ++I)
 				{
-					continue;
-				}
-				for (int32 DJ = -1; DJ <= 1; ++DJ)
-				{
-					for (int32 DI = -1; DI <= 1; ++DI)
+					if (!Mark[I + J * QW])
 					{
-						const int32 NI = I + DI;
-						const int32 NJ = J + DJ;
-						if (NI >= 0 && NJ >= 0 && NI < QW && NJ < QW)
+						continue;
+					}
+					for (int32 DJ = -1; DJ <= 1; ++DJ)
+					{
+						for (int32 DI = -1; DI <= 1; ++DI)
 						{
-							Dilated[NI + NJ * QW] = 1;
+							const int32 NI = I + DI;
+							const int32 NJ = J + DJ;
+							if (NI >= 0 && NJ >= 0 && NI < QW && NJ < QW)
+							{
+								Dilated[NI + NJ * QW] = 1;
+							}
 						}
 					}
 				}

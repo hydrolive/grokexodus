@@ -1935,7 +1935,7 @@ void AGXVoxelWorld::RebuildEditedPageBoxes()
 	{
 		return;
 	}
-	Volume->GetEditedPageBoxes(EditedPageBoxesM, FMath::Max(4.0f, VoxelSize * 4.0f));
+	Volume->GetEditedPageBoxes(EditedPageBoxesM, FMath::Max(1.5f, VoxelSize * 1.5f));
 	const FGXSphereStamp& Stamp = Volume->GetStamp();
 	const float R0 = Stamp.GetParams().Radius;
 	for (FBox& B : EditedPageBoxesM)
@@ -1947,7 +1947,12 @@ void AGXVoxelWorld::RebuildEditedPageBoxes()
 			continue;
 		}
 		const FGXEarthField F = Stamp.SampleEarthField(FVector3f(Dir.X, Dir.Y, Dir.Z), false);
-		B += Dir * (R0 + F.HeightM + 4.0f);
+		const float Surf = R0 + F.HeightM;
+		// Only lift a pillar to the grass when the page is actually under it.
+		if (C.Size() + 3.0f < Surf)
+		{
+			B += Dir * (Surf + 1.5f);
+		}
 	}
 }
 

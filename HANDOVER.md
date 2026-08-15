@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.1**  
+Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.2**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.8.2** 0.8.1 shot: landscape was **orange dirt with grass islands**. Radial lid + 4 m pad + dilate punched **685** walk quads so the 10 m ring (sunk, faceted) showed through. Punch is tight AABB; radial lid only for underground pages; no punch on 36/120 m rings; skirts no longer tilt stamp normals; coarse rings blend N toward radial so PBR stays grass.
 - **GX 0.8.1** 0.8.0 PIE **asserted on spawn** (`TArray` Add of an element already in that array — skirt UV/color). Copies are locals first. Same fix on clipmap rim skirts.
 - **GX 0.8.0** HLOD + transvoxel skirts. Mixed LOD is on: edited chunks are LOD0 underfoot, LOD1 past ~90 m, LOD2 past stream. Open chunk-face edges drop a core-facing skirt so LOD cracks are not sky holes. Clipmap far rings are coarser (10 / 36 / 120 m) and each ring has a rim skirt so the 2→10 m pop does not flash teal. HLOD does **not** replace CreateMeshSection. Cluster DAG is 0.9. Wave C is sky.
 - **GX 0.7.60** 0.7.59: dig took **dozens of clicks** (brush nibbled 1 m of SDF; interior density is many metres). Cave walls were **orange/blue** with no shadows (normals forced planet-outward; banks `CastShadow=false`). One click is a **full CSG sphere**. Cave N faces air. Edited meshes **cast/receive shadows**.
