@@ -234,12 +234,17 @@ FGXVoxelVolume::FBrushResult FGXVoxelVolume::ApplySphereBrush(
 
 	const float VoxelSize = Stamp.GetParams().VoxelSize;
 	const float Inv = 1.0f / VoxelSize;
-	const int32 MinX = FMath::FloorToInt((CenterM.X - RadiusM - VoxelSize) * Inv) - 1;
-	const int32 MaxX = FMath::CeilToInt((CenterM.X + RadiusM + VoxelSize) * Inv) + 1;
-	const int32 MinY = FMath::FloorToInt((CenterM.Y - RadiusM - VoxelSize) * Inv) - 1;
-	const int32 MaxY = FMath::CeilToInt((CenterM.Y + RadiusM + VoxelSize) * Inv) + 1;
-	const int32 MinZ = FMath::FloorToInt((CenterM.Z - RadiusM - VoxelSize) * Inv) - 1;
-	const int32 MaxZ = FMath::CeilToInt((CenterM.Z + RadiusM + VoxelSize) * Inv) + 1;
+	const FVector3d Rad = CenterM.GetSafeNormal();
+	const FVector3d Lid = (bDig && !Rad.IsNearlyZero())
+		? (Rad * static_cast<double>(RadiusM + VoxelSize))
+		: FVector3d::Zero();
+	const double Exp = static_cast<double>(RadiusM + VoxelSize);
+	const int32 MinX = FMath::FloorToInt((FMath::Min(CenterM.X, CenterM.X + Lid.X) - Exp) * Inv) - 1;
+	const int32 MaxX = FMath::CeilToInt((FMath::Max(CenterM.X, CenterM.X + Lid.X) + Exp) * Inv) + 1;
+	const int32 MinY = FMath::FloorToInt((FMath::Min(CenterM.Y, CenterM.Y + Lid.Y) - Exp) * Inv) - 1;
+	const int32 MaxY = FMath::CeilToInt((FMath::Max(CenterM.Y, CenterM.Y + Lid.Y) + Exp) * Inv) + 1;
+	const int32 MinZ = FMath::FloorToInt((FMath::Min(CenterM.Z, CenterM.Z + Lid.Z) - Exp) * Inv) - 1;
+	const int32 MaxZ = FMath::CeilToInt((FMath::Max(CenterM.Z, CenterM.Z + Lid.Z) + Exp) * Inv) + 1;
 
 	TSet<FGXChunkKey> Dirty;
 	TMap<int32, float> Volumes;
@@ -261,7 +266,18 @@ FGXVoxelVolume::FBrushResult FGXVoxelVolume::ApplySphereBrush(
 					static_cast<double>(Z) * VoxelSize);
 				const FVector3d Delta = World - CenterM;
 				const float D2 = static_cast<float>(Delta.SizeSquared());
-				if (D2 > Inf2)
+				const double Along = (!Rad.IsNearlyZero())
+					? FVector3d::DotProduct(Delta, Rad)
+					: 0.0;
+				const FVector3d Tang = (!Rad.IsNearlyZero())
+					? (Delta - Rad * Along)
+					: Delta;
+				const float Tang2 = static_cast<float>(Tang.SizeSquared());
+				const bool bInSphere = D2 <= Inf2;
+				const bool bInLid = bDig && Along > -static_cast<double>(VoxelSize)
+					&& Along < static_cast<double>(RadiusM + 1.5f)
+					&& Tang2 <= Inf2;
+				if (!bInSphere && !bInLid)
 				{
 					continue;
 				}
@@ -274,7 +290,13 @@ FGXVoxelVolume::FBrushResult FGXVoxelVolume::ApplySphereBrush(
 				{
 					// Full CSG sphere. Nibbling Falloff*1 m left a cave wall
 					// that took dozens of clicks (interior SDF is many metres).
-					const float SphereSdf = Dist - RadiusM;
+					float SphereSdf = Dist - RadiusM;
+					if (bInLid)
+					{
+						// Column above the ball: scrape the grass lid so MC
+						// does not keep a thin surface plane on the new dirt.
+						SphereSdf = FMath::Min(SphereSdf, FMath::Sqrt(Tang2) - RadiusM);
+					}
 					if (SphereSdf >= OldD)
 					{
 						continue;

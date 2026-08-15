@@ -498,8 +498,31 @@ void FGXHorizonClipmap::ApplyRingEdits(
 		}
 	};
 
-	int32 Punched = 0;
-	for (int32 T0 = 0; T0 + 5 < Ring.StampIndices.Num(); T0 += 6)
+	auto EdgeCut = [&](int32 VA, int32 VB) -> bool
+	{
+		if (!Ring.StampDir.IsValidIndex(VA) || !Ring.StampDir.IsValidIndex(VB)
+			|| !Ring.StampSurfM.IsValidIndex(VA) || !Ring.StampSurfM.IsValidIndex(VB))
+		{
+			return false;
+		}
+		FVector Dir = (Ring.StampDir[VA] + Ring.StampDir[VB]).GetSafeNormal();
+		if (Dir.IsNearlyZero())
+		{
+			Dir = Ring.StampDir[VA];
+		}
+		return CutAt(Dir, 0.5f * (Ring.StampSurfM[VA] + Ring.StampSurfM[VB]));
+	};
+	auto MeshAt = [&](const FVector& P) -> bool
+	{
+		return HasCaveMesh && HasCaveMesh(P);
+	};
+
+	const int32 QuadN = Ring.StampIndices.Num() / 6;
+	TArray<uint8> QuadOpen;
+	QuadOpen.SetNumZeroed(QuadN);
+
+	int32 Qi = 0;
+	for (int32 T0 = 0; T0 + 5 < Ring.StampIndices.Num(); T0 += 6, ++Qi)
 	{
 		const int32 A = Ring.StampIndices[T0];
 		const int32 B = Ring.StampIndices[T0 + 1];
@@ -510,10 +533,6 @@ void FGXHorizonClipmap::ApplyRingEdits(
 			|| !Ring.StampSurfM.IsValidIndex(A) || !Ring.StampSurfM.IsValidIndex(B)
 			|| !Ring.StampSurfM.IsValidIndex(C) || !Ring.StampSurfM.IsValidIndex(D))
 		{
-			for (int32 K = 0; K < 6; ++K)
-			{
-				Indices.Add(Ring.StampIndices[T0 + K]);
-			}
 			continue;
 		}
 		FVector MidDir = (
@@ -526,25 +545,90 @@ void FGXHorizonClipmap::ApplyRingEdits(
 		const float MidSurf = 0.25f * (
 			Ring.StampSurfM[A] + Ring.StampSurfM[B]
 			+ Ring.StampSurfM[C] + Ring.StampSurfM[D]);
+		// 9 samples: a 1.2 m brush often sits between verts and the mid
+		// (0.8.9 leftover grass plane on the new dirt).
 		const bool bAir = CutAt(MidDir, MidSurf)
 			|| CutAt(Ring.StampDir[A], Ring.StampSurfM[A])
 			|| CutAt(Ring.StampDir[B], Ring.StampSurfM[B])
 			|| CutAt(Ring.StampDir[C], Ring.StampSurfM[C])
-			|| CutAt(Ring.StampDir[D], Ring.StampSurfM[D]);
-		const bool bOpen = bAir && HasCaveMesh && HasCaveMesh(MidDir * MidSurf);
-		if (bOpen)
+			|| CutAt(Ring.StampDir[D], Ring.StampSurfM[D])
+			|| EdgeCut(A, B) || EdgeCut(B, D) || EdgeCut(D, C) || EdgeCut(C, A);
+		const FVector MidP = MidDir * MidSurf;
+		const bool bMesh = Ring.CellM <= 3.0f
+			|| MeshAt(MidP)
+			|| MeshAt(Ring.StampDir[A] * Ring.StampSurfM[A])
+			|| MeshAt(Ring.StampDir[B] * Ring.StampSurfM[B])
+			|| MeshAt(Ring.StampDir[C] * Ring.StampSurfM[C])
+			|| MeshAt(Ring.StampDir[D] * Ring.StampSurfM[D]);
+		if (bAir && bMesh)
+		{
+			QuadOpen[Qi] = 1;
+		}
+	}
+
+	// One edge of dilate: a solid-mid quad that shares an edge with the
+	// hole is the thin grass plane on the new voxels.
+	TArray<uint8> VertOnOpen;
+	VertOnOpen.SetNumZeroed(Positions.Num());
+	Qi = 0;
+	for (int32 T0 = 0; T0 + 5 < Ring.StampIndices.Num(); T0 += 6, ++Qi)
+	{
+		if (!QuadOpen.IsValidIndex(Qi) || !QuadOpen[Qi])
+		{
+			continue;
+		}
+		MarkIf(Ring.StampIndices[T0]);
+		MarkIf(Ring.StampIndices[T0 + 1]);
+		MarkIf(Ring.StampIndices[T0 + 2]);
+		MarkIf(Ring.StampIndices[T0 + 4]);
+		if (VertOnOpen.IsValidIndex(Ring.StampIndices[T0])) VertOnOpen[Ring.StampIndices[T0]] = 1;
+		if (VertOnOpen.IsValidIndex(Ring.StampIndices[T0 + 1])) VertOnOpen[Ring.StampIndices[T0 + 1]] = 1;
+		if (VertOnOpen.IsValidIndex(Ring.StampIndices[T0 + 2])) VertOnOpen[Ring.StampIndices[T0 + 2]] = 1;
+		if (VertOnOpen.IsValidIndex(Ring.StampIndices[T0 + 4])) VertOnOpen[Ring.StampIndices[T0 + 4]] = 1;
+	}
+	Qi = 0;
+	for (int32 T0 = 0; T0 + 5 < Ring.StampIndices.Num(); T0 += 6, ++Qi)
+	{
+		if (QuadOpen.IsValidIndex(Qi) && QuadOpen[Qi])
+		{
+			continue;
+		}
+		const int32 Corners[4] = {
+			Ring.StampIndices[T0],
+			Ring.StampIndices[T0 + 1],
+			Ring.StampIndices[T0 + 2],
+			Ring.StampIndices[T0 + 4]
+		};
+		int32 Hit = 0;
+		for (int32 K = 0; K < 4; ++K)
+		{
+			if (VertOnOpen.IsValidIndex(Corners[K]) && VertOnOpen[Corners[K]])
+			{
+				++Hit;
+			}
+		}
+		if (Hit >= 2 && QuadOpen.IsValidIndex(Qi))
+		{
+			QuadOpen[Qi] = 1;
+			for (int32 K = 0; K < 4; ++K)
+			{
+				MarkIf(Corners[K]);
+			}
+		}
+	}
+
+	int32 Punched = 0;
+	Qi = 0;
+	for (int32 T0 = 0; T0 + 5 < Ring.StampIndices.Num(); T0 += 6, ++Qi)
+	{
+		if (QuadOpen.IsValidIndex(Qi) && QuadOpen[Qi])
 		{
 			++Punched;
-			MarkIf(A); MarkIf(B); MarkIf(C); MarkIf(D);
 			continue;
 		}
 		for (int32 K = 0; K < 6; ++K)
 		{
 			Indices.Add(Ring.StampIndices[T0 + K]);
-		}
-		if (bAir)
-		{
-			MarkIf(A); MarkIf(B); MarkIf(C); MarkIf(D);
 		}
 	}
 

@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.9**  
+Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.10**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.8.10** 0.8.9 shot: dirt bowl is good, but a **thin grass plane** sits on the new voxels (2 m quad missed mid/corners). Punch samples edge midpoints and dilates one shared edge. Walk ring opens air quads even before the cave mesh. Dig also scrapes a radial **lid column** so MC cannot keep a surface sheet.
 - **GX 0.8.9** 0.8.8 shot: some digs **raised** terrain (mound search on rim verts), grass **overhang**, grass crater, **black floating shards** (clipmap vs voxel z-fight), clicks that did nothing. Air clipmap quads **open** over a live cave mesh so dirt/rock MC is the hole. Never search up. Brush sits along the **aim ray**. No clipmap dirt paint.
 - **GX 0.8.8** 0.8.7 shot: dig left a **grass overhang**, spawn **bounced**, crater stayed **grass**. Rim verts now drop on undercut air + one-cell dilate. Dropped clipmap and excavated MC faces use **dirt** (atlas 3). Spawn sits on the capsule floor; the 0.25 s re-place is skipped if already standing; stick/unstick are off for 0.6 s.
 - **GX 0.8.7** 0.8.6 shot: dig went **under a grass lid**, stopped on the **8 m floor**, left **floating quads**. Deleting faces cannot work (too much = core hole, too little = islands). Walk-ring verts **drop to the volume floor** (vert or 2 m quad midpoint is air). Ring 1 starts at **160 m** so the 8 m grass is never a floor underfoot. No quad delete. Cave = edited-chunk MC under the undropped roof.
