@@ -468,7 +468,9 @@ void FGXHorizonClipmap::ApplyRingEdits(
 	TArray<FLinearColor> Colors = Ring.Colors;
 	TArray<FProcMeshTangent> Tangents = Ring.Tangents;
 
-	if (!ShouldCut || Ring.CellM > 12.0f)
+	// Only the 2 m walk ring. Punching the 8 m disk opened rectangles
+	// to the core on hills (0.8.10) and flooded VSM.
+	if (!ShouldCut || Ring.CellM > 3.0f)
 	{
 		return;
 	}
@@ -554,8 +556,9 @@ void FGXHorizonClipmap::ApplyRingEdits(
 			|| CutAt(Ring.StampDir[D], Ring.StampSurfM[D])
 			|| EdgeCut(A, B) || EdgeCut(B, D) || EdgeCut(D, C) || EdgeCut(C, A);
 		const FVector MidP = MidDir * MidSurf;
-		const bool bMesh = Ring.CellM <= 3.0f
-			|| MeshAt(MidP)
+		// Must have a live cave mesh. Opening every saved-air quad in the
+		// 180 m disk (0.8.10) left holes on hills — those chunks were evicted.
+		const bool bMesh = MeshAt(MidP)
 			|| MeshAt(Ring.StampDir[A] * Ring.StampSurfM[A])
 			|| MeshAt(Ring.StampDir[B] * Ring.StampSurfM[B])
 			|| MeshAt(Ring.StampDir[C] * Ring.StampSurfM[C])

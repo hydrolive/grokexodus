@@ -1489,13 +1489,16 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 	PMC->SetMeshSectionVisible(Section, true);
 	if (bEdited)
 	{
-		// Clipmap has no shadows. Cave walls need to cast/receive or the
-		// hole is flat sun-orange / sky-blue.
-		PMC->SetCastShadow(true);
-		PMC->bCastDynamicShadow = true;
-		PMC->SetVisibleInRayTracing(true);
+		// Do not enable shadows on the bank PMC. Verts live 60 km from the
+		// component, so VSM treats one section as covering the whole map
+		// ([VSM] Non-Nanite Marking Job Queue overflow, 0.8.10).
+		PMC->SetCastShadow(false);
+		PMC->bCastDynamicShadow = false;
+		PMC->SetVisibleInRayTracing(false);
 		PMC->bAffectDistanceFieldLighting = false;
-		if (HorizonClipmap)
+		// Punch only when the cave mesh first appears. Remesh/LOD was
+		// rebuilding the clipmap every frame (100 ms, 8 fps).
+		if (!bHadVisual && HorizonClipmap)
 		{
 			HorizonClipmap->NotifyEdits();
 		}
@@ -1736,7 +1739,7 @@ void AGXVoxelWorld::GrowMeshBanks(int32 TargetBanks)
 		PMC->SetCastShadow(false);
 		PMC->SetVisibleInRayTracing(false);
 		PMC->bNeverDistanceCull = true;
-		PMC->SetBoundsScale(8.0f);
+		PMC->SetBoundsScale(1.0f);
 		MeshBanks.Add(PMC);
 		for (int32 S = 0; S < VisualSectionsPerBank; ++S)
 		{
