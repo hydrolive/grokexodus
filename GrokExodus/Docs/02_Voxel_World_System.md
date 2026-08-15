@@ -88,7 +88,7 @@ Unedited space is **not stored**. Mesh jobs sample the stamp + overlay.
 
 - The **clipmap is the unedited crust**. It cannot have a roof.
 - Every dig/place writes **sparse 8³ pages** (`Deformed` / `PlayerPlaced`). There is **no stroke cap**.
-- Visual caves / bowls: remesh **edited chunks** (surface + cave). The **80 m / 2 m** walk disk is the unedited crust; lid triangles over the brush or an excavated column are **removed** so the voxel bowl is the surface. Column walk skips the stamp crust. Walk disk is not stamp-reset for 2.5 s after a click. Tool ray skips a lid over auth air. Banks do not cast VSM shadows. Brush sits 0.35 R into the hit.
+- Visual caves / bowls: remesh **edited chunks** (surface + cave), async and debounced. The **80 m / 2 m** walk disk is the unedited crust; a click only punches/drops verts under the brush (no full-disk density walk). Rebuilds sample only columns that look edited. `UpdateMeshSection` when topology is unchanged. Tool ray skips a lid over auth air. Banks do not cast VSM shadows. Brush sits 0.35 R into the hit.
 - Tool ray: stamp height, or **authoritative** voxel density. Never the padded page AABB (that was a fake 3 m floor). Brush is sunk 0.45 R into the hit.
 - Dig/place is a **CSG sphere** (one click = the preview ball), not a 1 m SDF nibble. Cave lighting N faces air; edited chunks cast shadows.
 - Walk: nearest density floor under the capsule (bowl / cave), not the outer crust. Airborne snap is skipped when solid is within 12 m.

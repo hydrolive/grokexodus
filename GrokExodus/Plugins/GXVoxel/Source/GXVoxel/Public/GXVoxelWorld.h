@@ -111,7 +111,7 @@ public:
 	float CollisionRadius = 96.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	int32 MaxMeshBuildsPerFrame = 6;
+	int32 MaxMeshBuildsPerFrame = 2;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
 	int32 WarmupMeshBuildsPerFrame = 4;
@@ -265,6 +265,7 @@ protected:
 	/** Planet-local metre AABBs of dirty 8³ pages — clipmap punch + hybrid ray. */
 	TArray<FBox> EditedPageBoxesM;
 	TMap<FGXChunkKey, double> NextEmptyRetryAt;
+	TMap<FGXChunkKey, double> LastRemeshAt;
 	FString LastSaveToast;
 	float AutoSaveAccum = 0.0f;
 	bool bPersistDirty = false;

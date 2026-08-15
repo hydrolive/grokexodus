@@ -112,6 +112,7 @@ void AGXVoxelWorld::ResetStreamingState()
 	AsyncInFlight.Empty();
 	HollowChunks.Empty();
 	EmptyRetries.Empty();
+	LastRemeshAt.Empty();
 	NextEmptyRetryAt.Empty();
 	EditedPageBoxesM.Empty();
 	bPersistDirty = false;
@@ -186,8 +187,8 @@ void AGXVoxelWorld::ApplyEarthPlayDefaults()
 	HorizonOuterM = 10000.0f;
 	bAsyncMeshing = true;
 	WarmupSeconds = 1.5f;
-	WarmupMeshBuildsPerFrame = 8;
-	MaxMeshBuildsPerFrame = 6;
+	WarmupMeshBuildsPerFrame = 4;
+	MaxMeshBuildsPerFrame = 2;
 	MeshTimeBudgetMs = 6.0f;
 	MaxMeshCreatesPerTick = 1;
 	MaxAsyncInFlight = 16;
@@ -1047,6 +1048,14 @@ void AGXVoxelWorld::EnqueueRemeshNeighborhood(const FGXChunkKey& Coord)
 void AGXVoxelWorld::EnqueueRemesh(const FGXChunkKey& Coord, bool bNear)
 {
 	HollowChunks.Remove(Coord);
+	const double Now = FPlatformTime::Seconds();
+	if (const double* Last = LastRemeshAt.Find(Coord))
+	{
+		if (Now - *Last < 0.40)
+		{
+			return;
+		}
+	}
 	if (AsyncInFlight.Contains(Coord))
 	{
 		RemeshWhenIdle.Add(Coord);
@@ -1056,6 +1065,7 @@ void AGXVoxelWorld::EnqueueRemesh(const FGXChunkKey& Coord, bool bNear)
 	{
 		return;
 	}
+	LastRemeshAt.Add(Coord, Now);
 	MeshQueued.Add(Coord);
 	if (bNear)
 	{
@@ -1295,8 +1305,7 @@ void AGXVoxelWorld::ProcessMeshQueue(int32 Budget)
 		++CacheMisses;
 
 		const int32 InFlight = Jobs ? Jobs->NumInFlight() : AsyncInFlight.Num();
-		const bool bUnderfoot = BrushForceLOD0.Contains(Coord) && Built < 1;
-		if (!bAsync || bUnderfoot)
+		if (!bAsync)
 		{
 			BuildChunkMeshSync(Coord);
 		}
@@ -1562,12 +1571,9 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 		PMC->bCastDynamicShadow = false;
 		PMC->SetVisibleInRayTracing(false);
 		PMC->bAffectDistanceFieldLighting = false;
-		// Punch only when the cave mesh first appears. Remesh/LOD was
-		// rebuilding the clipmap every frame (100 ms, 8 fps).
-		if (!bHadVisual && HorizonClipmap)
-		{
-			HorizonClipmap->NotifyEdits();
-		}
+		// Do not NotifyEdits here. Each first visual rescanned the whole
+		// 80 m disk (400 ms, 0.8.22 spawn/dig hitch). The click already
+		// opened the lid; load-time NotifyEdits is enough.
 	}
 	if (bCookCol)
 	{

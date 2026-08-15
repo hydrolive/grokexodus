@@ -148,14 +148,12 @@ namespace
 	{
 		bool bSawAir = false;
 		float Floor = Surf;
-		for (float D = 0.25f; D <= 48.0f; D += 0.25f)
+		// 1 m steps. 0.25 m × 48 m × every walk vert was a 400 ms hitch.
+		for (float D = 1.0f; D <= 24.0f; D += 1.0f)
 		{
 			const FVector P = Dir * (Surf - D);
-			bool bAir = ShouldCut && ShouldCut(P);
-			if (!bAir && DensityAt && D >= 1.0f && DensityAt(P) <= 0.05f)
-			{
-				bAir = true;
-			}
+			const bool bAir = (ShouldCut && ShouldCut(P))
+				|| (DensityAt && DensityAt(P) <= 0.05f);
 			if (bAir)
 			{
 				bSawAir = true;
@@ -172,6 +170,20 @@ namespace
 			return Surf;
 		}
 		return FMath::Clamp(Floor - 0.08f, Surf - 48.0f, Surf);
+	}
+
+	bool ColumnLooksEdited(
+		const FVector& Dir,
+		float Surf,
+		const TFunction<bool(const FVector&)>& ShouldCut)
+	{
+		if (!ShouldCut)
+		{
+			return false;
+		}
+		return ShouldCut(Dir * (Surf - 1.5f))
+			|| ShouldCut(Dir * (Surf - 4.0f))
+			|| ShouldCut(Dir * (Surf - 12.0f));
 	}
 
 }
@@ -291,10 +303,12 @@ void FGXHorizonClipmap::OpenWalkRing(
 	const float Cover = bHaveBrush ? (BrushRadius + Ring.CellM * 1.75f) : 0.0f;
 	const float KillR2 = KillR * KillR;
 	const float Cover2 = Cover * Cover;
+	const double OpenStart = FPlatformTime::Seconds();
 
 	TArray<float> FloorOf;
 	FloorOf.SetNumUninitialized(NGrid);
 	int32 Dropped = 0;
+	int32 Sampled = 0;
 	float MinDrop = 0.0f;
 	float MaxDrop = 0.0f;
 	for (int32 VI = 0; VI < NGrid; ++VI)
@@ -306,21 +320,32 @@ void FGXHorizonClipmap::OpenWalkRing(
 		}
 		const FVector Dir = Ring.StampDir[VI];
 		const float Surf = Ring.StampSurfM[VI];
-		float FloorR = FindEditFloorM(Dir, Surf, ShouldCut, DensityAt);
+		float FloorR = Surf;
 		if (bHaveBrush)
 		{
 			const float Dist2 = FVector::DistSquared(Dir * Surf, BrushDir * Surf);
+			if (Dist2 > Cover2)
+			{
+				// Already-open verts keep their drop. Do not rescan the disk.
+				FloorOf[VI] = Ring.LivePos[VI].Size() * 0.01f;
+				continue;
+			}
 			if (Dist2 <= KillR2)
 			{
-				FloorR = FMath::Min(FloorR, Surf - BrushRadius - 0.35f);
+				FloorR = Surf - BrushRadius - 0.35f;
 			}
-			else if (Dist2 <= Cover2)
+			else
 			{
 				const float Dist = FMath::Sqrt(Dist2);
 				const float Span = FMath::Max(Cover - KillR, 0.1f);
 				const float T = FMath::Clamp(1.0f - (Dist - KillR) / Span, 0.0f, 1.0f);
-				FloorR = FMath::Min(FloorR, Surf - (BrushRadius + 0.35f) * T);
+				FloorR = Surf - (BrushRadius + 0.35f) * T;
 			}
+		}
+		else if (ColumnLooksEdited(Dir, Surf, ShouldCut))
+		{
+			++Sampled;
+			FloorR = FindEditFloorM(Dir, Surf, ShouldCut, DensityAt);
 		}
 		FloorOf[VI] = FloorR;
 		const float CurR = Ring.LivePos[VI].Size() * 0.01f;
@@ -376,7 +401,7 @@ void FGXHorizonClipmap::OpenWalkRing(
 		{
 			const int32 Hits = (VertOpen(A) ? 1 : 0) + (VertOpen(B) ? 1 : 0) + (VertOpen(C) ? 1 : 0);
 			bool bMid = false;
-			if (Hits < 2)
+			if (Hits < 2 && Hits > 0)
 			{
 				FVector MidDir = (Ring.StampDir[A] + Ring.StampDir[B] + Ring.StampDir[C]).GetSafeNormal();
 				if (MidDir.IsNearlyZero())
@@ -384,15 +409,14 @@ void FGXHorizonClipmap::OpenWalkRing(
 					MidDir = Ring.StampDir[A];
 				}
 				const float MidSurf = (Ring.StampSurfM[A] + Ring.StampSurfM[B] + Ring.StampSurfM[C]) * (1.0f / 3.0f);
-				if (bHaveBrush
-					&& FVector::DistSquared(MidDir * MidSurf, BrushDir * MidSurf) <= KillR2)
+				if (bHaveBrush)
 				{
-					bMid = true;
+					bMid = FVector::DistSquared(MidDir * MidSurf, BrushDir * MidSurf) <= KillR2;
 				}
-				else
+				else if (ColumnLooksEdited(MidDir, MidSurf, ShouldCut))
 				{
-					const float MidFloor = FindEditFloorM(MidDir, MidSurf, ShouldCut, DensityAt);
-					bMid = (MidSurf - MidFloor) >= 0.70f;
+					++Sampled;
+					bMid = (MidSurf - FindEditFloorM(MidDir, MidSurf, ShouldCut, DensityAt)) >= 0.70f;
 				}
 			}
 			if (Hits >= 2 || bMid)
@@ -427,17 +451,26 @@ void FGXHorizonClipmap::OpenWalkRing(
 	}
 
 	UMaterialInterface* Mat = Ring.Material.Get();
-	Comp->ClearMeshSection(0);
-	Comp->CreateMeshSection_LinearColor(
-		0, Ring.LivePos, Ring.LiveIndices, Ring.LiveN, Ring.UV0, Ring.Colors, Ring.Tangents, false);
-	if (Mat)
+	if (Punched > 0)
 	{
-		Comp->SetMaterial(0, Mat);
+		Comp->ClearMeshSection(0);
+		Comp->CreateMeshSection_LinearColor(
+			0, Ring.LivePos, Ring.LiveIndices, Ring.LiveN, Ring.UV0, Ring.Colors, Ring.Tangents, false);
+		if (Mat)
+		{
+			Comp->SetMaterial(0, Mat);
+		}
+	}
+	else
+	{
+		Comp->UpdateMeshSection_LinearColor(
+			0, Ring.LivePos, Ring.LiveN, Ring.UV0, Ring.Colors, Ring.Tangents);
 	}
 	Comp->MarkRenderStateDirty();
 	Comp->UpdateBounds();
-	GX_PERF(1, TEXT("GX-clipmap open punch=%d drop=%d r=%.2f depth=%.2f..%.2f tris=%d outer=%.0f"),
-		Punched, Dropped, BrushRadius, MinDrop, MaxDrop, Ring.LiveIndices.Num() / 3, Ring.OuterM);
+	const float Ms = static_cast<float>((FPlatformTime::Seconds() - OpenStart) * 1000.0);
+	GX_PERF(1, TEXT("GX-clipmap open punch=%d drop=%d r=%.2f depth=%.2f..%.2f tris=%d ms=%.1f n=%d"),
+		Punched, Dropped, BrushRadius, MinDrop, MaxDrop, Ring.LiveIndices.Num() / 3, Ms, Sampled);
 }
 
 void FGXHorizonClipmap::Shutdown()
