@@ -136,9 +136,9 @@ FVector UGXTerrainToolComponent::BrushCenterFromHit(const FGXVoxelHit& Hit, cons
 	{
 		Into = Aim;
 	}
-	// Shallow sit. 0.40 R put the sphere under the 2 m lid so the next
-	// clicks carved a cave the clipmap had not opened yet.
-	return Hit.Location + Into * (BrushRadiusM * 0.20f * 100.0f);
+	// Sit the ball into the hit so one click matches the preview
+	// hemisphere. The walk disk now opens with the volume (0.8.20).
+	return Hit.Location + Into * (BrushRadiusM * 0.35f * 100.0f);
 }
 
 void UGXTerrainToolComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)

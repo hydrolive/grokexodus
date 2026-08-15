@@ -39,7 +39,7 @@ public:
 	void Invalidate();
 	/** Re-drop saved air after a ring rebuild. Does not delete quads. */
 	void NotifyEdits();
-	/** Cheap: drop walk-ring verts near this brush. UpdateMeshSection only. */
+	/** Drop walk-ring verts near this brush. One surface — no second 2 m lid. */
 	void NotifyBrush(const FVector& LocalM, float RadiusM, TFunction<float(const FVector&)> DensityAt);
 	bool IsReady() const { return bReady; }
 
@@ -47,6 +47,7 @@ private:
 	struct FRing
 	{
 		TWeakObjectPtr<UProceduralMeshComponent> Comp;
+		TWeakObjectPtr<UMaterialInterface> Material;
 		float InnerM = 0.0f;
 		float OuterM = 0.0f;
 		float CellM = 24.0f;

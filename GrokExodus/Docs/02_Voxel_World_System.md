@@ -88,7 +88,7 @@ Unedited space is **not stored**. Mesh jobs sample the stamp + overlay.
 
 - The **clipmap is the unedited crust**. It cannot have a roof.
 - Every dig/place writes **sparse 8³ pages** (`Deformed` / `PlayerPlaced`). There is **no stroke cap**.
-- Visual caves: remesh **only edited chunks** when the brush is under the stamp (true cave). Surface bowls are the **clipmap**: verts near the brush drop via `UpdateMeshSection` (arrays include rim skirts so UE accepts the update). Clipmap **never deletes quads**. Banks do not cast VSM shadows. Brush sits along the aim ray.
+- Visual caves: remesh **only edited chunks** when the brush is under the stamp (true cave). Surface bowls are the **clipmap**: one **80 m / 2 m** walk disk (no second 2 m lid). Verts near the brush drop to a cosine bowl + volume floor via `CreateMeshSection` (arrays include rim skirts; material is reapplied). Clipmap **never deletes quads**. Banks do not cast VSM shadows. Brush sits 0.35 R into the hit.
 - Tool ray: stamp height, or **authoritative** voxel density. Never the padded page AABB (that was a fake 3 m floor). Brush is sunk 0.45 R into the hit.
 - Dig/place is a **CSG sphere** (one click = the preview ball), not a 1 m SDF nibble. Cave lighting N faces air; edited chunks cast shadows.
 - Walk: nearest density floor under the capsule (bowl / cave), not the outer crust. Airborne snap is skipped when solid is within 12 m.
@@ -107,7 +107,7 @@ Unedited space is **not stored**. Mesh jobs sample the stamp + overlay.
 | Visual banks | 120×8 sections on the planet actor (grows to 200). One Create per tick. |
 | Crust shell | radius ± relief; core is not meshed |
 
-LOD (0.8): **0 underfoot**, **1** past near field, **2** past stream. Voxel transvoxel skirts only on LOD≥1 (LOD0 cave skirts were floating black faces). Collision is stamp-snap outside edits. Clipmap HLOD: walk ring 2 m / 180 m; mid 8 m from 160 m; far 32 / 96 m with rim skirts. Clipmap material is grass + shader slope blend (no hard rock/dirt IDs). `CreateMeshSection` hitch is not HLOD’s job.
+LOD (0.8): **0 underfoot**, **1** past near field, **2** past stream. Voxel transvoxel skirts only on LOD≥1 (LOD0 cave skirts were floating black faces). Collision is stamp-snap outside edits. Clipmap HLOD: **one** walk disk 2 m / 80 m; mid 8 m from 70 m (sunk 2.4 m); far 32 / 96 m with rim skirts. Clipmap material is grass + shader slope blend (no hard rock/dirt IDs). `CreateMeshSection` hitch is not HLOD’s job.
 
 ### Meshing
 

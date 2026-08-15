@@ -148,24 +148,15 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	}
 
 	struct FSpec { float Inner; float Outer; float Cell; float Sink; };
-	// Overlap ~150 m so rings never leave a sky gap. Outer rings sit a
-	// little deeper so the shared band does not z-fight.
-	// Fine inner ring so a 1.2 m brush moves several verts of THE crust.
-	// A second edit mesh sat on the grass (0.7.35–37).
-	// 0.8.3: 10/36/120 m read as stairs with hard dirt bands. Larger 2 m
-	// disk, 8 m mid, cheaper far at 96 m. Shader slope blends materials.
-	// Ring 1 must NOT be a full disk. InnerM=0 sat the 8 m grass 2 m
-	// under every walk quad — punch a 2 m hole and you get an undiggable
-	// "core" floor plus leftover floating tris (0.8.6 shot). Hole stays
-	// around the viewer; rebuild ring 1 with ring 0 so the hole moves.
-	// Tiny underfoot disk so a dig CreateMeshSection is instant.
-	// Updating the 180 m / 30 k vert walk ring lagged a frame (0.8.18).
+	// ONE 2 m walk disk. 0.8.19 kept a 40 m edit mesh plus a 180 m / 2 m
+	// ring at sink 0 — that second ring is the uncut grass lid you can
+	// walk under (shot 044722). Far rings start past the walk disk and
+	// sit deeper so they cannot lid a crater.
 	const FSpec Specs[] = {
-		{ 0.0f, 40.0f, 2.0f, 0.0f },
-		{ 32.0f, 180.0f, 2.0f, 0.0f },
-		{ 160.0f, 700.0f, 8.0f, 2.0f },
-		{ 660.0f, 2800.0f, 32.0f, 3.2f },
-		{ 2600.0f, 10000.0f, 96.0f, 6.0f },
+		{ 0.0f, 80.0f, 2.0f, 0.0f },
+		{ 70.0f, 360.0f, 8.0f, 2.4f },
+		{ 330.0f, 1600.0f, 32.0f, 3.2f },
+		{ 1400.0f, 10000.0f, 96.0f, 6.0f },
 	};
 	for (const FSpec& S : Specs)
 	{
@@ -182,16 +173,19 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 		Ring.SinkM = S.Sink;
 		Rings.Add(Ring);
 	}
-	// Ring 0 is the walk surface we punch. Async cook delayed the hole
-	// and left the old lid up (the 0.7.43 shell).
-	if (Rings.Num() > 0)
+	// Walk ring cooks sync. Async left the old lid up for a frame
+	// (0.7.43 shell / 0.8.18 lagged rectangle).
+	for (FRing& R : Rings)
 	{
-		if (UProceduralMeshComponent* C = Rings[0].Comp.Get())
+		if (R.CellM <= 3.0f)
 		{
-			C->bUseAsyncCooking = false;
+			if (UProceduralMeshComponent* C = R.Comp.Get())
+			{
+				C->bUseAsyncCooking = false;
+			}
 		}
 	}
-	UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap: %d rings (0.8 HLOD + rim skirts)"), Rings.Num());
+	UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap: %d rings (0.8.20 one walk disk)"), Rings.Num());
 }
 
 void FGXHorizonClipmap::Invalidate()
@@ -218,129 +212,96 @@ void FGXHorizonClipmap::NotifyBrush(
 	{
 		return;
 	}
-	(void)DensityAt;
-	// Only the tiny underfoot disk. The 180 m ring is too big to rebuild
-	// on a click — that was the lagged rectangle under the ball.
-	FRing* Edit = nullptr;
-	for (FRing& R : Rings)
-	{
-		if (R.CellM <= 3.0f && R.OuterM <= 48.0f)
-		{
-			Edit = &R;
-			break;
-		}
-	}
-	if (!Edit)
-	{
-		return;
-	}
-	FRing& Ring = *Edit;
-	UProceduralMeshComponent* Comp = Ring.Comp.Get();
-	if (!Comp || Ring.StampDir.Num() == 0)
-	{
-		return;
-	}
-	if (Ring.LivePos.Num() < Ring.StampDir.Num()
-		|| Ring.LiveN.Num() != Ring.LivePos.Num()
-		|| Ring.UV0.Num() != Ring.LivePos.Num())
-	{
-		return;
-	}
-	// Visual bowl must cover a 2 m cell or the first click only nicks one
-	// vert and the ball sits under the leftover lid (0.8.17).
-	const float VisR = RadiusM + FMath::Max(Ring.CellM, 2.0f);
-	const float R2 = VisR * VisR;
-	const float Cover = VisR + Ring.CellM;
-	const float Cover2 = Cover * Cover;
 	FVector BrushDir = LocalM.GetSafeNormal();
 	if (BrushDir.IsNearlyZero())
 	{
 		BrushDir = FVector(1, 0, 0);
 	}
 
-	int32 Dropped = 0;
-	for (int32 VI = 0; VI < Ring.StampDir.Num(); ++VI)
+	for (FRing& Ring : Rings)
 	{
-		if (!Ring.StampSurfM.IsValidIndex(VI) || !Ring.LivePos.IsValidIndex(VI))
+		// Only the walk disk. Coarse rings sit sunk and must not become a lid.
+		if (Ring.CellM > 3.0f)
 		{
 			continue;
 		}
-		const FVector Dir = Ring.StampDir[VI];
-		const float Surf = Ring.StampSurfM[VI];
-		const FVector AtSurf = Dir * Surf;
-		const FVector BrushOnSurf = BrushDir * Surf;
-		if (FVector::DistSquared(AtSurf, BrushOnSurf) > Cover2)
+		UProceduralMeshComponent* Comp = Ring.Comp.Get();
+		if (!Comp || Ring.StampDir.Num() == 0)
 		{
 			continue;
 		}
-		// Geometric CSG on this radial: drop to the inner sphere hit.
-		// Density sampling at 2 m verts missed a 1.2 m ball and only
-		// stained the texture (0.8.15 #2).
-		const float Along = FVector::DotProduct(LocalM, Dir);
-		const float Perp2 = FMath::Max(0.0f, LocalM.SizeSquared() - Along * Along);
-		if (Perp2 >= R2)
+		if (Ring.LivePos.Num() < Ring.StampDir.Num()
+			|| Ring.LiveN.Num() != Ring.LivePos.Num()
+			|| Ring.UV0.Num() != Ring.LivePos.Num())
 		{
 			continue;
 		}
-		const float Half = FMath::Sqrt(R2 - Perp2);
-		const float FloorR = Along - Half - 0.05f;
-		const float CurR = Ring.LivePos[VI].Size() * 0.01f;
-		const float NewR = FMath::Clamp(FMath::Min(CurR, FloorR), Surf - 48.0f, CurR);
-		if (NewR >= CurR - 0.05f)
-		{
-			continue;
-		}
-		Ring.LivePos[VI] = Dir * NewR * 100.0f;
-		if (Ring.UV0.IsValidIndex(VI))
-		{
-			Ring.UV0[VI] = FVector2D(2.0f, 0.0f); // rock
-		}
-		if (Ring.Colors.IsValidIndex(VI))
-		{
-			Ring.Colors[VI] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f);
-		}
-		++Dropped;
-	}
-	if (Dropped == 0)
-	{
-		// Guarantee the click is visible: pull the nearest grid verts down.
-		int32 Best[8];
-		float BestD[8];
-		for (int32 K = 0; K < 8; ++K) { Best[K] = INDEX_NONE; BestD[K] = Cover2; }
+
+		// Wider than one 2 m cell. A 1.2 m sphere on a 2 m grid only nicks
+		// a corner and the leftover quads read as a second skin (0.8.17–19).
+		const float VisR = RadiusM + Ring.CellM + 1.0f;
+		const float Cover = VisR + Ring.CellM;
+		const float Cover2 = Cover * Cover;
+		const float R2 = VisR * VisR;
+
+		int32 Dropped = 0;
+		float MinDrop = 0.0f;
+		float MaxDrop = 0.0f;
 		for (int32 VI = 0; VI < Ring.StampDir.Num(); ++VI)
 		{
-			if (!Ring.StampSurfM.IsValidIndex(VI))
+			if (!Ring.StampSurfM.IsValidIndex(VI) || !Ring.LivePos.IsValidIndex(VI))
 			{
 				continue;
 			}
-			const float D2 = FVector::DistSquared(Ring.StampDir[VI] * Ring.StampSurfM[VI], BrushDir * Ring.StampSurfM[VI]);
-			for (int32 K = 0; K < 8; ++K)
+			const FVector Dir = Ring.StampDir[VI];
+			const float Surf = Ring.StampSurfM[VI];
+			const FVector AtSurf = Dir * Surf;
+			const FVector BrushOnSurf = BrushDir * Surf;
+			const float Dist2 = FVector::DistSquared(AtSurf, BrushOnSurf);
+			if (Dist2 > Cover2)
 			{
-				if (D2 < BestD[K])
+				continue;
+			}
+
+			float FloorR = Surf;
+			const float Along = FVector::DotProduct(LocalM, Dir);
+			const float Perp2 = FMath::Max(0.0f, LocalM.SizeSquared() - Along * Along);
+			if (Perp2 < R2)
+			{
+				FloorR = Along - FMath::Sqrt(R2 - Perp2) - 0.05f;
+			}
+			// Cosine bowl so every vert under the preview ball moves, even
+			// when the sphere math sits slightly above this radial.
+			const float Dist = FMath::Sqrt(Dist2);
+			const float T = FMath::Clamp(1.0f - Dist / Cover, 0.0f, 1.0f);
+			FloorR = FMath::Min(FloorR, Surf - (RadiusM + 0.45f) * T * T);
+
+			if (DensityAt && DensityAt(Dir * (Surf - 0.12f)) <= 0.05f)
+			{
+				float R = Surf;
+				for (int32 Step = 0; Step < 200; ++Step)
 				{
-					for (int32 J = 7; J > K; --J) { BestD[J] = BestD[J - 1]; Best[J] = Best[J - 1]; }
-					BestD[K] = D2;
-					Best[K] = VI;
-					break;
+					if (DensityAt(Dir * R) > 0.05f)
+					{
+						break;
+					}
+					R -= 0.20f;
+					if (R < Surf - 48.0f)
+					{
+						break;
+					}
 				}
+				FloorR = FMath::Min(FloorR, R - 0.08f);
 			}
-		}
-		const float Along = LocalM.Size();
-		const float FloorR = Along - RadiusM - 0.15f;
-		for (int32 K = 0; K < 8; ++K)
-		{
-			const int32 VI = Best[K];
-			if (VI == INDEX_NONE || !Ring.LivePos.IsValidIndex(VI) || !Ring.StampDir.IsValidIndex(VI))
-			{
-				continue;
-			}
+
 			const float CurR = Ring.LivePos[VI].Size() * 0.01f;
-			const float NewR = FMath::Min(CurR, FMath::Max(FloorR, Ring.StampSurfM[VI] - 48.0f));
-			if (NewR >= CurR - 0.05f)
+			const float NewR = FMath::Clamp(FMath::Min(CurR, FloorR), Surf - 48.0f, CurR);
+			const float Drop = CurR - NewR;
+			if (Drop < 0.04f)
 			{
 				continue;
 			}
-			Ring.LivePos[VI] = Ring.StampDir[VI] * NewR * 100.0f;
+			Ring.LivePos[VI] = Dir * NewR * 100.0f;
 			if (Ring.UV0.IsValidIndex(VI))
 			{
 				Ring.UV0[VI] = FVector2D(2.0f, 0.0f);
@@ -349,23 +310,41 @@ void FGXHorizonClipmap::NotifyBrush(
 			{
 				Ring.Colors[VI] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f);
 			}
+			if (Ring.LiveN.IsValidIndex(VI))
+			{
+				const FVector Away = (AtSurf - BrushOnSurf).GetSafeNormal();
+				FVector N = (Dir * 0.65f - Away * 0.35f).GetSafeNormal();
+				if (N.IsNearlyZero())
+				{
+					N = Dir;
+				}
+				Ring.LiveN[VI] = N;
+			}
 			++Dropped;
+			MinDrop = (Dropped == 1) ? Drop : FMath::Min(MinDrop, Drop);
+			MaxDrop = FMath::Max(MaxDrop, Drop);
 		}
+
+		if (Dropped == 0 || Ring.LivePos.Num() < 3 || Ring.LiveIndices.Num() < 3)
+		{
+			GX_PERF(1, TEXT("GX-clipmap brush drop MISS r=%.2f outer=%.0f verts=%d"),
+				RadiusM, Ring.OuterM, Ring.StampDir.Num());
+			continue;
+		}
+
+		UMaterialInterface* Mat = Ring.Material.Get();
+		Comp->ClearMeshSection(0);
+		Comp->CreateMeshSection_LinearColor(
+			0, Ring.LivePos, Ring.LiveIndices, Ring.LiveN, Ring.UV0, Ring.Colors, Ring.Tangents, false);
+		if (Mat)
+		{
+			Comp->SetMaterial(0, Mat);
+		}
+		Comp->MarkRenderStateDirty();
+		Comp->UpdateBounds();
+		GX_PERF(1, TEXT("GX-clipmap brush drop verts=%d r=%.2f visR=%.2f drop=%.2f..%.2f mesh=%d outer=%.0f"),
+			Dropped, RadiusM, VisR, MinDrop, MaxDrop, Ring.LivePos.Num(), Ring.OuterM);
 	}
-	if (Dropped == 0 || Ring.LivePos.Num() < 3 || Ring.LiveIndices.Num() < 3)
-	{
-		GX_PERF(1, TEXT("GX-clipmap brush drop MISS r=%.2f verts=%d"), RadiusM, Ring.StampDir.Num());
-		return;
-	}
-	// Create, not Update. UpdateMeshSection on the old 30 k vert ring
-	// landed a frame late — ball on grass, rectangle hole underneath.
-	Comp->ClearMeshSection(0);
-	Comp->CreateMeshSection_LinearColor(
-		0, Ring.LivePos, Ring.LiveIndices, Ring.LiveN, Ring.UV0, Ring.Colors, Ring.Tangents, false);
-	Comp->MarkRenderStateDirty();
-	Comp->UpdateBounds();
-	GX_PERF(1, TEXT("GX-clipmap brush drop verts=%d r=%.2f visR=%.2f mesh=%d"),
-		Dropped, RadiusM, VisR, Ring.LivePos.Num());
 }
 
 void FGXHorizonClipmap::Shutdown()
@@ -594,6 +573,7 @@ void FGXHorizonClipmap::BuildRing(
 	Ring.GridOf = IndexOf;
 	Ring.GridDim = Dim;
 	Ring.SinkUsed = Sink;
+	Ring.Material = Material;
 
 	Comp->ClearAllMeshSections();
 	if (Positions.Num() >= 3 && Indices.Num() >= 3)
@@ -1024,8 +1004,9 @@ void FGXHorizonClipmap::Update(
 		bEditsDirty = false;
 	}
 
-	// Do not remesh the walk ring on every brush tick — that was the wobble.
-	if (FVector::DistSquared(ViewerLocalM, LastViewerLocal) < FMath::Square(60.0f) && bReady)
+	// Follow the player. 60 m left the 80 m disk behind and the 8 m ring
+	// became the walk surface (second skin).
+	if (FVector::DistSquared(ViewerLocalM, LastViewerLocal) < FMath::Square(16.0f) && bReady)
 	{
 		return;
 	}
@@ -1053,7 +1034,7 @@ void FGXHorizonClipmap::Update(
 	for (int32 I = 0; I < Rings.Num(); ++I)
 	{
 		FRing& Ring = Rings[I];
-		const float RebuildM = (I == 0) ? 25.0f : (I <= 2) ? 70.0f : 400.0f;
+		const float RebuildM = (I == 0) ? 16.0f : (I == 1) ? 50.0f : 400.0f;
 		if (bReady && Built >= 2 && I > 2)
 		{
 			break;
