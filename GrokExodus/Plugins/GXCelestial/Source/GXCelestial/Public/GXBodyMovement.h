@@ -64,6 +64,8 @@ protected:
 	void UnstickIfBuried(float DeltaSeconds);
 	bool HasSolidWithinMeters(float MaxMeters) const;
 	bool FindStampSurface(const FVector& CapsuleLocation, FVector& OutSurfaceCm, FVector& OutCapsuleCm) const;
+	/** Nearest air/solid isosurface below the capsule (cave floor, bowl, crust). */
+	bool FindLocalFloor(const FVector& CapsuleLocation, FVector& OutSurfaceCm, FVector& OutCapsuleCm) const;
 	void StickToStampFloor();
 	bool IsJumpingUp() const;
 

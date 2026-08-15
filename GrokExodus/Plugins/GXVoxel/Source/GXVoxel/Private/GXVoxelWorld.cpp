@@ -112,7 +112,9 @@ void AGXVoxelWorld::ResetStreamingState()
 	HollowChunks.Empty();
 	EmptyRetries.Empty();
 	NextEmptyRetryAt.Empty();
-	EditHolesLocalM.Empty();
+	EditedPageBoxesM.Empty();
+	bPersistDirty = false;
+	AutoSaveAccum = 0.0f;
 	LastSettledEmpty = 0;
 	LastHollowNear = 0;
 	StallSeconds = 0;
@@ -188,8 +190,12 @@ void AGXVoxelWorld::ApplyEarthPlayDefaults()
 	MeshTimeBudgetMs = 6.0f;
 	MaxMeshCreatesPerTick = 1;
 	MaxAsyncInFlight = 16;
-	bAutoLoadOnBeginPlay = false;
+	bAutoLoadOnBeginPlay = true;
 	ConfigurePlanet(E.Radius, E.MaxRelief, StreamRadius, static_cast<int32>(E.Seed));
+	if (HasActorBegunPlay() && bAutoLoadOnBeginPlay)
+	{
+		LoadWorld();
+	}
 }
 
 void AGXVoxelWorld::SetupDistantSphere()
@@ -353,12 +359,10 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	const double M0 = FPlatformTime::Seconds();
 	MeshCreatesThisTick = 0;
 	const int32 QueueBefore = NearMeshQueue.Num() + MeshQueue.Num();
-	if (bDrawVoxelVisuals)
-	{
-		DrainPendingMeshes(MaxMeshBuildsPerFrame);
-		const int32 Budget = (WarmupTimeRemaining > 0.0f) ? WarmupMeshBuildsPerFrame : MaxMeshBuildsPerFrame;
-		ProcessMeshQueue(Budget);
-	}
+	// Edited-chunk caves must remesh even when the unedited crust is clipmap-only.
+	DrainPendingMeshes(MaxMeshBuildsPerFrame);
+	const int32 Budget = (WarmupTimeRemaining > 0.0f) ? WarmupMeshBuildsPerFrame : MaxMeshBuildsPerFrame;
+	ProcessMeshQueue(Budget);
 	const double MeshMs = (FPlatformTime::Seconds() - M0) * 1000.0;
 	if (HorizonClipmap && Volume && bAtlasReady)
 	{
@@ -372,11 +376,20 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			TerrainMaterial.Get(),
 			TerrainPBR ? TerrainPBR->GetPatchMaterial() : TerrainMaterial.Get(),
 			CrustAtlas.Get(),
-			&EditHolesLocalM,
+			&EditedPageBoxesM,
 			[this](const FVector& LocalM)
 			{
 				return SampleDensityMeters(FVector3d(LocalM.X, LocalM.Y, LocalM.Z));
 			});
+	}
+	if (bWorldReady && bPersistDirty && AutoSaveIntervalSeconds > 0.0f)
+	{
+		AutoSaveAccum += DeltaSeconds;
+		if (AutoSaveAccum >= AutoSaveIntervalSeconds)
+		{
+			AutoSaveAccum = 0.0f;
+			SaveWorld();
+		}
 	}
 	if (Foliage && Volume && bWorldReady)
 	{
@@ -534,7 +547,7 @@ FGXVoxelHit AGXVoxelWorld::RaycastVoxels(FVector WorldOrigin, FVector WorldDirec
 	}
 	const FGXSphereStamp& Stamp = Volume->GetStamp();
 	const float R0 = Stamp.GetParams().Radius;
-	auto VisualSurfM = [&](const FVector& LocalM) -> float
+	auto StampSurfM = [&](const FVector& LocalM) -> float
 	{
 		FVector Rad = LocalM.GetSafeNormal();
 		if (Rad.IsNearlyZero())
@@ -542,50 +555,34 @@ FGXVoxelHit AGXVoxelWorld::RaycastVoxels(FVector WorldOrigin, FVector WorldDirec
 			return R0;
 		}
 		const FGXEarthField F = Stamp.SampleEarthField(FVector3f(Rad.X, Rad.Y, Rad.Z), false);
-		float Surf = R0 + F.HeightM;
-		for (int32 I = 0; I < EditHolesLocalM.Num(); ++I)
-		{
-			const FVector4& E = EditHolesLocalM[I];
-			const float RadM = FMath::Abs(E.W);
-			if (RadM < 0.05f)
-			{
-				continue;
-			}
-			const FVector C(E.X, E.Y, E.Z);
-			const FVector Guess = Rad * Surf;
-			const float D2 = FVector::DistSquared(Guess, C);
-			if (D2 >= RadM * RadM)
-			{
-				continue;
-			}
-			const float Drop = FMath::Sqrt(FMath::Max(0.0f, RadM * RadM - D2));
-			Surf += (E.W < 0.0f) ? -Drop : Drop;
-		}
-		return FMath::Max(Surf, R0 * 0.5f);
+		return R0 + F.HeightM;
 	};
-	auto AboveCrust = [&](const FVector& WorldCm) -> bool
+	// Stamp height on unedited crust. Voxel isosurface inside dirty pages so
+	// a cave wall / floor is a real hit (heightfield CSG cannot have a roof).
+	auto AboveVisual = [&](const FVector& WorldCm) -> bool
 	{
 		const FVector L = WorldToLocalMeters(WorldCm);
-		return L.Size() > VisualSurfM(L);
+		if (LocalInEditedPage(L))
+		{
+			return SampleDensityMeters(FVector3d(L.X, L.Y, L.Z)) <= 0.0f;
+		}
+		return L.Size() > StampSurfM(L);
 	};
 
-	// Hit the *visible* stamp+edit surface. Voxel density after a dig is a
-	// hole under the clipmap (NoCollision), so the brush sank and could not
-	// cut the lid (0.7.55).
 	const FVector Dir = WorldDirection.GetSafeNormal();
 	const float StepCm = 40.0f;
-	bool bPrevAbove = AboveCrust(WorldOrigin);
+	bool bPrevAbove = AboveVisual(WorldOrigin);
 	for (float T = StepCm; T <= MaxDistance; T += StepCm)
 	{
 		const FVector Pos = WorldOrigin + Dir * T;
-		const bool bAbove = AboveCrust(Pos);
+		const bool bAbove = AboveVisual(Pos);
 		if (bPrevAbove && !bAbove)
 		{
 			float T0 = T - StepCm, T1 = T;
 			for (int32 I = 0; I < 8; ++I)
 			{
 				const float Tm = 0.5f * (T0 + T1);
-				if (AboveCrust(WorldOrigin + Dir * Tm)) T0 = Tm;
+				if (AboveVisual(WorldOrigin + Dir * Tm)) T0 = Tm;
 				else T1 = Tm;
 			}
 			const FVector HitPos = WorldOrigin + Dir * T1;
@@ -647,28 +644,22 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
 		BrushForceLOD0.Add(C);
-		if (bDrawVoxelVisuals)
-		{
-			EnqueueRemesh(C, true);
-		}
+		EnqueueRemesh(C, true);
 	}
-	// Do not merge. Same-spot merge kept one radius so you could not
-	// dig deeper, and oldest pits healed (0.7.56 #6–#11).
-	EditHolesLocalM.Add(FVector4(L.X, L.Y, L.Z, -(RadiusM * DigSpeedMul)));
-	if (EditHolesLocalM.Num() > 64)
+	RebuildEditedPageBoxes();
+	MarkPersistDirty();
 	{
-		EditHolesLocalM.RemoveAt(0, EditHolesLocalM.Num() - 64, EAllowShrinking::No);
+		const int32 OldCap = MaxMeshCreatesPerTick;
+		MaxMeshCreatesPerTick = 6;
+		FlushMeshQueue(6);
+		MaxMeshCreatesPerTick = OldCap;
 	}
 	if (HorizonClipmap)
 	{
 		HorizonClipmap->NotifyEdits();
 	}
-	GX_PERF(1, TEXT("GX-dig clipmap hole local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d"),
-		L.X, L.Y, L.Z, RadiusM * DigSpeedMul, Brush.DirtyChunks.Num());
-	if (bDrawVoxelVisuals)
-	{
-		FlushMeshQueue(2);
-	}
+	GX_PERF(1, TEXT("GX-dig volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d boxes=%d"),
+		L.X, L.Y, L.Z, RadiusM * DigSpeedMul, Brush.DirtyChunks.Num(), EditedPageBoxesM.Num());
 	return Out;
 }
 
@@ -689,26 +680,22 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
 		BrushForceLOD0.Add(C);
-		if (bDrawVoxelVisuals)
-		{
-			EnqueueRemesh(C, true);
-		}
+		EnqueueRemesh(C, true);
 	}
-	EditHolesLocalM.Add(FVector4(L.X, L.Y, L.Z, RadiusM));
-	if (EditHolesLocalM.Num() > 64)
+	RebuildEditedPageBoxes();
+	MarkPersistDirty();
 	{
-		EditHolesLocalM.RemoveAt(0, EditHolesLocalM.Num() - 64, EAllowShrinking::No);
+		const int32 OldCap = MaxMeshCreatesPerTick;
+		MaxMeshCreatesPerTick = 6;
+		FlushMeshQueue(6);
+		MaxMeshCreatesPerTick = OldCap;
 	}
 	if (HorizonClipmap)
 	{
 		HorizonClipmap->NotifyEdits();
 	}
-	GX_PERF(1, TEXT("GX-place clipmap mound local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d"),
-		L.X, L.Y, L.Z, RadiusM, Brush.DirtyChunks.Num());
-	if (bDrawVoxelVisuals)
-	{
-		FlushMeshQueue(2);
-	}
+	GX_PERF(1, TEXT("GX-place volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d boxes=%d"),
+		L.X, L.Y, L.Z, RadiusM, Brush.DirtyChunks.Num(), EditedPageBoxesM.Num());
 	return Out;
 }
 
@@ -1031,9 +1018,16 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 				{
 					continue;
 				}
-				if (!ChunkOverlapsSurface(CC, ChunkM))
+				const bool bEdited = Volume->ChunkHasEdits(CC);
+				if (!bEdited && !ChunkOverlapsSurface(CC, ChunkM))
 				{
 					++SkippedAir;
+					continue;
+				}
+				// Unedited crust is the clipmap. Only dirty pages get an MC mesh
+				// so a cave can have a roof and never evict the oldest bowl.
+				if (!bEdited && !bDrawVoxelVisuals)
+				{
 					continue;
 				}
 				Desired.Add(CC);
@@ -1041,7 +1035,7 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 				{
 					++NearWanted;
 				}
-				if (HollowChunks.Contains(CC))
+				if (HollowChunks.Contains(CC) && !bEdited)
 				{
 					continue;
 				}
@@ -1054,18 +1048,14 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 				// 0.7.17 deferred everything past 110 m while near was busy.
 				// Walking kept near busy, so the 110–360 m band never meshed
 				// and the player walked off voxels onto the clipmap.
-				if (bNearBusy && Dist > StreamNow * 0.90f)
+				if (bNearBusy && Dist > StreamNow * 0.90f && !bEdited)
 				{
 					++DeferredFar;
 					continue;
 				}
-				if (!bDrawVoxelVisuals)
-				{
-					continue;
-				}
 				if (!ChunkVisuals.Contains(CC))
 				{
-					if (EmptyRetries.FindRef(CC) >= 2)
+					if (!bEdited && EmptyRetries.FindRef(CC) >= 2)
 					{
 						continue;
 					}
@@ -1175,7 +1165,7 @@ void AGXVoxelWorld::ProcessMeshQueue(int32 Budget)
 			RemeshWhenIdle.Add(Coord);
 			continue;
 		}
-		if (HollowChunks.Contains(Coord))
+		if (HollowChunks.Contains(Coord) && !(Volume && Volume->ChunkHasEdits(Coord)))
 		{
 			continue;
 		}
@@ -1426,9 +1416,14 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 		Tangents.Add(FProcMeshTangent(T, false));
 	}
 
-	PMC->bUseAsyncCooking = true;
+	const bool bEdited = Volume && Volume->ChunkHasEdits(Coord);
+	const FVector Center((Coord.X + 0.5f) * ChunkM, (Coord.Y + 0.5f) * ChunkM, (Coord.Z + 0.5f) * ChunkM);
+	const bool bNearCol = FVector::Dist(Center, ViewerLocal) <= CollisionRadius;
+	const bool bCookCol = bEdited && bNearCol;
+
+	PMC->bUseAsyncCooking = !bCookCol;
 	FChunkVisual* Slot = ChunkVisuals.Find(Coord);
-	const bool bCanUpdate = Slot
+	const bool bCanUpdate = !bEdited && Slot
 		&& Slot->VertCount == LocalPos.Num()
 		&& Slot->IndexCount == MeshData.Indices.Num()
 		&& Slot->VertCount > 0;
@@ -1454,7 +1449,7 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 		}
 		PMC->ClearMeshSection(Section);
 		PMC->CreateMeshSection_LinearColor(
-			Section, LocalPos, MeshData.Indices, MeshData.Normals, MeshData.UV0, MeshData.Colors, Tangents, false);
+			Section, LocalPos, MeshData.Indices, MeshData.Normals, MeshData.UV0, MeshData.Colors, Tangents, bCookCol);
 		++MeshCreatesThisTick;
 	}
 	if (TerrainMaterial)
@@ -1462,6 +1457,13 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 		PMC->SetMaterial(Section, TerrainMaterial);
 	}
 	PMC->SetMeshSectionVisible(Section, true);
+	if (bCookCol)
+	{
+		PMC->bUseComplexAsSimpleCollision = true;
+		PMC->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		PMC->SetCollisionObjectType(ECC_WorldStatic);
+		PMC->SetCollisionResponseToAllChannels(ECR_Block);
+	}
 	if (FChunkVisual* V = ChunkVisuals.Find(Coord))
 	{
 		V->LOD = LOD;
@@ -1470,9 +1472,6 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 	}
 
 	MeshQueued.Remove(Coord);
-	// No per-chunk actor. Stamp snap is the floor. PMC collision on 600
-	// actors was the 81 ms walk hitch.
-	(void)CollisionRadius;
 	return true;
 }
 
@@ -1595,8 +1594,26 @@ void AGXVoxelWorld::OnAtlasReady(const TSharedRef<FGXCrustAtlas, ESPMode::Thread
 	LoadStatus = bFromDisk ? TEXT("Loaded crust cache…") : TEXT("Height field ready…");
 	LoadProgress = 0.12f;
 	LastStreamViewerWorld = FVector(1e12f, 0, 0);
-	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s crust atlas ready disk=%d dim=%d"),
-		GX_VERSION_STRING, bFromDisk ? 1 : 0, Built->Dim);
+	if (Volume)
+	{
+		TArray<FGXChunkKey> Edited;
+		Volume->GetAllocatedChunkKeys(Edited);
+		for (const FGXChunkKey& K : Edited)
+		{
+			if (Volume->ChunkHasEdits(K))
+			{
+				BrushForceLOD0.Add(K);
+				EnqueueRemesh(K, true);
+			}
+		}
+		RebuildEditedPageBoxes();
+		if (HorizonClipmap)
+		{
+			HorizonClipmap->NotifyEdits();
+		}
+	}
+	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s crust atlas ready disk=%d dim=%d editBoxes=%d"),
+		GX_VERSION_STRING, bFromDisk ? 1 : 0, Built->Dim, EditedPageBoxesM.Num());
 }
 
 bool AGXVoxelWorld::TryApplyCachedChunk(const FGXChunkKey& Coord, int32 LOD)
@@ -1782,7 +1799,20 @@ bool AGXVoxelWorld::SaveWorld()
 			Write(Pair.Value[I]->Cells.GetData(), sizeof(FGXVoxelPacked) * FGXVoxelConstants::CellsPerPage);
 		}
 	}
-	return FFileHelper::SaveArrayToFile(Buf, *GetSavePath());
+	const FString Path = GetSavePath();
+	IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
+	if (!FFileHelper::SaveArrayToFile(Buf, *Path))
+	{
+		UE_LOG(LogGXVoxel, Error, TEXT("GX-%s SaveWorld failed %s"), GX_VERSION_STRING, *Path);
+		return false;
+	}
+	LastSaveToast = FString::Printf(TEXT("Saved %s"), *FDateTime::Now().ToString(TEXT("%H:%M")));
+	bPersistDirty = false;
+	AutoSaveAccum = 0.0f;
+	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s saved %d pages -> %s (%s)"),
+		GX_VERSION_STRING, PageCount, *Path, *LastSaveToast);
+	GX_PERF(1, TEXT("GX-save pages=%d path=%s"), PageCount, *Path);
+	return true;
 }
 
 bool AGXVoxelWorld::LoadWorld()
@@ -1861,6 +1891,40 @@ bool AGXVoxelWorld::LoadWorld()
 		}
 		EnqueueRemesh(Key);
 	}
-	UE_LOG(LogGXVoxel, Log, TEXT("Loaded %d dirty pages from %s"), PageCount, *GetSavePath());
+	RebuildEditedPageBoxes();
+	if (HorizonClipmap)
+	{
+		HorizonClipmap->NotifyEdits();
+	}
+	bPersistDirty = false;
+	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s loaded %d dirty pages from %s boxes=%d"),
+		GX_VERSION_STRING, PageCount, *GetSavePath(), EditedPageBoxesM.Num());
+	GX_PERF(1, TEXT("GX-load pages=%d boxes=%d"), PageCount, EditedPageBoxesM.Num());
 	return true;
+}
+
+void AGXVoxelWorld::RebuildEditedPageBoxes()
+{
+	EditedPageBoxesM.Reset();
+	if (Volume)
+	{
+		Volume->GetEditedPageBoxes(EditedPageBoxesM, VoxelSize * 1.5f);
+	}
+}
+
+bool AGXVoxelWorld::LocalInEditedPage(const FVector& LocalM) const
+{
+	for (const FBox& B : EditedPageBoxesM)
+	{
+		if (B.IsInsideOrOn(LocalM))
+		{
+			return true;
+		}
+	}
+	return false;
+}
+
+void AGXVoxelWorld::MarkPersistDirty()
+{
+	bPersistDirty = true;
 }

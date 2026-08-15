@@ -176,6 +176,90 @@ bool UGXBodyMovement::FindStampSurface(const FVector& CapsuleLocation, FVector& 
 	return true;
 }
 
+bool UGXBodyMovement::FindLocalFloor(const FVector& CapsuleLocation, FVector& OutSurfaceCm, FVector& OutCapsuleCm) const
+{
+	const IGXVoxelQuery* Q = Cast<IGXVoxelQuery>(FieldActor);
+	if (!Q || !FieldActor)
+	{
+		return false;
+	}
+
+	const FVector Up = GetUpDir();
+	if (Up.IsNearlyZero())
+	{
+		return false;
+	}
+
+	float Half = 88.0f;
+	if (CharacterOwner && CharacterOwner->GetCapsuleComponent())
+	{
+		Half = CharacterOwner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
+	}
+	constexpr float SkinCm = 2.0f;
+	const FVector Origin = FieldActor->GetActorLocation();
+	auto DensAt = [&](const FVector& WorldCm) -> float
+	{
+		const FVector L = WorldCm - Origin;
+		return Q->SampleDensityMeters(FVector3d(L.X * 0.01, L.Y * 0.01, L.Z * 0.01));
+	};
+
+	const FVector Feet = CapsuleLocation - Up * Half;
+	FVector Air = Feet;
+	FVector Solid = FVector::ZeroVector;
+	bool bFound = false;
+	if (DensAt(Feet) > 0.0f)
+	{
+		// Soles already in solid — search a short way up for the interface.
+		FVector Probe = Feet;
+		for (int32 I = 0; I < 24; ++I)
+		{
+			Probe += Up * 8.0f;
+			if (DensAt(Probe) <= 0.0f)
+			{
+				Air = Probe;
+				Solid = Probe - Up * 8.0f;
+				bFound = true;
+				break;
+			}
+		}
+	}
+	else
+	{
+		for (float D = 8.0f; D <= 1200.0f; D += 16.0f)
+		{
+			const FVector Probe = Feet - Up * D;
+			if (DensAt(Probe) > 0.0f)
+			{
+				Solid = Probe;
+				Air = Probe + Up * 16.0f;
+				bFound = true;
+				break;
+			}
+		}
+	}
+	if (!bFound)
+	{
+		return false;
+	}
+
+	for (int32 I = 0; I < 16; ++I)
+	{
+		const FVector Mid = (Solid + Air) * 0.5f;
+		if (DensAt(Mid) > 0.0f)
+		{
+			Solid = Mid;
+		}
+		else
+		{
+			Air = Mid;
+		}
+	}
+
+	OutSurfaceCm = Air;
+	OutCapsuleCm = OutSurfaceCm + Up * (Half + SkinCm);
+	return true;
+}
+
 void UGXBodyMovement::FindFloor(const FVector& CapsuleLocation, FFindFloorResult& OutFloorResult, bool bCanUseCachedLocation, const FHitResult* DownwardSweepResult) const
 {
 	Super::FindFloor(CapsuleLocation, OutFloorResult, bCanUseCachedLocation, DownwardSweepResult);
@@ -185,7 +269,7 @@ void UGXBodyMovement::FindFloor(const FVector& CapsuleLocation, FFindFloorResult
 	}
 
 	FVector Surface, Desired;
-	if (!FindStampSurface(CapsuleLocation, Surface, Desired))
+	if (!FindLocalFloor(CapsuleLocation, Surface, Desired))
 	{
 		return;
 	}
@@ -197,7 +281,7 @@ void UGXBodyMovement::FindFloor(const FVector& CapsuleLocation, FFindFloorResult
 		Half = CharacterOwner->GetCapsuleComponent()->GetScaledCapsuleHalfHeight();
 	}
 	const float FloorDist = FVector::DotProduct(CapsuleLocation - Surface, Up) - Half;
-	// Only a real floor when the soles are within a step of the stamp.
+	// Only a real floor when the soles are within a step of the local isosurface.
 	if (FloorDist > MaxStepHeight + 12.0f || FloorDist < -Half)
 	{
 		return;
@@ -236,7 +320,7 @@ void UGXBodyMovement::StickToStampFloor()
 
 	FVector Surface, Desired;
 	const FVector Loc = UpdatedComponent->GetComponentLocation();
-	if (!FindStampSurface(Loc, Surface, Desired))
+	if (!FindLocalFloor(Loc, Surface, Desired))
 	{
 		return;
 	}
@@ -338,11 +422,20 @@ void UGXBodyMovement::TickComponent(float DeltaTime, ELevelTick TickType, FActor
 	}
 	else if (bSnapWhenAirborne && FieldActor && !CurrentFloor.IsWalkableFloor())
 	{
-		AirborneSeconds += DeltaTime;
-		if (AirborneSeconds >= AirborneSnapSeconds)
+		// A cave / quarry has solid under the feet. Do not yank back to the
+		// outer crust — that was "I cannot dig a tunnel".
+		if (HasSolidWithinMeters(12.0f))
 		{
-			SnapToSurface(false);
 			AirborneSeconds = 0.0f;
+		}
+		else
+		{
+			AirborneSeconds += DeltaTime;
+			if (AirborneSeconds >= AirborneSnapSeconds)
+			{
+				SnapToSurface(false);
+				AirborneSeconds = 0.0f;
+			}
 		}
 	}
 	else

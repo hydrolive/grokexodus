@@ -186,6 +186,38 @@ bool FGXVoxelVolume::ChunkHasEdits(const FGXChunkKey& Key) const
 	return false;
 }
 
+void FGXVoxelVolume::GetEditedPageBoxes(TArray<FBox>& Out, float PadM) const
+{
+	Out.Reset();
+	const float VS = Stamp.GetParams().VoxelSize;
+	const float PageM = VS * static_cast<float>(FGXVoxelConstants::PageSize);
+	const float ChunkM = VS * static_cast<float>(FGXVoxelConstants::ChunkSize);
+	const float Pad = FMath::Max(0.0f, PadM);
+	for (const auto& Pair : Pages)
+	{
+		const FGXChunkKey& K = Pair.Key;
+		for (int32 I = 0; I < Pair.Value.Num(); ++I)
+		{
+			if (!Pair.Value[I].IsValid())
+			{
+				continue;
+			}
+			const int32 PX = I % FGXVoxelConstants::PagesPerAxis;
+			const int32 PY = (I / FGXVoxelConstants::PagesPerAxis) % FGXVoxelConstants::PagesPerAxis;
+			const int32 PZ = I / (FGXVoxelConstants::PagesPerAxis * FGXVoxelConstants::PagesPerAxis);
+			const FVector Min(
+				K.X * ChunkM + PX * PageM - Pad,
+				K.Y * ChunkM + PY * PageM - Pad,
+				K.Z * ChunkM + PZ * PageM - Pad);
+			const FVector Max(
+				K.X * ChunkM + (PX + 1) * PageM + Pad,
+				K.Y * ChunkM + (PY + 1) * PageM + Pad,
+				K.Z * ChunkM + (PZ + 1) * PageM + Pad);
+			Out.Emplace(Min, Max);
+		}
+	}
+}
+
 FGXVoxelVolume::FBrushResult FGXVoxelVolume::ApplySphereBrush(
 	const FVector3d& CenterM,
 	float RadiusM,

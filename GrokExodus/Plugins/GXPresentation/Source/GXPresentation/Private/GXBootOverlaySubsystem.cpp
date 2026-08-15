@@ -70,9 +70,14 @@ void UGXBootOverlaySubsystem::Tick(float DeltaTime)
 	{
 		const float Progress = WorldActor ? FMath::Clamp(WorldActor->GetLoadProgress(), 0.02f, 1.0f) : 0.05f;
 		const FString Status = WorldActor ? WorldActor->GetLoadStatus() : FString(TEXT("Starting planet systems…"));
-		const FString Extra = WorldActor
-			? FString::Printf(TEXT("%s  %.0f%%"), *Status, Progress * 100.f)
-			: FString(TEXT("waiting for AGXVoxelWorld"));
+		FString Extra = TEXT("waiting for AGXVoxelWorld");
+		if (WorldActor)
+		{
+			const FString Toast = WorldActor->GetLastSaveToast();
+			Extra = Toast.IsEmpty()
+				? FString::Printf(TEXT("%s  %.0f%%"), *Status, Progress * 100.f)
+				: Toast;
+		}
 		Boot->SetState(OverlayAlpha, Progress, Status, Extra);
 	}
 }

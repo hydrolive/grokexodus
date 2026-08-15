@@ -94,6 +94,9 @@ public:
 	void GetAllocatedChunkKeys(TArray<FGXChunkKey>& Out) const;
 	bool ChunkHasEdits(const FGXChunkKey& Key) const;
 
+	/** Planet-local metre AABBs of every allocated 8³ page (padded). Clipmap punch. */
+	void GetEditedPageBoxes(TArray<FBox>& Out, float PadM = 1.5f) const;
+
 	/** Copy-on-write snapshot for workers. */
 	TSharedRef<FGXVoxelSnapshot, ESPMode::ThreadSafe> PublishSnapshot() const;
 

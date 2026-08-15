@@ -152,10 +152,14 @@ public:
 	FString SaveFileName = TEXT("earth_default.gxsav");
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Persistence")
-	bool bAutoLoadOnBeginPlay = false;
+	bool bAutoLoadOnBeginPlay = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Persistence")
 	bool bAutoSaveOnEndPlay = true;
+
+	/** Commit dirty pages on this interval. 0 disables the timer (F5 / EndPlay still save). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Persistence")
+	float AutoSaveIntervalSeconds = 180.0f;
 
 	// IGXVoxelQuery
 	virtual float SampleDensityMeters(const FVector3d& PlanetLocalMeters) const override;
@@ -215,6 +219,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "GX|Load")
 	FString GetLoadStatus() const { return LoadStatus; }
 
+	/** Top-left overlay line after F5 / autosave. Empty until the first successful save. */
+	UFUNCTION(BlueprintPure, Category = "GX|Persist")
+	FString GetLastSaveToast() const { return LastSaveToast; }
+
 	FVector WorldToLocalMeters(const FVector& WorldCm) const;
 	FVector LocalMetersToWorld(const FVector& LocalM) const;
 
@@ -254,9 +262,12 @@ protected:
 	TSet<FGXChunkKey> RemeshWhenIdle;
 	TSet<FGXChunkKey> BrushForceLOD0;
 	TMap<FGXChunkKey, int32> EmptyRetries;
-	/** xyz = brush center (planet-local m), W = signed radius (neg=dig, pos=place). */
-	TArray<FVector4> EditHolesLocalM;
+	/** Planet-local metre AABBs of dirty 8³ pages — clipmap punch + hybrid ray. */
+	TArray<FBox> EditedPageBoxesM;
 	TMap<FGXChunkKey, double> NextEmptyRetryAt;
+	FString LastSaveToast;
+	float AutoSaveAccum = 0.0f;
+	bool bPersistDirty = false;
 
 	FVector CachedViewerWorld = FVector::ZeroVector;
 	FVector LastStreamViewerWorld = FVector(1e12f, 0, 0);
@@ -321,4 +332,7 @@ protected:
 	void InvalidateHollow(const FGXChunkKey& Coord);
 	void MarkChunkEmpty(const FGXChunkKey& Coord, int32 LOD, const TCHAR* Reason);
 	bool ChunkOverlapsSurface(const FGXChunkKey& Coord, float ChunkM) const;
+	void RebuildEditedPageBoxes();
+	bool LocalInEditedPage(const FVector& LocalM) const;
+	void MarkPersistDirty();
 };

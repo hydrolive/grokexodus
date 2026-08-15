@@ -281,10 +281,6 @@ void AGrokExodusSurvivor::OnSaveWorld()
 	for (TActorIterator<AGXVoxelWorld> It(GetWorld()); It; ++It)
 	{
 		It->SaveWorld();
-		if (GEngine)
-		{
-			GEngine->AddOnScreenDebugMessage(-1, 3.f, FColor::Green, TEXT("World saved."));
-		}
 		break;
 	}
 }

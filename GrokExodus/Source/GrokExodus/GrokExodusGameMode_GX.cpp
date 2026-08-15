@@ -82,6 +82,9 @@ void AGXGameMode::EnsureWorld()
 		{
 			VoxelWorld->ConfigurePlanet(PlanetRadius, FGXPlanetStampParams::Earth().MaxRelief, StreamRadius);
 		}
+		// ConfigurePlanet can rebuild the volume after BeginPlay already
+		// loaded pages. Restore the save so caves survive PIE restart.
+		VoxelWorld->LoadWorld();
 	}
 }
 

@@ -32,11 +32,11 @@ public:
 		UMaterialInterface* FarMaterial = nullptr,
 		UMaterialInterface* PatchMaterial = nullptr,
 		const FGXCrustAtlas* Atlas = nullptr,
-		const TArray<FVector4>* EditHolesLocalM = nullptr,
+		const TArray<FBox>* EditedPageBoxesM = nullptr,
 		TFunction<float(const FVector&)> DensityAt = nullptr);
 
 	void Invalidate();
-	/** Punch ring 0 and stitch the crater. Do not resample stamp heights. */
+	/** Punch clipmap quads over edited volume pages. Do not resample stamp heights. */
 	void NotifyEdits();
 	bool IsReady() const { return bReady; }
 
@@ -81,5 +81,5 @@ private:
 		FRing& Ring,
 		const FGXSphereStamp& Stamp,
 		UMaterialInterface* Material,
-		const TArray<FVector4>* Edits);
+		const TArray<FBox>* EditedPageBoxesM);
 };

@@ -84,6 +84,16 @@ uint8 Flags     (PlayerPlaced, Deformed, Ore, Scar, Liquid)
 
 Unedited space is **not stored**. Mesh jobs sample the stamp + overlay.
 
+### Edits, caves, persist (0.7.58)
+
+- The **clipmap is the unedited crust**. It cannot have a roof.
+- Every dig/place writes **sparse 8³ pages** (`Deformed` / `PlayerPlaced`). There is **no stroke cap**.
+- Visual caves: remesh **only edited chunks** (marching cubes). Punch clipmap quads whose stamp verts fall inside those page AABBs.
+- Tool ray: stamp height off-page, voxel isosurface inside a dirty page.
+- Walk: nearest density floor under the capsule (bowl / cave), not the outer crust. Airborne snap is skipped when solid is within 12 m.
+- Save: `Saved/VoxelWorld/earth_default.gxsav` (GXV1). F5, EndPlay, and **every 180 s** if dirty. Overlay stamp reads `Saved HH:MM`. PIE auto-loads.
+- Healing (drop pages when no player or structure is near) is **not** in this wave.
+
 ### Streaming
 
 `UGXVoxelInvokerComponent` on the pawn. `AGXVoxelWorld` streams a window:
