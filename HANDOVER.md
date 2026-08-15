@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.13**  
+Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.14**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.8.14** 0.8.13 shot: dug from **behind** the grass; the lid never moved (3D distance + “cave roof” skip). Extra clicks. Brush now drops verts by **surface** distance so a carve under the lawn pulls the top down. Edited chunks remesh again so the interior exists.
 - **GX 0.8.13** 0.8.12: **untouched grass lid** over spawn and every dig (you could walk under it). `UpdateMeshSection` was given grid-only arrays after rim skirts — UE ignored the update. Live mesh is stored after skirts. Surface-air columns drop. No punch.
 - **GX 0.8.12** 0.8.11 hill shot: still **removed faces + stacked layers**; each dig spiked FPS. Log: `punch=466` (55 k tris Create) vs 2 cave meshes; then 3 fps. Clipmap **never deletes quads**. A dig only **UpdateMeshSection** verts near the brush. Surface digs do not remesh voxels (that was the second layer).
 - **GX 0.8.11** 0.8.10 hill shot: **[VSM] Non-Nanite Marking Job Queue overflow**, missing faces, overlapping layers. Logs: 437 punched 2 m quads vs **2** live meshes; bank PMC shadows + 60 km bounds filled the VSM; clipmap remeshed every ApplyBuiltMesh (8 fps). Punch only over a **live cave mesh**, never the 8 m ring. Banks do not cast shadows. `r.Shadow.Virtual.NonNaniteVSM=0`. NotifyEdits only on first visual.

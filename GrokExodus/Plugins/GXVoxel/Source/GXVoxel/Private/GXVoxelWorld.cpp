@@ -657,20 +657,11 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	Out.YieldAmount = Brush.VolumeChanged * 0.7f * RecoveryMul;
 	Out.ToolWear = Brush.VolumeChanged * WearMul;
 	if (Jobs) Jobs->BumpStamp();
-	FVector Rad = L.GetSafeNormal();
-	if (Rad.IsNearlyZero())
-	{
-		Rad = FVector(1, 0, 0);
-	}
-	const float Surf = Volume->GetStamp().SampleSurfaceRadius(FVector3f(Rad.X, Rad.Y, Rad.Z));
-	const bool bCave = L.Size() + 1.5f < Surf;
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
 		BrushForceLOD0.Add(C);
-		// Surface bowls are the clipmap (NotifyBrush). Remeshing voxels
-		// here stacked a second crust and punching it opened hill holes.
-		if (bCave && Volume->ChunkHasEdits(C))
+		if (Volume->ChunkHasEdits(C))
 		{
 			EnqueueRemesh(C, true);
 		}

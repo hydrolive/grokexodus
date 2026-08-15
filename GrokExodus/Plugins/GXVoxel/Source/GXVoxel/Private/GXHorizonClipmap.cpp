@@ -227,9 +227,13 @@ void FGXHorizonClipmap::NotifyBrush(
 	{
 		return;
 	}
-	const float BrushR = LocalM.Size();
-	const float Cover = RadiusM + FMath::Max(Ring.CellM, 2.0f) * 1.5f;
+	const float Cover = RadiusM + FMath::Max(Ring.CellM, 2.0f) * 2.0f;
 	const float Cover2 = Cover * Cover;
+	FVector BrushDir = LocalM.GetSafeNormal();
+	if (BrushDir.IsNearlyZero())
+	{
+		BrushDir = FVector(1, 0, 0);
+	}
 
 	int32 Dropped = 0;
 	for (int32 VI = 0; VI < Ring.StampDir.Num(); ++VI)
@@ -240,13 +244,11 @@ void FGXHorizonClipmap::NotifyBrush(
 		}
 		const FVector Dir = Ring.StampDir[VI];
 		const float Surf = Ring.StampSurfM[VI];
-		// Deep cave under this vert: keep the grass roof.
-		if (BrushR + 2.0f < Surf)
-		{
-			continue;
-		}
 		const FVector AtSurf = Dir * Surf;
-		if (FVector::DistSquared(AtSurf, LocalM) > Cover2)
+		// Compare on the crust, not in 3D. A brush under the lid is several
+		// metres below AtSurf — 3D distance skipped every roof vert (0.8.13).
+		const FVector BrushOnSurf = BrushDir * Surf;
+		if (FVector::DistSquared(AtSurf, BrushOnSurf) > Cover2)
 		{
 			continue;
 		}
