@@ -70,6 +70,7 @@ private:
 
 	TArray<FRing> Rings;
 	FVector LastViewerLocal = FVector(1e12f, 0, 0);
+	double LastBrushSeconds = -1.0e9;
 	bool bReady = false;
 	bool bEditsDirty = false;
 

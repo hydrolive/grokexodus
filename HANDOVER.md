@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.20**  
+Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.21**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.8.21** 0.8.20 #1/#2: crater opened then a **grass sheet stayed** and the **ball sat on top**. Dig dropped 4 m (`drop=3.54..4.85`) then the walk disk **rebuilt from the stamp** 140 ms later; density walk stopped in the crust so the lid came back. Column drop now skips the crust to the excavated floor (48 m). Ray skips that lid so the ball sits in the hole. No walk-disk stamp reset for 2.5 s after a click. Bowl depth matches the preview ball.
 - **GX 0.8.20** Fresh-ground dig was a **second skin** (shot 044722): 0.8.19 dropped the 40 m disk (log `verts=8..16 mesh=1584`) while the **180 m / 2 m ring at sink 0** stayed uncut. One **80 m / 2 m** walk disk is the crust; far rings start at 70 m and sit 2.4 m under. Click drops a cosine bowl + volume floor on that disk (`CreateMeshSection` + keep material). Recenter every 16 m. Brush sit 0.35 R.
 - **GX 0.8.19** Still lagged: ball on grass, rectangle hole late (UpdateMeshSection on 30 k verts; first click often dropped 0). Underfoot **40 m / 2 m** disk is CreateMeshSection'd on the click (~400 verts). If no vert is in the sphere, the nearest 8 still drop.
 - **GX 0.8.18** Open-ground dig: clipmap lagged, then the ball sat **under** it. 1.2 m CSG only moved verts inside 1.2 m on a 2 m grid. Visual drop radius is **R+cell** so the first click is a bowl. Brush sit 0.20 R. MarkRenderStateDirty after UpdateMeshSection.

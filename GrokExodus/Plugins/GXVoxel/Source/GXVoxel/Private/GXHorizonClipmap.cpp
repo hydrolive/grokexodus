@@ -137,6 +137,49 @@ namespace
 		}
 	}
 
+	// First solid under excavated air. Stamp density at the isosurface is
+	// ~0, so a walk from Surf stops in the crust and leaves the grass lid
+	// (0.8.20 shots). Skip through that crust when the column has air.
+	float FindEditFloorM(
+		const FVector& Dir,
+		float Surf,
+		const TFunction<bool(const FVector&)>& ShouldCut,
+		const TFunction<float(const FVector&)>& DensityAt)
+	{
+		float DeepAir = -1.0f;
+		for (float D = 0.0f; D <= 48.0f; D += 0.75f)
+		{
+			const FVector P = Dir * (Surf - D);
+			const bool bAuthAir = ShouldCut && ShouldCut(P);
+			const bool bDensAir = DensityAt && D >= 1.25f && DensityAt(P) <= 0.05f;
+			if (bAuthAir || bDensAir)
+			{
+				DeepAir = Surf - D;
+			}
+		}
+		if (DeepAir < 0.0f)
+		{
+			return Surf;
+		}
+		float R = DeepAir;
+		if (DensityAt)
+		{
+			for (int32 Step = 0; Step < 80; ++Step)
+			{
+				if (DensityAt(Dir * R) > 0.05f)
+				{
+					break;
+				}
+				R -= 0.25f;
+				if (R < Surf - 48.0f)
+				{
+					break;
+				}
+			}
+		}
+		return FMath::Clamp(R - 0.08f, Surf - 48.0f, Surf);
+	}
+
 }
 
 void FGXHorizonClipmap::Initialize(AActor* Owner)
@@ -237,12 +280,11 @@ void FGXHorizonClipmap::NotifyBrush(
 			continue;
 		}
 
-		// Wider than one 2 m cell. A 1.2 m sphere on a 2 m grid only nicks
-		// a corner and the leftover quads read as a second skin (0.8.17–19).
-		const float VisR = RadiusM + Ring.CellM + 1.0f;
-		const float Cover = VisR + Ring.CellM;
+		// Cover a couple of 2 m cells so the first click is a bowl, not a
+		// nick. Depth matches the preview ball — VisR CSG was 4 m and the
+		// volume was 1.2 m, so the ball sat on a leftover grass sheet.
+		const float Cover = RadiusM + Ring.CellM * 2.0f + 0.5f;
 		const float Cover2 = Cover * Cover;
-		const float R2 = VisR * VisR;
 
 		int32 Dropped = 0;
 		float MinDrop = 0.0f;
@@ -263,35 +305,13 @@ void FGXHorizonClipmap::NotifyBrush(
 				continue;
 			}
 
-			float FloorR = Surf;
-			const float Along = FVector::DotProduct(LocalM, Dir);
-			const float Perp2 = FMath::Max(0.0f, LocalM.SizeSquared() - Along * Along);
-			if (Perp2 < R2)
-			{
-				FloorR = Along - FMath::Sqrt(R2 - Perp2) - 0.05f;
-			}
-			// Cosine bowl so every vert under the preview ball moves, even
-			// when the sphere math sits slightly above this radial.
 			const float Dist = FMath::Sqrt(Dist2);
 			const float T = FMath::Clamp(1.0f - Dist / Cover, 0.0f, 1.0f);
-			FloorR = FMath::Min(FloorR, Surf - (RadiusM + 0.45f) * T * T);
-
-			if (DensityAt && DensityAt(Dir * (Surf - 0.12f)) <= 0.05f)
+			float FloorR = Surf - (RadiusM + 0.45f) * T * T;
+			const float EditFloor = FindEditFloorM(Dir, Surf, nullptr, DensityAt);
+			if (EditFloor < Surf - 0.04f)
 			{
-				float R = Surf;
-				for (int32 Step = 0; Step < 200; ++Step)
-				{
-					if (DensityAt(Dir * R) > 0.05f)
-					{
-						break;
-					}
-					R -= 0.20f;
-					if (R < Surf - 48.0f)
-					{
-						break;
-					}
-				}
-				FloorR = FMath::Min(FloorR, R - 0.08f);
+				FloorR = FMath::Min(FloorR, EditFloor);
 			}
 
 			const float CurR = Ring.LivePos[VI].Size() * 0.01f;
@@ -342,9 +362,10 @@ void FGXHorizonClipmap::NotifyBrush(
 		}
 		Comp->MarkRenderStateDirty();
 		Comp->UpdateBounds();
-		GX_PERF(1, TEXT("GX-clipmap brush drop verts=%d r=%.2f visR=%.2f drop=%.2f..%.2f mesh=%d outer=%.0f"),
-			Dropped, RadiusM, VisR, MinDrop, MaxDrop, Ring.LivePos.Num(), Ring.OuterM);
+		GX_PERF(1, TEXT("GX-clipmap brush drop verts=%d r=%.2f drop=%.2f..%.2f mesh=%d outer=%.0f"),
+			Dropped, RadiusM, MinDrop, MaxDrop, Ring.LivePos.Num(), Ring.OuterM);
 	}
+	LastBrushSeconds = FPlatformTime::Seconds();
 }
 
 void FGXHorizonClipmap::Shutdown()
@@ -634,36 +655,17 @@ void FGXHorizonClipmap::ApplyRingEdits(
 		}
 		const FVector Dir = Ring.StampDir[VI];
 		const float Surf = Ring.StampSurfM[VI];
-		bool bCut = ShouldCut(Dir * Surf);
-		if (!bCut)
-		{
-			for (float D = 0.5f; D <= 2.5f && !bCut; D += 0.5f)
-			{
-				bCut = ShouldCut(Dir * (Surf - D));
-			}
-		}
-		if (!bCut)
+		const float FloorR = FindEditFloorM(Dir, Surf, ShouldCut, DensityAt);
+		if (FloorR >= Surf - 0.04f)
 		{
 			continue;
 		}
-		float R = Surf;
-		for (int32 Step = 0; Step < 160; ++Step)
-		{
-			if (DensityAt(Dir * R) > 0.05f)
-			{
-				break;
-			}
-			R -= 0.25f;
-			if (R < Surf - 48.0f)
-			{
-				break;
-			}
-		}
-		if (FMath::Abs(R - Surf) < 0.05f)
+		const float CurR = Ring.LivePos[VI].Size() * 0.01f;
+		const float R = FMath::Min(CurR, FloorR);
+		if (CurR - R < 0.04f)
 		{
 			continue;
 		}
-		R -= 0.08f;
 		Ring.LivePos[VI] = Dir * R * 100.0f;
 		if (Ring.UV0.IsValidIndex(VI))
 		{
@@ -1038,6 +1040,13 @@ void FGXHorizonClipmap::Update(
 		if (bReady && Built >= 2 && I > 2)
 		{
 			break;
+		}
+		// Do not stamp-reset the walk disk right after a click. 0.8.20
+		// dropped 4 m then rebuilt from the stamp 140 ms later — grass lid
+		// back, ball still on top.
+		if (I == 0 && (FPlatformTime::Seconds() - LastBrushSeconds) < 2.5)
+		{
+			continue;
 		}
 		if (bReady && FVector::DistSquared(ViewerLocalM, Ring.LastBuild) < FMath::Square(RebuildM))
 		{

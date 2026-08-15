@@ -573,8 +573,54 @@ FGXVoxelHit AGXVoxelWorld::RaycastVoxels(FVector WorldOrigin, FVector WorldDirec
 	};
 	// Authoritative cells only — a padded page AABB was a fake wall at the
 	// page face (~3 m down) so the tool could not reach the next solid.
-	// Leftover clipmap over air is skipped (density air) so the ray hits
-	// the real cave floor instead of a triangle we cannot carve.
+	// A grass lid over saved air is not a hit: walk the column to the
+	// excavated floor so the ball sits in the hole (0.8.20 #1/#2).
+	auto ColumnFloorM = [&](const FVector& LocalM) -> float
+	{
+		FVector Rad = LocalM.GetSafeNormal();
+		if (Rad.IsNearlyZero())
+		{
+			return StampSurfM(LocalM);
+		}
+		const float Surf = StampSurfM(LocalM);
+		float DeepAir = -1.0f;
+		FGXVoxelPacked Stored;
+		for (float D = 0.0f; D <= 48.0f; D += 1.0f)
+		{
+			const FVector3d P(Rad.X * (Surf - D), Rad.Y * (Surf - D), Rad.Z * (Surf - D));
+			if (Volume->TryGetAuthoritative(P, Stored) && Stored.ToDensityMeters() <= 0.0f)
+			{
+				DeepAir = Surf - D;
+			}
+		}
+		if (DeepAir < 0.0f)
+		{
+			return Surf;
+		}
+		float R = DeepAir;
+		for (int32 I = 0; I < 16; ++I)
+		{
+			const FVector3d P(Rad.X * R, Rad.Y * R, Rad.Z * R);
+			if (Volume->TryGetAuthoritative(P, Stored))
+			{
+				if (Stored.ToDensityMeters() > 0.0f)
+				{
+					break;
+				}
+			}
+			else if (R < Surf - 0.5f)
+			{
+				break;
+			}
+			R -= 0.25f;
+			if (R < Surf - 48.0f)
+			{
+				break;
+			}
+		}
+		return R;
+	};
+	float CachedFloor = -1.0f;
 	auto AboveVisual = [&](const FVector& WorldCm) -> bool
 	{
 		const FVector L = WorldToLocalMeters(WorldCm);
@@ -583,7 +629,11 @@ FGXVoxelHit AGXVoxelWorld::RaycastVoxels(FVector WorldOrigin, FVector WorldDirec
 		{
 			return Stored.ToDensityMeters() <= 0.0f;
 		}
-		return L.Size() > StampSurfM(L);
+		if (CachedFloor < 0.0f)
+		{
+			CachedFloor = ColumnFloorM(L);
+		}
+		return L.Size() > CachedFloor;
 	};
 
 	const FVector Dir = WorldDirection.GetSafeNormal();
