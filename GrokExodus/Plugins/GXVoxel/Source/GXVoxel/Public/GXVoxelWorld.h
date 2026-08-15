@@ -130,7 +130,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
 	bool bAsyncMeshing = true;
 
-	/** Debug: force every edited chunk to LOD0. 0.8.3 skirts only on LOD≥1. */
+	/** Debug: force every edited chunk to LOD0. 0.8 uses skirts + mixed LOD. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
 	bool bForceLOD0 = false;
 

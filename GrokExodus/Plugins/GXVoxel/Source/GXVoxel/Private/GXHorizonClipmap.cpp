@@ -40,21 +40,9 @@ namespace
 		{
 			return false;
 		}
-		// 8 m quads miss a 1.2 m hole if we only test corners+mid.
-		for (int32 J = 0; J <= 2; ++J)
-		{
-			const float V = static_cast<float>(J) * 0.5f;
-			const FVector L = FMath::Lerp(A, C, V);
-			const FVector R = FMath::Lerp(B, D, V);
-			for (int32 I = 0; I <= 2; ++I)
-			{
-				if (ShouldPunch(FMath::Lerp(L, R, static_cast<float>(I) * 0.5f)))
-				{
-					return true;
-				}
-			}
-		}
-		return false;
+		// Mid only. 3x3 + dilation deleted a rectangle of walk faces
+		// around every 1.2 m brush (0.8.5 near spawn).
+		return ShouldPunch((A + B + C + D) * 0.25f);
 	}
 
 	void AppendRimSkirts(
@@ -491,9 +479,9 @@ void FGXHorizonClipmap::ApplyRingEdits(
 	TArray<FProcMeshTangent> Tangents = Ring.Tangents;
 	TArray<int32> Indices;
 
-	// 2 m and 8 m rings. Leaving the 8 m disk closed made a dirt "core"
-	// lid away from spawn; the brush went under it and could not cut it.
-	const bool bHaveBoxes = ShouldPunch && Ring.CellM <= 12.0f;
+	// Walk ring only. The 8 m disk as a lid is filled by the voxel mesh
+	// once that mesh exists. Punching 8 m quads deleted whole faces.
+	const bool bHaveBoxes = ShouldPunch && Ring.CellM <= 3.0f;
 	const bool bHaveGrid = Ring.GridDim >= 2 && Ring.GridOf.Num() == Ring.GridDim * Ring.GridDim;
 	int32 Punched = 0;
 	if (bHaveBoxes && bHaveGrid)
@@ -532,32 +520,6 @@ void FGXHorizonClipmap::ApplyRingEdits(
 				}
 			}
 		}
-		TArray<uint8> Dilated = Mark;
-		if (Ring.CellM <= 3.0f)
-		{
-			for (int32 J = 0; J < QW; ++J)
-			{
-				for (int32 I = 0; I < QW; ++I)
-				{
-					if (!Mark[I + J * QW])
-					{
-						continue;
-					}
-					for (int32 DJ = -1; DJ <= 1; ++DJ)
-					{
-						for (int32 DI = -1; DI <= 1; ++DI)
-						{
-							const int32 NI = I + DI;
-							const int32 NJ = J + DJ;
-							if (NI >= 0 && NJ >= 0 && NI < QW && NJ < QW)
-							{
-								Dilated[NI + NJ * QW] = 1;
-							}
-						}
-					}
-				}
-			}
-		}
 		for (int32 J = 0; J < QW; ++J)
 		{
 			for (int32 I = 0; I < QW; ++I)
@@ -570,7 +532,7 @@ void FGXHorizonClipmap::ApplyRingEdits(
 				{
 					continue;
 				}
-				if (Dilated[I + J * QW])
+				if (Mark[I + J * QW])
 				{
 					++Punched;
 					continue;

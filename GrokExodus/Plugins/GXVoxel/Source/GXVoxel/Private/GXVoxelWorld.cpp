@@ -1484,6 +1484,10 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 		PMC->bCastDynamicShadow = true;
 		PMC->SetVisibleInRayTracing(true);
 		PMC->bAffectDistanceFieldLighting = false;
+		if (HorizonClipmap)
+		{
+			HorizonClipmap->NotifyEdits();
+		}
 	}
 	if (bCookCol)
 	{
@@ -1979,28 +1983,28 @@ bool AGXVoxelWorld::ShouldPunchClipmap(const FVector& LocalM) const
 	}
 	FGXVoxelPacked Stored;
 	const FVector3d P(LocalM.X, LocalM.Y, LocalM.Z);
-	if (Volume->TryGetAuthoritative(P, Stored) && Stored.ToDensityMeters() <= 0.0f)
+	if (!Volume->TryGetAuthoritative(P, Stored) || Stored.ToDensityMeters() > 0.0f)
 	{
-		return true;
+		FVector Rad = LocalM.GetSafeNormal();
+		if (Rad.IsNearlyZero())
+		{
+			return false;
+		}
+		if (!Volume->TryGetAuthoritative(P - FVector3d(Rad) * 0.5, Stored) || Stored.ToDensityMeters() > 0.0f)
+		{
+			if (!(Volume->TryGetAuthoritative(P + FVector3d(Rad) * 1.0, Stored)
+				&& Stored.IsAuthoritative()
+				&& Stored.ToDensityMeters() > 0.0f))
+			{
+				return false;
+			}
+		}
 	}
-	FVector Rad = LocalM.GetSafeNormal();
-	if (Rad.IsNearlyZero())
-	{
-		return false;
-	}
-	// Shallow hole just under the stamp.
-	if (Volume->TryGetAuthoritative(P - FVector3d(Rad) * 1.0, Stored) && Stored.ToDensityMeters() <= 0.0f)
-	{
-		return true;
-	}
-	// Mound sitting on the grass.
-	if (Volume->TryGetAuthoritative(P + FVector3d(Rad) * 1.0, Stored)
-		&& Stored.IsAuthoritative()
-		&& Stored.ToDensityMeters() > 0.0f)
-	{
-		return true;
-	}
-	return false;
+	// Only open a hole the voxel mesh can fill. Saved air without a live
+	// chunk visual was the spawn rectangle into the core.
+	const FGXChunkKey Key = FGXVoxelVolume::VoxelToChunk(
+		FGXVoxelVolume::WorldToVoxel(P, VoxelSize));
+	return ChunkVisuals.Contains(Key);
 }
 
 void AGXVoxelWorld::MarkPersistDirty()
