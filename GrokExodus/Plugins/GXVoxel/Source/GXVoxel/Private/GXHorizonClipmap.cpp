@@ -110,7 +110,9 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// A second edit mesh sat on the grass (0.7.35–37).
 	const FSpec Specs[] = {
 		{ 0.0f, 140.0f, 2.0f, 0.0f },
-		{ 120.0f, 560.0f, 8.0f, 1.0f },
+		// Full disk. A 120 m inner hole stayed at the old center after
+		// ring 0 walked off — look-back was a teal rectangle (0.7.52).
+		{ 0.0f, 560.0f, 8.0f, 2.0f },
 		{ 520.0f, 2400.0f, 24.0f, 2.5f },
 		{ 2200.0f, 10000.0f, 72.0f, 4.5f },
 	};
@@ -754,7 +756,7 @@ void FGXHorizonClipmap::Update(
 	for (int32 I = 0; I < Rings.Num(); ++I)
 	{
 		FRing& Ring = Rings[I];
-		const float RebuildM = (I == 0) ? 70.0f : 400.0f;
+		const float RebuildM = (I == 0) ? 70.0f : (I == 1) ? 180.0f : 400.0f;
 		if (bReady && Built >= 1 && I > 0)
 		{
 			break;

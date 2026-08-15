@@ -50,8 +50,8 @@ uint64 FGXPlanetStampParams::Fingerprint() const
 	H = MixF(H, CanyonAmp);
 	H = MixF(H, OceanDepthFrac);
 	H = MixF(H, TrenchAmp);
-	// 16 = 0.7.27 slope-side rock, no height-as-rock.
-	H = MixU64(H, 16u);
+	// 17 = 0.7.53 more compass-ring POI ranges.
+	H = MixU64(H, 17u);
 	return H;
 }
 

@@ -135,22 +135,35 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	};
 	const FVector3f AZ(0, 0, 1);
 	const FVector3f AY(0, 1, 0);
-	// Crests stay past ~5 km so the 360 m voxel stream never meshes a cliff.
-	const float Spine = FMath::Max3(
-		RangeW(MidAt(8200.0f, 500.0f), AZ, 5600.0f, 480.0f, 2800.0f, false),
-		RangeW(MidAt(10800.0f, 2600.0f), AZ, 4200.0f, 420.0f, 2400.0f, false),
-		FMath::Max(
-			RangeW(MidAt(-1800.0f, 8800.0f), AY, 5000.0f, 460.0f, 2600.0f, false),
-			RangeW(MidAt(-8200.0f, -2600.0f), AZ, 4600.0f, 440.0f, 2500.0f, false)));
-	const float Feet = FMath::Max3(
-		RangeW(MidAt(8200.0f, 500.0f), AZ, 6400.0f, 2000.0f, 5200.0f, true),
-		RangeW(MidAt(-1800.0f, 8800.0f), AY, 5600.0f, 1800.0f, 5000.0f, true),
-		RangeW(MidAt(-8200.0f, -2600.0f), AZ, 5200.0f, 1800.0f, 5000.0f, true));
-	// Wide, low rise so mid-ground goes UP toward the range (not a bowl).
-	const float Rise = FMath::Max3(
-		RangeW(MidAt(8200.0f, 500.0f), AZ, 7000.0f, 1600.0f, 7800.0f, true),
-		RangeW(MidAt(-1800.0f, 8800.0f), AY, 6200.0f, 1500.0f, 7600.0f, true),
-		RangeW(MidAt(-8200.0f, -2600.0f), AZ, 5800.0f, 1500.0f, 7600.0f, true));
+	// Crests stay past ~4 km so the voxel stream never meshes a cliff.
+	// More POIs around the compass so left/right/front/behind all have a range.
+	struct FSpine { float East; float North; float HalfLen; float HalfWid; float Flank; };
+	const FSpine Spines[] = {
+		{ 8200.0f, 500.0f, 5600.0f, 480.0f, 2800.0f },
+		{ 10800.0f, 2600.0f, 4200.0f, 420.0f, 2400.0f },
+		{ -1800.0f, 8800.0f, 5000.0f, 460.0f, 2600.0f },
+		{ -8200.0f, -2600.0f, 4600.0f, 440.0f, 2500.0f },
+		{ 400.0f, -8600.0f, 4200.0f, 400.0f, 2300.0f },
+		{ 6800.0f, -6400.0f, 3800.0f, 380.0f, 2200.0f },
+		{ 5600.0f, 7400.0f, 4000.0f, 400.0f, 2300.0f },
+		{ -6200.0f, -7200.0f, 3900.0f, 380.0f, 2200.0f },
+		{ -7400.0f, 5800.0f, 4100.0f, 400.0f, 2300.0f },
+		{ 4600.0f, 2800.0f, 2800.0f, 340.0f, 1800.0f },
+		{ 4000.0f, -3600.0f, 2600.0f, 320.0f, 1700.0f },
+		{ -2400.0f, 5000.0f, 2700.0f, 330.0f, 1750.0f },
+		{ -3200.0f, -4800.0f, 2600.0f, 320.0f, 1700.0f },
+	};
+	float Spine = 0.0f;
+	float Feet = 0.0f;
+	float Rise = 0.0f;
+	for (const FSpine& S : Spines)
+	{
+		const FVector3f Mid = MidAt(S.East, S.North);
+		const FVector3f Along = (FMath::Abs(S.East) >= FMath::Abs(S.North)) ? AZ : AY;
+		Spine = FMath::Max(Spine, RangeW(Mid, Along, S.HalfLen, S.HalfWid, S.Flank, false));
+		Feet = FMath::Max(Feet, RangeW(Mid, Along, S.HalfLen * 1.15f, S.HalfWid * 4.0f, S.Flank * 1.85f, true));
+		Rise = FMath::Max(Rise, RangeW(Mid, Along, S.HalfLen * 1.25f, S.HalfWid * 3.4f, S.Flank * 2.7f, true));
+	}
 	Domain = FMath::Lerp(Domain, 0.22f, Basin * 0.80f);
 	// Cap the raw field at "hills". Uncapped FBm was a 2 km wall in the
 	// first kilometre (0.7.13–0.7.14 shots). Mountains come only from spines.
@@ -183,12 +196,16 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	// Elongated summit on the east crest — a ridge node, not a radial volcano.
 	const float Summit = RangeW(MidAt(8100.0f, 1100.0f), AZ, 1600.0f, 380.0f, 1500.0f, false);
 	const float Summit2 = RangeW(MidAt(9000.0f, -400.0f), AZ, 1100.0f, 320.0f, 1300.0f, false);
+	const float Summit3 = RangeW(MidAt(400.0f, -8400.0f), AY, 1200.0f, 300.0f, 1200.0f, false);
+	const float Summit4 = RangeW(MidAt(-7200.0f, 5600.0f), AZ, 1100.0f, 300.0f, 1200.0f, false);
 	const float PeakH = PlainsH
 		+ (0.24f + 0.28f * Ridge) * Mass * MountainW * Cols
 		+ MountainW * Skyline * 0.14f
 		+ Summit * (0.18f + 0.10f * Ridge)
-		+ Summit2 * (0.12f + 0.08f * Ridge);
-	Out.Volcano = FMath::Max(Summit, Summit2) * (0.35f + 0.45f * Ridge);
+		+ Summit2 * (0.12f + 0.08f * Ridge)
+		+ Summit3 * (0.14f + 0.08f * Ridge)
+		+ Summit4 * (0.13f + 0.08f * Ridge);
+	Out.Volcano = FMath::Max3(Summit, Summit2, FMath::Max(Summit3, Summit4)) * (0.35f + 0.45f * Ridge);
 	const float Orogeny = LandMask * (PlainsW * PlainsH + HillW * HillH + MountainW * PeakH);
 	Out.Orogeny = LandMask * MountainW * Mass;
 

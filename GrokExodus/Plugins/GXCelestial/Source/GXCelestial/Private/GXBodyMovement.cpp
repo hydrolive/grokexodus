@@ -244,20 +244,25 @@ void UGXBodyMovement::StickToStampFloor()
 	const FVector Up = GetUpDir();
 	const float Err = FVector::DotProduct(Desired - Loc, Up);
 	constexpr float DeadCm = 2.0f;
-	constexpr float StickCm = 25000.0f;
-	if (FMath::Abs(Err) > DeadCm && FMath::Abs(Err) <= StickCm)
+	// Only micro-correct a walk hover / shallow bury. 250 m stick yanked
+	// every jump back to the crust at the apex (0.7.52).
+	constexpr float StickDownCm = 10.0f;
+	constexpr float StickUpCm = 80.0f;
+	const bool bLift = Err > DeadCm && Err <= StickUpCm;
+	const bool bSettle = Err < -DeadCm && Err >= -StickDownCm;
+	if (bLift || bSettle)
 	{
 		UpdatedComponent->SetWorldLocation(Loc + Up * Err, false, nullptr, ETeleportType::TeleportPhysics);
 	}
 
-	if (CurrentFloor.IsWalkableFloor() || FMath::Abs(Err) <= StickCm)
+	if (CurrentFloor.IsWalkableFloor() || bLift || bSettle)
 	{
 		const float Into = FVector::DotProduct(Velocity, -Up);
 		if (Into > 0.0f)
 		{
 			Velocity += Up * Into;
 		}
-		if (MovementMode == MOVE_Falling && FMath::Abs(Err) <= StickCm)
+		if (MovementMode == MOVE_Falling && (bLift || bSettle))
 		{
 			SetMovementMode(MOVE_Walking);
 		}
@@ -327,7 +332,7 @@ void UGXBodyMovement::TickComponent(float DeltaTime, ELevelTick TickType, FActor
 	// Old 0.08 s snap + "eject until feet are air" was the bounce.
 	StickToStampFloor();
 
-	if (IsJumpingUp())
+	if (JumpIgnoreSnapSeconds > 0.0f)
 	{
 		AirborneSeconds = 0.0f;
 	}
