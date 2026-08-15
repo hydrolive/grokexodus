@@ -244,13 +244,9 @@ FGXMeshBuffers FGXMesher::MeshChunk(
 			{
 				Grad = Mesh.Positions[I].GetSafeNormal();
 			}
-			// Density increases toward the core. PBR is single-sided — N must
-			// point outward or the crust is black from the surface.
-			if (FVector::DotProduct(Grad, Mesh.Positions[I]) < 0.f)
-			{
-				Grad = -Grad;
-			}
-			Mesh.Normals[I] = Grad;
+			// Grad points into solid. Front faces air — cave walls must N
+			// toward the hole, not planet-outward (that was orange/blue).
+			Mesh.Normals[I] = -Grad;
 		}
 	}
 

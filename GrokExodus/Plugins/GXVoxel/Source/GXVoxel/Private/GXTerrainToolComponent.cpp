@@ -144,6 +144,10 @@ void UGXTerrainToolComponent::TickComponent(float DeltaTime, ELevelTick TickType
 		if (Hit.bHit)
 		{
 			PreviewAt = Hit.Location;
+			if (Mode == EGXToolMode::Drill)
+			{
+				PreviewAt -= Hit.Normal * (BrushRadiusM * 0.45f * 100.0f);
+			}
 			bHit = true;
 		}
 	}

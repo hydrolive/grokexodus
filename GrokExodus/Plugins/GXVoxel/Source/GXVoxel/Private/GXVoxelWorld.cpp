@@ -1468,6 +1468,15 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 		PMC->SetMaterial(Section, TerrainMaterial);
 	}
 	PMC->SetMeshSectionVisible(Section, true);
+	if (bEdited)
+	{
+		// Clipmap has no shadows. Cave walls need to cast/receive or the
+		// hole is flat sun-orange / sky-blue.
+		PMC->SetCastShadow(true);
+		PMC->bCastDynamicShadow = true;
+		PMC->SetVisibleInRayTracing(true);
+		PMC->bAffectDistanceFieldLighting = false;
+	}
 	if (bCookCol)
 	{
 		PMC->bUseComplexAsSimpleCollision = true;

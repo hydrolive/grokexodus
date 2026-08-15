@@ -90,6 +90,7 @@ Unedited space is **not stored**. Mesh jobs sample the stamp + overlay.
 - Every dig/place writes **sparse 8³ pages** (`Deformed` / `PlayerPlaced`). There is **no stroke cap**.
 - Visual caves: remesh **only edited chunks** (marching cubes). Punch clipmap quads that **intersect** a page box (dilated one cell) or whose radial from the core hits a page (lid over a cave).
 - Tool ray: stamp height, or **authoritative** voxel density. Never the padded page AABB (that was a fake 3 m floor). Brush is sunk 0.45 R into the hit.
+- Dig/place is a **CSG sphere** (one click = the preview ball), not a 1 m SDF nibble. Cave lighting N faces air; edited chunks cast shadows.
 - Walk: nearest density floor under the capsule (bowl / cave), not the outer crust. Airborne snap is skipped when solid is within 12 m.
 - Save: `Saved/VoxelWorld/earth_default.gxsav` (GXV1). F5, EndPlay, and **every 180 s** if dirty. Overlay stamp reads `Saved HH:MM`. PIE auto-loads.
 - Healing (drop pages when no player or structure is near) is **not** in this wave.

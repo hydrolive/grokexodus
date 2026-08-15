@@ -230,20 +230,22 @@ FGXVoxelVolume::FBrushResult FGXVoxelVolume::ApplySphereBrush(
 	{
 		return Result;
 	}
+	RadiusM *= FMath::Max(0.1f, Strength);
 
 	const float VoxelSize = Stamp.GetParams().VoxelSize;
 	const float Inv = 1.0f / VoxelSize;
-	const int32 MinX = FMath::FloorToInt((CenterM.X - RadiusM) * Inv) - 1;
-	const int32 MaxX = FMath::CeilToInt((CenterM.X + RadiusM) * Inv) + 1;
-	const int32 MinY = FMath::FloorToInt((CenterM.Y - RadiusM) * Inv) - 1;
-	const int32 MaxY = FMath::CeilToInt((CenterM.Y + RadiusM) * Inv) + 1;
-	const int32 MinZ = FMath::FloorToInt((CenterM.Z - RadiusM) * Inv) - 1;
-	const int32 MaxZ = FMath::CeilToInt((CenterM.Z + RadiusM) * Inv) + 1;
+	const int32 MinX = FMath::FloorToInt((CenterM.X - RadiusM - VoxelSize) * Inv) - 1;
+	const int32 MaxX = FMath::CeilToInt((CenterM.X + RadiusM + VoxelSize) * Inv) + 1;
+	const int32 MinY = FMath::FloorToInt((CenterM.Y - RadiusM - VoxelSize) * Inv) - 1;
+	const int32 MaxY = FMath::CeilToInt((CenterM.Y + RadiusM + VoxelSize) * Inv) + 1;
+	const int32 MinZ = FMath::FloorToInt((CenterM.Z - RadiusM - VoxelSize) * Inv) - 1;
+	const int32 MaxZ = FMath::CeilToInt((CenterM.Z + RadiusM + VoxelSize) * Inv) + 1;
 
 	TSet<FGXChunkKey> Dirty;
 	TMap<int32, float> Volumes;
 	const float CellVol = VoxelSize * VoxelSize * VoxelSize;
-	const float R2 = RadiusM * RadiusM;
+	const float Influence = RadiusM + VoxelSize;
+	const float Inf2 = Influence * Influence;
 
 	for (int32 Z = MinZ; Z <= MaxZ; ++Z)
 	{
@@ -259,24 +261,25 @@ FGXVoxelVolume::FBrushResult FGXVoxelVolume::ApplySphereBrush(
 					static_cast<double>(Z) * VoxelSize);
 				const FVector3d Delta = World - CenterM;
 				const float D2 = static_cast<float>(Delta.SizeSquared());
-				if (D2 > R2)
+				if (D2 > Inf2)
 				{
 					continue;
 				}
 
-				const float Falloff = 1.0f - FMath::Sqrt(D2 / R2);
-				const float Amount = Falloff * Strength * VoxelSize;
-
+				const float Dist = FMath::Sqrt(D2);
 				FGXVoxelPacked Cell = Sample(World);
 				const float OldD = Cell.ToDensityMeters();
 				float NewD = OldD;
 				if (bDig)
 				{
-					if (OldD <= 0.0f)
+					// Full CSG sphere. Nibbling Falloff*1 m left a cave wall
+					// that took dozens of clicks (interior SDF is many metres).
+					const float SphereSdf = Dist - RadiusM;
+					if (SphereSdf >= OldD)
 					{
 						continue;
 					}
-					NewD = OldD - Amount;
+					NewD = SphereSdf;
 					if (NewD > 0.0f)
 					{
 						Cell = FGXVoxelPacked::FromDensity(NewD, Cell.Material, Cell.Flags | EGXVoxelFlags::Deformed);
@@ -292,7 +295,12 @@ FGXVoxelVolume::FBrushResult FGXVoxelVolume::ApplySphereBrush(
 				}
 				else
 				{
-					NewD = FMath::Min(FGXVoxelPacked::MaxAbsDensityM, OldD + Amount);
+					const float SphereSdf = RadiusM - Dist;
+					if (SphereSdf <= OldD)
+					{
+						continue;
+					}
+					NewD = FMath::Min(FGXVoxelPacked::MaxAbsDensityM, SphereSdf);
 					Cell = FGXVoxelPacked::FromDensity(NewD, PlaceMaterial, EGXVoxelFlags::PlayerPlaced | EGXVoxelFlags::Deformed);
 					Result.VolumeChanged += FMath::Max(0.0f, NewD - OldD) * CellVol;
 					Volumes.FindOrAdd(PlaceMaterial) += FMath::Max(0.0f, NewD - OldD) * CellVol;
