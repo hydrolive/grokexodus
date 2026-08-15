@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.6**  
+Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.7**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.8.7** 0.8.6 shot: dig went **under a grass lid**, stopped on the **8 m floor**, left **floating quads**. Deleting faces cannot work (too much = core hole, too little = islands). Walk-ring verts **drop to the volume floor** (vert or 2 m quad midpoint is air). Ring 1 starts at **160 m** so the 8 m grass is never a floor underfoot. No quad delete. Cave = edited-chunk MC under the undropped roof.
 - **GX 0.8.6** 0.8.5: dig near spawn **deleted walk faces** (260+ 2 m quads + 15 8 m quads). 3×3 samples, dilation, and all saved air punched a rectangle. Punch is **mid-only**, **2 m ring only**, and only if that chunk has a **live voxel mesh**.
 - **GX 0.8.5** 0.8.4: away from spawn the **8 m clipmap was a dirt lid** (we stopped punching it). The brush went under it and could not cut it. The 8 m ring is punched again, but only on **real surface air** (3×3 samples per quad), not whole saved pages.
 - **GX 0.8.4** 0.8.3: dig near spawn **deleted a rectangle of walk faces** so you saw the sunk 8 m ring (and holes through it to the core). 29 saved pages punched **585** 2 m quads. Punch is only where the **surface is authoritative air** (or a mound), and **only the 2 m walk ring**. The 8 m ring stays closed.

@@ -1983,28 +1983,26 @@ bool AGXVoxelWorld::ShouldPunchClipmap(const FVector& LocalM) const
 	}
 	FGXVoxelPacked Stored;
 	const FVector3d P(LocalM.X, LocalM.Y, LocalM.Z);
-	if (!Volume->TryGetAuthoritative(P, Stored) || Stored.ToDensityMeters() > 0.0f)
+	if (Volume->TryGetAuthoritative(P, Stored) && Stored.ToDensityMeters() <= 0.0f)
 	{
-		FVector Rad = LocalM.GetSafeNormal();
-		if (Rad.IsNearlyZero())
-		{
-			return false;
-		}
-		if (!Volume->TryGetAuthoritative(P - FVector3d(Rad) * 0.5, Stored) || Stored.ToDensityMeters() > 0.0f)
-		{
-			if (!(Volume->TryGetAuthoritative(P + FVector3d(Rad) * 1.0, Stored)
-				&& Stored.IsAuthoritative()
-				&& Stored.ToDensityMeters() > 0.0f))
-			{
-				return false;
-			}
-		}
+		return true;
 	}
-	// Only open a hole the voxel mesh can fill. Saved air without a live
-	// chunk visual was the spawn rectangle into the core.
-	const FGXChunkKey Key = FGXVoxelVolume::VoxelToChunk(
-		FGXVoxelVolume::WorldToVoxel(P, VoxelSize));
-	return ChunkVisuals.Contains(Key);
+	FVector Rad = LocalM.GetSafeNormal();
+	if (Rad.IsNearlyZero())
+	{
+		return false;
+	}
+	if (Volume->TryGetAuthoritative(P - FVector3d(Rad) * 0.5, Stored) && Stored.ToDensityMeters() <= 0.0f)
+	{
+		return true;
+	}
+	if (Volume->TryGetAuthoritative(P + FVector3d(Rad) * 1.0, Stored)
+		&& Stored.IsAuthoritative()
+		&& Stored.ToDensityMeters() > 0.0f)
+	{
+		return true;
+	}
+	return false;
 }
 
 void AGXVoxelWorld::MarkPersistDirty()

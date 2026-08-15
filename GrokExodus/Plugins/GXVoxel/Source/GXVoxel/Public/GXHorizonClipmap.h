@@ -81,5 +81,6 @@ private:
 		FRing& Ring,
 		const FGXSphereStamp& Stamp,
 		UMaterialInterface* Material,
-		const TFunction<bool(const FVector&)>& ShouldPunch);
+		const TFunction<bool(const FVector&)>& ShouldDrop,
+		const TFunction<float(const FVector&)>& DensityAt);
 };
