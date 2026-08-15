@@ -226,7 +226,7 @@ def main():
         _set(mat, "shading_model", lit)
 
     for prop, val in (
-        ("blend_mode", unreal.BlendMode.BLEND_MASKED),
+        ("blend_mode", unreal.BlendMode.BLEND_OPAQUE),
         ("two_sided", False),
         ("b_tangent_space_normal", True),
         ("tangent_space_normal", True),
@@ -530,10 +530,8 @@ def main():
 
     plug(albedo, "", unreal.MaterialProperty.MP_BASE_COLOR)
     plug(lerp_r, "", unreal.MaterialProperty.MP_ROUGHNESS)
-
-    # Clipmap lid: vertex color A is 0 on verts inside a brush (ApplyRingEdits).
-    # World-position hole masks never punched (LWC). Patch verts keep A=1.
-    plug(vc, "A", unreal.MaterialProperty.MP_OPACITY_MASK)
+    # Opaque. VertexColor.A as a mask punched 2 m rectangles through the
+    # crust (0.7.46 #1/#2/#5) and opened the crater to the core (#4).
     # Back-lit / sky-facing hills were pitch black (0.7.33 #1). 18% of the
     # albedo plus a tiny ambient so auto-exposure against the sky cannot
     # crush the crust to a silhouette — still textured, not a flat tint.

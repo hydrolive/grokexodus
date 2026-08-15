@@ -35,13 +35,37 @@ namespace
 		return Rad + CellM + 0.5f;
 	}
 
-	/** W<0 bowl, W>0 cap. Offset the *local* stamp, not HoleR. */
+	bool PointNearEdit(const FVector& Guess, const TArray<FVector4>* Edits, float CellM)
+	{
+		if (!Edits)
+		{
+			return false;
+		}
+		for (const FVector4& E : *Edits)
+		{
+			const float Rad = FMath::Abs(E.W);
+			if (Rad < 0.05f)
+			{
+				continue;
+			}
+			const float R = EditRefineM(Rad, CellM);
+			if (FVector::DistSquared(Guess, FVector(E.X, E.Y, E.Z)) < R * R)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** W<0 bowl, W>0 cap. Union, not sum — stacked digs bored to the core. */
 	float ApplyEditSpheres(float SurfR, const FVector& Guess, const TArray<FVector4>* Edits)
 	{
 		if (!Edits || Edits->Num() == 0)
 		{
 			return SurfR;
 		}
+		float Sub = 0.0f;
+		float Add = 0.0f;
 		for (const FVector4& E : *Edits)
 		{
 			const float Rad = FMath::Abs(E.W);
@@ -56,19 +80,17 @@ namespace
 				continue;
 			}
 			const float Drop = FMath::Sqrt(FMath::Max(0.0f, Rad * Rad - D2));
-			// HoleR ± drop put the rim at the hit radius on a slope
-			// (add trim that missed the grass). Local stamp ± drop
-			// keeps the rim on the landscape.
 			if (E.W < 0.0f)
 			{
-				SurfR -= Drop;
+				Sub = FMath::Max(Sub, Drop);
 			}
 			else
 			{
-				SurfR += Drop;
+				Add = FMath::Max(Add, Drop);
 			}
 		}
-		return SurfR;
+		// Never pull a vert through the planet (0.7.46 #4 teal core).
+		return FMath::Max(SurfR - Sub + Add, SurfR * 0.5f);
 	}
 
 	/** Subdivide one coarse quad so the crater welds to the landscape. */
@@ -478,42 +500,28 @@ void FGXHorizonClipmap::ApplyRingEdits(
 	const bool bHaveGrid = Ring.GridDim >= 2 && Ring.GridOf.Num() == Ring.GridDim * Ring.GridDim;
 	if (bHaveEdits && bHaveGrid)
 	{
-		auto VertNearEdit = [&](int32 VI) -> bool
+		auto GuessOf = [&](int32 VI) -> FVector
 		{
 			if (!Ring.StampDir.IsValidIndex(VI) || !Ring.StampSurfM.IsValidIndex(VI))
 			{
-				return false;
+				return FVector::ZeroVector;
 			}
-			const FVector Guess = Ring.StampDir[VI] * Ring.StampSurfM[VI];
-			for (const FVector4& E : *Edits)
-			{
-				const float Rad = FMath::Abs(E.W);
-				if (Rad < 0.05f)
-				{
-					continue;
-				}
-				const float R = EditRefineM(Rad, Ring.CellM);
-				if (FVector::DistSquared(Guess, FVector(E.X, E.Y, E.Z)) < R * R)
-				{
-					return true;
-				}
-			}
-			return false;
+			return Ring.StampDir[VI] * Ring.StampSurfM[VI];
 		};
 
 		const int32 Dim = Ring.GridDim;
+		const int32 QW = Dim - 1;
 		const int32 Sub = FMath::Clamp(FMath::RoundToInt(Ring.CellM / 0.22f), 2, 16);
 		auto Grid = [&](int32 I, int32 J) -> int32
 		{
 			return Ring.GridOf[I + J * Dim];
 		};
 
-		// Same path at spawn and on a hill: refine the coarse quads the
-		// brush touches so the crater is welded to the landscape, not a
-		// 2 m stair-step hole (0.7.44 away from the flat pad).
-		for (int32 J = 0; J < Dim - 1; ++J)
+		TArray<uint8> Mark;
+		Mark.Init(0, QW * QW);
+		for (int32 J = 0; J < QW; ++J)
 		{
-			for (int32 I = 0; I < Dim - 1; ++I)
+			for (int32 I = 0; I < QW; ++I)
 			{
 				const int32 A = Grid(I, J);
 				const int32 B = Grid(I + 1, J);
@@ -523,7 +531,60 @@ void FGXHorizonClipmap::ApplyRingEdits(
 				{
 					continue;
 				}
-				if (VertNearEdit(A) || VertNearEdit(B) || VertNearEdit(C) || VertNearEdit(D))
+				const FVector GA = GuessOf(A);
+				const FVector GB = GuessOf(B);
+				const FVector GC = GuessOf(C);
+				const FVector GD = GuessOf(D);
+				const FVector Mid = (GA + GB + GC + GD) * 0.25f;
+				if (PointNearEdit(GA, Edits, Ring.CellM)
+					|| PointNearEdit(GB, Edits, Ring.CellM)
+					|| PointNearEdit(GC, Edits, Ring.CellM)
+					|| PointNearEdit(GD, Edits, Ring.CellM)
+					|| PointNearEdit(Mid, Edits, Ring.CellM))
+				{
+					Mark[I + J * QW] = 1;
+				}
+			}
+		}
+		// One-cell skirt so a carved quad never shares an edge with an
+		// unrefined neighbour (that crack was the 2 m window to the core).
+		TArray<uint8> Dilated = Mark;
+		for (int32 J = 0; J < QW; ++J)
+		{
+			for (int32 I = 0; I < QW; ++I)
+			{
+				if (!Mark[I + J * QW])
+				{
+					continue;
+				}
+				for (int32 DJ = -1; DJ <= 1; ++DJ)
+				{
+					for (int32 DI = -1; DI <= 1; ++DI)
+					{
+						const int32 NI = I + DI;
+						const int32 NJ = J + DJ;
+						if (NI >= 0 && NJ >= 0 && NI < QW && NJ < QW)
+						{
+							Dilated[NI + NJ * QW] = 1;
+						}
+					}
+				}
+			}
+		}
+
+		for (int32 J = 0; J < QW; ++J)
+		{
+			for (int32 I = 0; I < QW; ++I)
+			{
+				const int32 A = Grid(I, J);
+				const int32 B = Grid(I + 1, J);
+				const int32 C = Grid(I, J + 1);
+				const int32 D = Grid(I + 1, J + 1);
+				if (A == INDEX_NONE || B == INDEX_NONE || C == INDEX_NONE || D == INDEX_NONE)
+				{
+					continue;
+				}
+				if (Dilated[I + J * QW])
 				{
 					EmitRefinedQuad(
 						Positions[A], Positions[B], Positions[C], Positions[D],
@@ -608,9 +669,11 @@ void FGXHorizonClipmap::Update(
 	{
 		for (FRing& Ring : Rings)
 		{
-			if (Ring.CellM <= 3.0f)
+			// Ring 0 and 1. Spawn edits must still be there when you
+			// walk away and look back (0.7.46 #3).
+			if (Ring.CellM <= 10.0f)
 			{
-				ApplyRingEdits(Ring, Stamp, NearLit, EditHolesLocalM);
+				ApplyRingEdits(Ring, Stamp, (Ring.CellM <= 3.0f) ? NearLit : FarLit, EditHolesLocalM);
 			}
 		}
 		bEditsDirty = false;
@@ -658,7 +721,7 @@ void FGXHorizonClipmap::Update(
 		{
 			UMaterialInterface* UseMat = (I == 0) ? NearLit : FarLit;
 			BuildRing(Ring, Stamp, CenterDir, T, B, UseMat, Atlas, DensityAt);
-			if (Ring.CellM <= 3.0f)
+			if (Ring.CellM <= 10.0f)
 			{
 				ApplyRingEdits(Ring, Stamp, UseMat, EditHolesLocalM);
 			}
