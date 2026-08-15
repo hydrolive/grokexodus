@@ -201,13 +201,13 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// little deeper so the shared band does not z-fight.
 	// Fine inner ring so a 1.2 m brush moves several verts of THE crust.
 	// A second edit mesh sat on the grass (0.7.35–37).
-	// 0.8 HLOD: keep a 2 m walk disk, coarsen the far rings so the 10 km
-	// limb is not 70 k verts. Overlap + extra sink hides the pop.
+	// 0.8.3: 10/36/120 m read as stairs with hard dirt bands. Larger 2 m
+	// disk, 8 m mid, cheaper far at 96 m. Shader slope blends materials.
 	const FSpec Specs[] = {
-		{ 0.0f, 160.0f, 2.0f, 0.0f },
-		{ 0.0f, 720.0f, 10.0f, 2.2f },
-		{ 680.0f, 2800.0f, 36.0f, 3.5f },
-		{ 2600.0f, 10000.0f, 120.0f, 7.0f },
+		{ 0.0f, 180.0f, 2.0f, 0.0f },
+		{ 0.0f, 700.0f, 8.0f, 2.0f },
+		{ 660.0f, 2800.0f, 32.0f, 3.2f },
+		{ 2600.0f, 10000.0f, 96.0f, 6.0f },
 	};
 	for (const FSpec& S : Specs)
 	{
@@ -359,16 +359,9 @@ void FGXHorizonClipmap::BuildRing(
 			Ring.StampPos.Add(P);
 			Ring.StampDir.Add(Dir);
 			Ring.StampSurfM.Add(SurfR);
-			// Same atlas ids the near PBR reads from UV0.X (1 grass, 3 dirt, 2 rock).
-			float AtlasId = 1.0f;
-			if (Field.SlopeProxy > 0.16f || Field.Orogeny > 0.15f || Field.Volcano > 0.18f)
-			{
-				AtlasId = 2.0f;
-			}
-			else if (Field.SlopeProxy > 0.18f)
-			{
-				AtlasId = 3.0f;
-			}
+			// Always grass atlas cell. Hard 1/2/3 ids made 8–36 m quads
+			// into blocky dirt/rock slabs (#1/#2). PBR slope blends dirt/rock.
+			const float AtlasId = 1.0f;
 			UV0.Add(FVector2D(AtlasId, 0.0f));
 			Colors.Add(FLinearColor(0.52f, 0.60f, 0.34f, 1.0f));
 			FVector T = FVector::CrossProduct(Dir, FVector::ZAxisVector);
@@ -428,7 +421,9 @@ void FGXHorizonClipmap::BuildRing(
 		const FVector FN = FVector::CrossProduct(Positions[IB] - Positions[IA], Positions[IC] - Positions[IA]);
 		AccN[IA] += FN; AccN[IB] += FN; AccN[IC] += FN;
 	}
-	const float KeepRadial = (CellM > 3.0f) ? FMath::Clamp((CellM - 3.0f) / 28.0f, 0.15f, 0.75f) : 0.0f;
+	// Enough radial to keep rolling hills grassy; not so much that mountains
+	// lose slope and the shader cannot blend to rock.
+	const float KeepRadial = (CellM > 3.0f) ? FMath::Clamp((CellM - 3.0f) / 80.0f, 0.08f, 0.35f) : 0.0f;
 	for (int32 V = 0; V < Positions.Num(); ++V)
 	{
 		FVector N = AccN[V].GetSafeNormal();

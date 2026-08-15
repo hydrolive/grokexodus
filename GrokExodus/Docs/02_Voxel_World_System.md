@@ -107,7 +107,7 @@ Unedited space is **not stored**. Mesh jobs sample the stamp + overlay.
 | Visual banks | 120×8 sections on the planet actor (grows to 200). One Create per tick. |
 | Crust shell | radius ± relief; core is not meshed |
 
-LOD (0.8): **0 underfoot**, **1** past near field, **2** past stream. Transvoxel skirts hang open chunk-face edges toward the core so mixed LOD is not a sky crack. Collision is stamp-snap outside edits. Clipmap HLOD: walk ring 2 m / 160 m; far rings 10 / 36 / 120 m with rim skirts. `CreateMeshSection` hitch is not HLOD’s job.
+LOD (0.8): **0 underfoot**, **1** past near field, **2** past stream. Voxel transvoxel skirts only on LOD≥1 (LOD0 cave skirts were floating black faces). Collision is stamp-snap outside edits. Clipmap HLOD: walk ring 2 m / 180 m; mid 8 m; far 32 / 96 m with rim skirts. Clipmap material is grass + shader slope blend (no hard rock/dirt IDs). `CreateMeshSection` hitch is not HLOD’s job.
 
 ### Meshing
 

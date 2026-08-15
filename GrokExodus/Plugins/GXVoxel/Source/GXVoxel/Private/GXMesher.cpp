@@ -250,7 +250,9 @@ FGXMeshBuffers FGXMesher::MeshChunk(
 		}
 	}
 
-	if (Settings.bTransvoxelSkirts && Mesh.Indices.Num() >= 3)
+	// LOD0 cave meshes do not need a LOD stitch. Skirts there became
+	// floating black slabs and poles the player could not dig or fill.
+	if (Settings.bTransvoxelSkirts && Settings.LOD >= 1 && Mesh.Indices.Num() >= 3)
 	{
 		const float ChunkM = BaseVoxel * static_cast<float>(CS);
 		const FVector BoxMin(Coord.X * ChunkM, Coord.Y * ChunkM, Coord.Z * ChunkM);

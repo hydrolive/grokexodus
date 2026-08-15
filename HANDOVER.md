@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.2**  
+Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.3**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.8.3** 0.8.2: mid hills were **blocky dirt stairs** with no grass/dirt blend (#1/#2). Clipmap no longer hard-assigns rock/dirt IDs — PBR slope blends. Fine disk 180 m / 8 m mid / 96 m far. Voxel transvoxel skirts only on LOD≥1 — LOD0 cave skirts were the floating black slabs and poles you could not fill or dig (#3/#4).
 - **GX 0.8.2** 0.8.1 shot: landscape was **orange dirt with grass islands**. Radial lid + 4 m pad + dilate punched **685** walk quads so the 10 m ring (sunk, faceted) showed through. Punch is tight AABB; radial lid only for underground pages; no punch on 36/120 m rings; skirts no longer tilt stamp normals; coarse rings blend N toward radial so PBR stays grass.
 - **GX 0.8.1** 0.8.0 PIE **asserted on spawn** (`TArray` Add of an element already in that array — skirt UV/color). Copies are locals first. Same fix on clipmap rim skirts.
 - **GX 0.8.0** HLOD + transvoxel skirts. Mixed LOD is on: edited chunks are LOD0 underfoot, LOD1 past ~90 m, LOD2 past stream. Open chunk-face edges drop a core-facing skirt so LOD cracks are not sky holes. Clipmap far rings are coarser (10 / 36 / 120 m) and each ring has a rim skirt so the 2→10 m pop does not flash teal. HLOD does **not** replace CreateMeshSection. Cluster DAG is 0.9. Wave C is sky.
