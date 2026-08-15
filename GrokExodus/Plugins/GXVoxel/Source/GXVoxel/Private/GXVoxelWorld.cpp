@@ -587,7 +587,7 @@ FGXVoxelHit AGXVoxelWorld::RaycastVoxels(FVector WorldOrigin, FVector WorldDirec
 	};
 
 	const FVector Dir = WorldDirection.GetSafeNormal();
-	const float StepCm = 40.0f;
+	const float StepCm = 12.0f;
 	bool bPrevAbove = AboveVisual(WorldOrigin);
 	for (float T = StepCm; T <= MaxDistance; T += StepCm)
 	{
@@ -657,11 +657,20 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	Out.YieldAmount = Brush.VolumeChanged * 0.7f * RecoveryMul;
 	Out.ToolWear = Brush.VolumeChanged * WearMul;
 	if (Jobs) Jobs->BumpStamp();
+	FVector Rad = L.GetSafeNormal();
+	if (Rad.IsNearlyZero())
+	{
+		Rad = FVector(1, 0, 0);
+	}
+	const float Surf = Volume->GetStamp().SampleSurfaceRadius(FVector3f(Rad.X, Rad.Y, Rad.Z));
+	const bool bCave = L.Size() + 1.5f < Surf;
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
 		BrushForceLOD0.Add(C);
-		if (Volume->ChunkHasEdits(C))
+		// Surface bowls are the dropped clipmap. Remeshing voxels here
+		// stacked a second crust (0.8.14 overlapping layers).
+		if (bCave && Volume->ChunkHasEdits(C))
 		{
 			EnqueueRemesh(C, true);
 		}

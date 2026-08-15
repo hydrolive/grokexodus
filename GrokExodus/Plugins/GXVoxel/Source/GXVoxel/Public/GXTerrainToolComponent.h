@@ -84,4 +84,5 @@ protected:
 	void ApplyTool();
 	FVector GetTraceStart() const;
 	FVector GetTraceDir() const;
+	FVector BrushCenterFromHit(const FGXVoxelHit& Hit, const FVector& AimDir) const;
 };

@@ -120,6 +120,25 @@ FVector UGXTerrainToolComponent::GetTraceDir() const
 	return FVector::ForwardVector;
 }
 
+FVector UGXTerrainToolComponent::BrushCenterFromHit(const FGXVoxelHit& Hit, const FVector& AimDir) const
+{
+	// Sit the ball into the surface at the hit. Pushing along the look
+	// ray slid the hole sideways on angled ground (0.8.14 #2).
+	const FVector Aim = AimDir.GetSafeNormal();
+	FVector Out = Hit.Normal.GetSafeNormal();
+	if (Out.IsNearlyZero())
+	{
+		Out = -Aim;
+	}
+	const float IntoAlongAim = FVector::DotProduct(Aim, -Out);
+	FVector Into = (IntoAlongAim > 0.45f) ? -Out : Aim;
+	if (Into.IsNearlyZero())
+	{
+		Into = Aim;
+	}
+	return Hit.Location + Into * (BrushRadiusM * 0.40f * 100.0f);
+}
+
 void UGXTerrainToolComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
@@ -146,9 +165,7 @@ void UGXTerrainToolComponent::TickComponent(float DeltaTime, ELevelTick TickType
 			PreviewAt = Hit.Location;
 			if (Mode == EGXToolMode::Drill)
 			{
-				// Sit the ball along the aim, not planet-down. Radial sink
-				// missed walls and stacked floor clicks did nothing.
-				PreviewAt += Dir * (BrushRadiusM * 0.50f * 100.0f);
+				PreviewAt = BrushCenterFromHit(Hit, Dir);
 			}
 			bHit = true;
 		}
@@ -199,8 +216,8 @@ void UGXTerrainToolComponent::ApplyTool()
 	}
 	if (Mode == EGXToolMode::Drill)
 	{
-		const FVector Into = GetTraceDir() * (BrushRadiusM * 0.50f * 100.0f);
-		const FGXDigOutcome R = World->DigSphere(Hit.Location + Into, BrushRadiusM, DigSpeedMul, RecoveryMul, WearMul);
+		const FVector Center = BrushCenterFromHit(Hit, GetTraceDir());
+		const FGXDigOutcome R = World->DigSphere(Center, BrushRadiusM, DigSpeedMul, RecoveryMul, WearMul);
 		if (R.bSuccess && R.MaterialId > 0)
 		{
 			MaterialStock.FindOrAdd(R.MaterialId) += R.YieldAmount;
