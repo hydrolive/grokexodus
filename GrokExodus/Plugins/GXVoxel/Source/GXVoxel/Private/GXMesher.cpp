@@ -309,28 +309,22 @@ FGXMeshBuffers FGXMesher::MeshChunk(
 			}
 			auto Drop = [&](int32 Src) -> int32
 			{
-				FVector P = Mesh.Positions[Src];
+				const FVector P = Mesh.Positions[Src];
 				FVector Rad = P.GetSafeNormal();
 				if (Rad.IsNearlyZero())
 				{
 					Rad = FVector(1, 0, 0);
 				}
+				const FVector N = Mesh.Normals.IsValidIndex(Src) ? Mesh.Normals[Src] : -Rad;
+				const FVector2D UV = Mesh.UV0.IsValidIndex(Src) ? Mesh.UV0[Src] : FVector2D(1.0f, 0.0f);
+				const FLinearColor Col = Mesh.Colors.IsValidIndex(Src) ? Mesh.Colors[Src] : FLinearColor::White;
+				const int32 Mat = Mesh.MaterialIds.IsValidIndex(Src) ? Mesh.MaterialIds[Src] : 1;
 				const int32 Idx = Mesh.Positions.Num();
 				Mesh.Positions.Add(P - Rad * DropM);
-				FVector N = Mesh.Normals.IsValidIndex(Src) ? Mesh.Normals[Src] : -Rad;
 				Mesh.Normals.Add(N);
-				if (Mesh.UV0.IsValidIndex(Src))
-				{
-					Mesh.UV0.Add(Mesh.UV0[Src]);
-				}
-				if (Mesh.Colors.IsValidIndex(Src))
-				{
-					Mesh.Colors.Add(Mesh.Colors[Src]);
-				}
-				if (Mesh.MaterialIds.IsValidIndex(Src))
-				{
-					Mesh.MaterialIds.Add(Mesh.MaterialIds[Src]);
-				}
+				Mesh.UV0.Add(UV);
+				Mesh.Colors.Add(Col);
+				Mesh.MaterialIds.Add(Mat);
 				return Idx;
 			};
 			const int32 A2 = Drop(A);

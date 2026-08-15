@@ -129,17 +129,20 @@ namespace
 			{
 				return *Have;
 			}
-			FVector P = Positions[VI];
+			const FVector P = Positions[VI];
 			FVector Rad = P.GetSafeNormal();
 			if (Rad.IsNearlyZero())
 			{
 				Rad = FVector(1, 0, 0);
 			}
+			const FVector N = Normals.IsValidIndex(VI) ? Normals[VI] : Rad;
+			const FVector2D UV = UV0.IsValidIndex(VI) ? UV0[VI] : FVector2D(2.0f, 0.0f);
+			const FLinearColor Col = Colors.IsValidIndex(VI) ? Colors[VI] : FLinearColor(0.58f, 0.50f, 0.44f);
 			const int32 Idx = Positions.Num();
 			Positions.Add(P - Rad * SkirtCm);
-			Normals.Add(Normals.IsValidIndex(VI) ? Normals[VI] : Rad);
-			UV0.Add(UV0.IsValidIndex(VI) ? UV0[VI] : FVector2D(2.0f, 0.0f));
-			Colors.Add(Colors.IsValidIndex(VI) ? Colors[VI] : FLinearColor(0.58f, 0.50f, 0.44f));
+			Normals.Add(N);
+			UV0.Add(UV);
+			Colors.Add(Col);
 			FVector T = FVector::CrossProduct(Rad, FVector::ZAxisVector);
 			if (T.SizeSquared() < 1e-6f)
 			{
