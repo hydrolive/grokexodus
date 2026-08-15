@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.60**  
+Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.0**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.8.0** HLOD + transvoxel skirts. Mixed LOD is on: edited chunks are LOD0 underfoot, LOD1 past ~90 m, LOD2 past stream. Open chunk-face edges drop a core-facing skirt so LOD cracks are not sky holes. Clipmap far rings are coarser (10 / 36 / 120 m) and each ring has a rim skirt so the 2→10 m pop does not flash teal. HLOD does **not** replace CreateMeshSection. Cluster DAG is 0.9. Wave C is sky.
 - **GX 0.7.60** 0.7.59: dig took **dozens of clicks** (brush nibbled 1 m of SDF; interior density is many metres). Cave walls were **orange/blue** with no shadows (normals forced planet-outward; banks `CastShadow=false`). One click is a **full CSG sphere**. Cave N faces air. Edited meshes **cast/receive shadows**.
 - **GX 0.7.59** 0.7.58: pit stopped ~3 m down (ray hit the **page AABB face**), leftover **floating clipmap triangle** (5-point punch missed 8 m quads; unedited neighbors remeshed a stamp sliver). Punch is quad-AABB + 1-cell dilate + **radial lid** (origin→stamp hits the page). Ray uses **authoritative density or stamp**, never the pad box. Only edited chunks remesh. Brush sits *into* the hit so stacked digs deepen. Save/toast unchanged.
 - **GX 0.7.58** 0.7.57: could not **cave** (heightfield lid), oldest bowls **healed** (last-8 / 64-cap). Volume pages are the unlimited store. Clipmap **punches edited 8³ page AABBs**; only those chunks get an MC mesh (roof + walls). No stroke cap. Hybrid ray = stamp outside / voxel density inside pages. F5 + **180 s autosave** writes `Saved/VoxelWorld/earth_default.gxsav`; overlay shows **`Saved HH:MM`**. Auto-load on PIE. Walk uses the **nearest isosurface** (cave floor), not the outer crust. Healing is later, only when no player/structure is around.

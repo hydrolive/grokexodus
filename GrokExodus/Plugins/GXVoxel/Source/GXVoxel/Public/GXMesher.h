@@ -37,6 +37,8 @@ public:
 		float IsoLevel = 0.0f;
 		bool bComputeNormals = true;
 		int32 LOD = 0;
+		/** Drop open chunk-face edges toward the core so LOD0/1 T-junctions do not show sky. */
+		bool bTransvoxelSkirts = true;
 	};
 
 	/** Mesh one chunk from a worker-safe snapshot. Does not allocate volume pages. */

@@ -107,7 +107,7 @@ Unedited space is **not stored**. Mesh jobs sample the stamp + overlay.
 | Visual banks | 120×8 sections on the planet actor (grows to 200). One Create per tick. |
 | Crust shell | radius ± relief; core is not meshed |
 
-LOD: **0 for the whole stream** (LOD0/1 seams were black polygonal holes). Collision is stamp-snap, not PMC. Transvoxel skirts are 0.8.
+LOD (0.8): **0 underfoot**, **1** past near field, **2** past stream. Transvoxel skirts hang open chunk-face edges toward the core so mixed LOD is not a sky crack. Collision is stamp-snap outside edits. Clipmap HLOD: walk ring 2 m / 160 m; far rings 10 / 36 / 120 m with rim skirts. `CreateMeshSection` hitch is not HLOD’s job.
 
 ### Meshing
 
@@ -328,7 +328,7 @@ Automation (editor): `Automation RunTests GX`
 
 ## Known limitations
 
-- Mesher is CPU MC; transvoxel skirts and Dual Contouring are still upgrade paths.
+- Mesher is CPU MC with transvoxel face skirts (0.8). Dual Contouring / cluster DAG is 0.9.
 - PBR is a 4×2 atlas sampled by a native material graph (no Custom HLSL). Vertex color still tints if the atlas is unbound.
 - Sky lamp is still `AVoxelSunSetup` (not ephemeris). Atmosphere *orientation* is now spherical via `FGXPlanetAtmosphere`.
 - 60 km surface is 6×10⁶ UU from origin — LWC is on; Chaos is acceptable at that range but not at Earth–Moon span (hence body frames).

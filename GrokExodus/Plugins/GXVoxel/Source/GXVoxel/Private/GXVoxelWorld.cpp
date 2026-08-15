@@ -179,8 +179,8 @@ void AGXVoxelWorld::ApplyEarthPlayDefaults()
 	NearFieldRadius = 90.0f;
 	CollisionRadius = 90.0f;
 	StreamInterval = 0.45f;
-	// Mixed LOD0/1 is the black polygonal crack. Transvoxel skirts are 0.8.
-	bForceLOD0 = true;
+	// 0.8: transvoxel skirts stitch LOD0/1. Keep detail underfoot.
+	bForceLOD0 = false;
 	bDrawVoxelVisuals = false;
 	HorizonOuterM = 10000.0f;
 	bAsyncMeshing = true;
@@ -712,19 +712,16 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 
 int32 AGXVoxelWorld::SelectLOD(float DistanceM) const
 {
-	// Mixed LOD0/1 seams are black polygonal holes. Keep the whole stream
-	// at LOD0 until transvoxel skirts (0.8) can stitch the crack.
-	if (bForceLOD0 || DistanceM <= StreamRadius)
+	if (bForceLOD0)
 	{
 		return 0;
 	}
-	// Screenspace: keep a voxel near ~3 px at 1080p / 90° (ε ≈ v/d).
-	const float WantM = FMath::Max(VoxelSize, DistanceM * 0.018f);
-	if (WantM < VoxelSize * 2.0f)
+	// Near field stays 1 m. Past that, stride 2 / 4 — skirts hide the crack.
+	if (DistanceM <= NearFieldRadius)
 	{
 		return 0;
 	}
-	if (WantM < VoxelSize * 4.0f)
+	if (DistanceM <= StreamRadius)
 	{
 		return 1;
 	}
@@ -1076,6 +1073,14 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 						continue;
 					}
 					EnqueueRemesh(CC, Dist <= NearFieldRadius);
+				}
+				else if (!BrushForceLOD0.Contains(CC))
+				{
+					const int32 WantLOD = SelectLOD(Dist);
+					if (ChunkVisuals.FindRef(CC).LOD != WantLOD)
+					{
+						EnqueueRemesh(CC, Dist <= NearFieldRadius);
+					}
 				}
 			}
 		}

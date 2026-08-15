@@ -250,6 +250,98 @@ FGXMeshBuffers FGXMesher::MeshChunk(
 		}
 	}
 
+	if (Settings.bTransvoxelSkirts && Mesh.Indices.Num() >= 3)
+	{
+		const float ChunkM = BaseVoxel * static_cast<float>(CS);
+		const FVector BoxMin(Coord.X * ChunkM, Coord.Y * ChunkM, Coord.Z * ChunkM);
+		const FVector BoxMax = BoxMin + FVector(ChunkM);
+		const float FaceEps = VoxelSize * 0.35f;
+		const float DropM = FMath::Max(VoxelSize * 1.35f, BaseVoxel * 1.25f);
+		auto OnFace = [&](const FVector& P) -> bool
+		{
+			return FMath::Abs(P.X - BoxMin.X) <= FaceEps || FMath::Abs(P.X - BoxMax.X) <= FaceEps
+				|| FMath::Abs(P.Y - BoxMin.Y) <= FaceEps || FMath::Abs(P.Y - BoxMax.Y) <= FaceEps
+				|| FMath::Abs(P.Z - BoxMin.Z) <= FaceEps || FMath::Abs(P.Z - BoxMax.Z) <= FaceEps;
+		};
+
+		TMap<uint64, int32> EdgeUse;
+		TMap<uint64, FIntVector> EdgeAB;
+		auto Pack = [](int32 A, int32 B) -> uint64
+		{
+			const int32 Lo = FMath::Min(A, B);
+			const int32 Hi = FMath::Max(A, B);
+			return (uint64(uint32(Lo)) << 32) | uint32(Hi);
+		};
+		for (int32 T = 0; T + 2 < Mesh.Indices.Num(); T += 3)
+		{
+			const int32 V[3] = { Mesh.Indices[T], Mesh.Indices[T + 1], Mesh.Indices[T + 2] };
+			for (int32 E = 0; E < 3; ++E)
+			{
+				const int32 A = V[E];
+				const int32 B = V[(E + 1) % 3];
+				const uint64 Key = Pack(A, B);
+				int32& Cnt = EdgeUse.FindOrAdd(Key);
+				++Cnt;
+				if (Cnt == 1)
+				{
+					EdgeAB.Add(Key, FIntVector(A, B, 0));
+				}
+			}
+		}
+
+		const int32 FirstSkirt = Mesh.Positions.Num();
+		for (const auto& Pair : EdgeUse)
+		{
+			if (Pair.Value != 1)
+			{
+				continue;
+			}
+			const FIntVector AB = EdgeAB.FindRef(Pair.Key);
+			const int32 A = AB.X;
+			const int32 B = AB.Y;
+			if (!Mesh.Positions.IsValidIndex(A) || !Mesh.Positions.IsValidIndex(B))
+			{
+				continue;
+			}
+			if (!OnFace(Mesh.Positions[A]) || !OnFace(Mesh.Positions[B]))
+			{
+				continue;
+			}
+			auto Drop = [&](int32 Src) -> int32
+			{
+				FVector P = Mesh.Positions[Src];
+				FVector Rad = P.GetSafeNormal();
+				if (Rad.IsNearlyZero())
+				{
+					Rad = FVector(1, 0, 0);
+				}
+				const int32 Idx = Mesh.Positions.Num();
+				Mesh.Positions.Add(P - Rad * DropM);
+				FVector N = Mesh.Normals.IsValidIndex(Src) ? Mesh.Normals[Src] : -Rad;
+				Mesh.Normals.Add(N);
+				if (Mesh.UV0.IsValidIndex(Src))
+				{
+					Mesh.UV0.Add(Mesh.UV0[Src]);
+				}
+				if (Mesh.Colors.IsValidIndex(Src))
+				{
+					Mesh.Colors.Add(Mesh.Colors[Src]);
+				}
+				if (Mesh.MaterialIds.IsValidIndex(Src))
+				{
+					Mesh.MaterialIds.Add(Mesh.MaterialIds[Src]);
+				}
+				return Idx;
+			};
+			const int32 A2 = Drop(A);
+			const int32 B2 = Drop(B);
+			// Hang the flap toward the core. Winding matches I0,I1,I2 air-facing.
+			Mesh.Indices.Add(A); Mesh.Indices.Add(B); Mesh.Indices.Add(B2);
+			Mesh.Indices.Add(A); Mesh.Indices.Add(B2); Mesh.Indices.Add(A2);
+		}
+		(void)FirstSkirt;
+	}
+
 	(void)Stamp;
 	return Mesh;
 }

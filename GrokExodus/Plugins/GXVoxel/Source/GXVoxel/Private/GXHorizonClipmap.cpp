@@ -76,6 +76,111 @@ namespace
 		return false;
 	}
 
+	void AppendRimSkirts(
+		TArray<FVector>& Positions,
+		TArray<int32>& Indices,
+		TArray<FVector>& Normals,
+		TArray<FVector2D>& UV0,
+		TArray<FLinearColor>& Colors,
+		TArray<FProcMeshTangent>& Tangents,
+		const TArray<int32>& GridOf,
+		int32 Dim,
+		float CellM,
+		float InnerM,
+		float OuterM,
+		float SinkM)
+	{
+		if (Dim < 2 || GridOf.Num() != Dim * Dim || Indices.Num() < 3)
+		{
+			return;
+		}
+		const int32 Half = Dim / 2;
+		const float SkirtM = FMath::Max(SinkM, CellM * 0.4f) + 3.0f;
+		const float SkirtCm = SkirtM * 100.0f;
+		const float OuterRim0 = FMath::Square(FMath::Max(OuterM - CellM * 1.6f, 0.0f));
+		const float InnerRim = (InnerM > 1.0f) ? FMath::Square(InnerM + CellM * 1.2f) : -1.0f;
+		TSet<int32> RimSet;
+		for (int32 J = 0; J < Dim; ++J)
+		{
+			for (int32 I = 0; I < Dim; ++I)
+			{
+				const int32 VI = GridOf[I + J * Dim];
+				if (VI == INDEX_NONE)
+				{
+					continue;
+				}
+				const float U = (static_cast<float>(I - Half) + 0.5f) * CellM;
+				const float V = (static_cast<float>(J - Half) + 0.5f) * CellM;
+				const float R2 = U * U + V * V;
+				if (R2 >= OuterRim0 || (InnerRim > 0.0f && R2 <= InnerRim))
+				{
+					RimSet.Add(VI);
+				}
+			}
+		}
+		if (RimSet.Num() == 0)
+		{
+			return;
+		}
+		TMap<int32, int32> DropOf;
+		auto Dropped = [&](int32 VI) -> int32
+		{
+			if (const int32* Have = DropOf.Find(VI))
+			{
+				return *Have;
+			}
+			FVector P = Positions[VI];
+			FVector Rad = P.GetSafeNormal();
+			if (Rad.IsNearlyZero())
+			{
+				Rad = FVector(1, 0, 0);
+			}
+			const int32 Idx = Positions.Num();
+			Positions.Add(P - Rad * SkirtCm);
+			Normals.Add(Normals.IsValidIndex(VI) ? Normals[VI] : Rad);
+			UV0.Add(UV0.IsValidIndex(VI) ? UV0[VI] : FVector2D(2.0f, 0.0f));
+			Colors.Add(Colors.IsValidIndex(VI) ? Colors[VI] : FLinearColor(0.58f, 0.50f, 0.44f));
+			FVector T = FVector::CrossProduct(Rad, FVector::ZAxisVector);
+			if (T.SizeSquared() < 1e-6f)
+			{
+				T = FVector::CrossProduct(Rad, FVector::YAxisVector);
+			}
+			T.Normalize();
+			Tangents.Add(FProcMeshTangent(T, false));
+			DropOf.Add(VI, Idx);
+			return Idx;
+		};
+		const int32 IndexCountBefore = Indices.Num();
+		for (int32 T0 = 0; T0 + 2 < IndexCountBefore; T0 += 3)
+		{
+			const int32 IA = Indices[T0], IB = Indices[T0 + 1], IC = Indices[T0 + 2];
+			const bool BA = RimSet.Contains(IA);
+			const bool BB = RimSet.Contains(IB);
+			const bool BC = RimSet.Contains(IC);
+			if (BA && BB && !BC)
+			{
+				const int32 DA = Dropped(IA);
+				const int32 DB = Dropped(IB);
+				Indices.Add(IA); Indices.Add(IB); Indices.Add(DB);
+				Indices.Add(IA); Indices.Add(DB); Indices.Add(DA);
+			}
+			else if (BB && BC && !BA)
+			{
+				const int32 DB = Dropped(IB);
+				const int32 DC = Dropped(IC);
+				Indices.Add(IB); Indices.Add(IC); Indices.Add(DC);
+				Indices.Add(IB); Indices.Add(DC); Indices.Add(DB);
+			}
+			else if (BC && BA && !BB)
+			{
+				const int32 DC = Dropped(IC);
+				const int32 DA = Dropped(IA);
+				Indices.Add(IC); Indices.Add(IA); Indices.Add(DA);
+				Indices.Add(IC); Indices.Add(DA); Indices.Add(DC);
+			}
+		}
+	}
+
 }
 
 void FGXHorizonClipmap::Initialize(AActor* Owner)
@@ -91,13 +196,13 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// little deeper so the shared band does not z-fight.
 	// Fine inner ring so a 1.2 m brush moves several verts of THE crust.
 	// A second edit mesh sat on the grass (0.7.35–37).
+	// 0.8 HLOD: keep a 2 m walk disk, coarsen the far rings so the 10 km
+	// limb is not 70 k verts. Overlap + extra sink hides the pop.
 	const FSpec Specs[] = {
-		{ 0.0f, 140.0f, 2.0f, 0.0f },
-		// Full disk. A 120 m inner hole stayed at the old center after
-		// ring 0 walked off — look-back was a teal rectangle (0.7.52).
-		{ 0.0f, 560.0f, 8.0f, 2.0f },
-		{ 520.0f, 2400.0f, 24.0f, 2.5f },
-		{ 2200.0f, 10000.0f, 72.0f, 4.5f },
+		{ 0.0f, 160.0f, 2.0f, 0.0f },
+		{ 0.0f, 720.0f, 10.0f, 2.2f },
+		{ 680.0f, 2800.0f, 36.0f, 3.5f },
+		{ 2600.0f, 10000.0f, 120.0f, 7.0f },
 	};
 	for (const FSpec& S : Specs)
 	{
@@ -123,7 +228,7 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 			C->bUseAsyncCooking = false;
 		}
 	}
-	UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap: %d rings (edits stitch into ring 0)"), Rings.Num());
+	UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap: %d rings (0.8 HLOD + rim skirts)"), Rings.Num());
 }
 
 void FGXHorizonClipmap::Invalidate()
@@ -306,6 +411,9 @@ void FGXHorizonClipmap::BuildRing(
 		}
 	}
 
+	AppendRimSkirts(Positions, Indices, Normals, UV0, Colors, Tangents,
+		IndexOf, Dim, CellM, InnerM, OuterM, SinkM);
+
 	// Face normals + slope colors. Do not use radial N — that made far PBR sample
 	// the 2 m grass/volcanic atlas on 72 m triangles (red tiled sheet).
 	TArray<FVector> AccN;
@@ -480,6 +588,8 @@ void FGXHorizonClipmap::ApplyRingEdits(
 				Indices.Add(B); Indices.Add(D); Indices.Add(C);
 			}
 		}
+		AppendRimSkirts(Positions, Indices, Normals, UV0, Colors, Tangents,
+			Ring.GridOf, Ring.GridDim, Ring.CellM, Ring.InnerM, Ring.OuterM, Ring.SinkUsed);
 	}
 	else
 	{
