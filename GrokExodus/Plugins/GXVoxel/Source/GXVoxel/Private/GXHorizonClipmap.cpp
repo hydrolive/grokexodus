@@ -451,8 +451,9 @@ void FGXHorizonClipmap::ApplyRingEdits(
 	FRing& Ring,
 	const FGXSphereStamp& Stamp,
 	UMaterialInterface* Material,
-	const TFunction<bool(const FVector&)>& ShouldDrop,
-	const TFunction<float(const FVector&)>& DensityAt)
+	const TFunction<bool(const FVector&)>& ShouldCut,
+	const TFunction<float(const FVector&)>& DensityAt,
+	const TFunction<bool(const FVector&)>& HasCaveMesh)
 {
 	UProceduralMeshComponent* Comp = Ring.Comp.Get();
 	if (!Comp || Ring.StampPos.Num() == 0 || Ring.StampIndices.Num() < 3)
@@ -466,106 +467,90 @@ void FGXHorizonClipmap::ApplyRingEdits(
 	TArray<FVector2D> UV0 = Ring.UV0;
 	TArray<FLinearColor> Colors = Ring.Colors;
 	TArray<FProcMeshTangent> Tangents = Ring.Tangents;
-	TArray<int32> Indices = Ring.StampIndices;
 
-	// Do not delete quads. 0.8.3–0.8.6 either opened a rectangle to the
-	// core or left floating faces and an 8 m lid. Drop verts to the
-	// volume floor instead — the mesh stays closed.
-	// A 1.2 m brush often sits between 2 m verts, so also drop a walk
-	// quad when its midpoint is air (the four corners become the crater).
-	int32 Dropped = 0;
-	if (ShouldDrop && DensityAt && Ring.CellM <= 12.0f)
+	if (!ShouldCut || Ring.CellM > 12.0f)
 	{
-		TArray<uint8> Mark;
-		Mark.SetNumZeroed(Positions.Num());
-		auto MarkIf = [&](int32 VI)
+		return;
+	}
+
+	auto CutAt = [&](const FVector& Dir, float Surf) -> bool
+	{
+		if (Dir.IsNearlyZero())
 		{
-			if (Positions.IsValidIndex(VI))
-			{
-				Mark[VI] = 1;
-			}
-		};
-		auto CutAt = [&](const FVector& Dir, float Surf) -> bool
-		{
-			const FVector P = Dir * Surf;
-			if (ShouldDrop(P))
-			{
-				return true;
-			}
-			// Sphere carve undercuts the heightfield. Air 80 cm down
-			// is a surface dent, not a cave roof (those sit metres under).
-			return ShouldDrop(Dir * (Surf - 0.8f));
-		};
-		for (int32 VI = 0; VI < Positions.Num(); ++VI)
-		{
-			if (!Ring.StampDir.IsValidIndex(VI) || !Ring.StampSurfM.IsValidIndex(VI))
-			{
-				continue;
-			}
-			if (CutAt(Ring.StampDir[VI], Ring.StampSurfM[VI]))
-			{
-				MarkIf(VI);
-			}
+			return false;
 		}
-		if (Ring.CellM <= 3.0f)
+		return ShouldCut(Dir * Surf) || ShouldCut(Dir * (Surf - 0.8f));
+	};
+
+	// 0.8.8 draped the grass heightfield into the hole (overhang, grass
+	// crater, z-fight shards) and the mound search *raised* rim verts.
+	// Open air quads so the voxel cave (dirt/rock) is the surface.
+	// Only drop when the cave mesh is not ready yet. Never search up.
+	TArray<int32> Indices;
+	Indices.Reserve(Ring.StampIndices.Num());
+	TArray<uint8> Mark;
+	Mark.SetNumZeroed(Positions.Num());
+	auto MarkIf = [&](int32 VI)
+	{
+		if (Mark.IsValidIndex(VI))
 		{
-			for (int32 T0 = 0; T0 + 5 < Ring.StampIndices.Num(); T0 += 6)
-			{
-				const int32 A = Ring.StampIndices[T0];
-				const int32 B = Ring.StampIndices[T0 + 1];
-				const int32 C = Ring.StampIndices[T0 + 2];
-				const int32 D = Ring.StampIndices[T0 + 4];
-				if (!Ring.StampDir.IsValidIndex(A) || !Ring.StampDir.IsValidIndex(B)
-					|| !Ring.StampDir.IsValidIndex(C) || !Ring.StampDir.IsValidIndex(D)
-					|| !Ring.StampSurfM.IsValidIndex(A) || !Ring.StampSurfM.IsValidIndex(B)
-					|| !Ring.StampSurfM.IsValidIndex(C) || !Ring.StampSurfM.IsValidIndex(D))
-				{
-					continue;
-				}
-				const FVector MidDir = (
-					Ring.StampDir[A] + Ring.StampDir[B]
-					+ Ring.StampDir[C] + Ring.StampDir[D]).GetSafeNormal();
-				const float MidSurf = 0.25f * (
-					Ring.StampSurfM[A] + Ring.StampSurfM[B]
-					+ Ring.StampSurfM[C] + Ring.StampSurfM[D]);
-				if (CutAt(MidDir.IsNearlyZero() ? Ring.StampDir[A] : MidDir, MidSurf))
-				{
-					MarkIf(A); MarkIf(B); MarkIf(C); MarkIf(D);
-				}
-			}
-			// One-cell dilate: a marked corner pulls the whole quad down
-			// so a grass shelf cannot hang over the bowl (0.8.7 shot).
-			TArray<uint8> Dilate = Mark;
-			for (int32 T0 = 0; T0 + 5 < Ring.StampIndices.Num(); T0 += 6)
-			{
-				const int32 Corners[4] = {
-					Ring.StampIndices[T0],
-					Ring.StampIndices[T0 + 1],
-					Ring.StampIndices[T0 + 2],
-					Ring.StampIndices[T0 + 4]
-				};
-				bool bAny = false;
-				for (int32 K = 0; K < 4; ++K)
-				{
-					if (Mark.IsValidIndex(Corners[K]) && Mark[Corners[K]])
-					{
-						bAny = true;
-						break;
-					}
-				}
-				if (bAny)
-				{
-					for (int32 K = 0; K < 4; ++K)
-					{
-						if (Dilate.IsValidIndex(Corners[K]))
-						{
-							Dilate[Corners[K]] = 1;
-						}
-					}
-				}
-			}
-			Mark = MoveTemp(Dilate);
+			Mark[VI] = 1;
 		}
+	};
+
+	int32 Punched = 0;
+	for (int32 T0 = 0; T0 + 5 < Ring.StampIndices.Num(); T0 += 6)
+	{
+		const int32 A = Ring.StampIndices[T0];
+		const int32 B = Ring.StampIndices[T0 + 1];
+		const int32 C = Ring.StampIndices[T0 + 2];
+		const int32 D = Ring.StampIndices[T0 + 4];
+		if (!Ring.StampDir.IsValidIndex(A) || !Ring.StampDir.IsValidIndex(B)
+			|| !Ring.StampDir.IsValidIndex(C) || !Ring.StampDir.IsValidIndex(D)
+			|| !Ring.StampSurfM.IsValidIndex(A) || !Ring.StampSurfM.IsValidIndex(B)
+			|| !Ring.StampSurfM.IsValidIndex(C) || !Ring.StampSurfM.IsValidIndex(D))
+		{
+			for (int32 K = 0; K < 6; ++K)
+			{
+				Indices.Add(Ring.StampIndices[T0 + K]);
+			}
+			continue;
+		}
+		FVector MidDir = (
+			Ring.StampDir[A] + Ring.StampDir[B]
+			+ Ring.StampDir[C] + Ring.StampDir[D]).GetSafeNormal();
+		if (MidDir.IsNearlyZero())
+		{
+			MidDir = Ring.StampDir[A];
+		}
+		const float MidSurf = 0.25f * (
+			Ring.StampSurfM[A] + Ring.StampSurfM[B]
+			+ Ring.StampSurfM[C] + Ring.StampSurfM[D]);
+		const bool bAir = CutAt(MidDir, MidSurf)
+			|| CutAt(Ring.StampDir[A], Ring.StampSurfM[A])
+			|| CutAt(Ring.StampDir[B], Ring.StampSurfM[B])
+			|| CutAt(Ring.StampDir[C], Ring.StampSurfM[C])
+			|| CutAt(Ring.StampDir[D], Ring.StampSurfM[D]);
+		const bool bOpen = bAir && HasCaveMesh && HasCaveMesh(MidDir * MidSurf);
+		if (bOpen)
+		{
+			++Punched;
+			MarkIf(A); MarkIf(B); MarkIf(C); MarkIf(D);
+			continue;
+		}
+		for (int32 K = 0; K < 6; ++K)
+		{
+			Indices.Add(Ring.StampIndices[T0 + K]);
+		}
+		if (bAir)
+		{
+			MarkIf(A); MarkIf(B); MarkIf(C); MarkIf(D);
+		}
+	}
+
+	int32 Dropped = 0;
+	if (DensityAt)
+	{
 		for (int32 VI = 0; VI < Positions.Num(); ++VI)
 		{
 			if (!Mark.IsValidIndex(VI) || !Mark[VI])
@@ -578,62 +563,72 @@ void FGXHorizonClipmap::ApplyRingEdits(
 			}
 			const FVector Dir = Ring.StampDir[VI];
 			const float Surf = Ring.StampSurfM[VI];
-			const FVector Guess = Dir * Surf;
-			float R = Surf;
 			const bool bAirBelow = DensityAt(Dir * (Surf - 0.4f)) <= 0.05f
-				|| DensityAt(Dir * (Surf - 0.8f)) <= 0.05f;
-			if (DensityAt(Guess) > 0.05f && !bAirBelow)
+				|| DensityAt(Dir * (Surf - 0.8f)) <= 0.05f
+				|| CutAt(Dir, Surf);
+			// Solid rim with no air under it stays. The 0.8.8 up-search
+			// heaved those verts into floating spikes.
+			if (DensityAt(Dir * Surf) > 0.05f && !bAirBelow)
 			{
-				for (int32 Step = 0; Step < 80; ++Step)
+				continue;
+			}
+			float R = Surf;
+			for (int32 Step = 0; Step < 160; ++Step)
+			{
+				if (DensityAt(Dir * R) > 0.05f)
 				{
-					const float Next = R + 0.25f;
-					if (DensityAt(Dir * Next) <= 0.05f)
-					{
-						break;
-					}
-					R = Next;
-					if (R > Surf + 16.0f)
-					{
-						break;
-					}
+					break;
+				}
+				R -= 0.25f;
+				if (R < Surf - 48.0f)
+				{
+					break;
 				}
 			}
-			else
+			if (FMath::Abs(R - Surf) < 0.05f)
 			{
-				for (int32 Step = 0; Step < 160; ++Step)
-				{
-					if (DensityAt(Dir * R) > 0.05f)
-					{
-						break;
-					}
-					R -= 0.25f;
-					if (R < Surf - 48.0f)
-					{
-						break;
-					}
-				}
-				// Sit under the voxel isosurface so the MC cave wins the z-fight.
-				R -= 0.25f;
+				continue;
 			}
 			Positions[VI] = Dir * R * 100.0f;
-			// Exposed soil, not the grass lid. Atlas 3 = DryDirt.
-			if (UV0.IsValidIndex(VI))
-			{
-				UV0[VI] = FVector2D(3.0f, 0.0f);
-			}
-			if (Colors.IsValidIndex(VI))
-			{
-				Colors[VI] = FLinearColor(0.68f, 0.48f, 0.28f, 1.0f);
-			}
 			++Dropped;
 		}
 	}
 
-	if (Dropped == 0)
+	if (Punched == 0 && Dropped == 0)
 	{
-		// Keep the BuildRing mesh (and its rim skirts). Rewriting here
-		// stripped the 0.8 HLOD skirts on every notify.
 		return;
+	}
+
+	TArray<FVector> AccN;
+	AccN.Init(FVector::ZeroVector, Positions.Num());
+	for (int32 T0 = 0; T0 + 2 < Indices.Num(); T0 += 3)
+	{
+		const int32 IA = Indices[T0], IB = Indices[T0 + 1], IC = Indices[T0 + 2];
+		if (!Positions.IsValidIndex(IA) || !Positions.IsValidIndex(IB) || !Positions.IsValidIndex(IC))
+		{
+			continue;
+		}
+		const FVector FN = FVector::CrossProduct(Positions[IB] - Positions[IA], Positions[IC] - Positions[IA]);
+		AccN[IA] += FN;
+		AccN[IB] += FN;
+		AccN[IC] += FN;
+	}
+	for (int32 V = 0; V < Positions.Num(); ++V)
+	{
+		FVector N = AccN[V].GetSafeNormal();
+		if (N.IsNearlyZero())
+		{
+			N = Normals.IsValidIndex(V) ? Normals[V] : Positions[V].GetSafeNormal();
+		}
+		const FVector Radial = Positions[V].GetSafeNormal();
+		if (!Radial.IsNearlyZero() && FVector::DotProduct(N, Radial) < 0.0f)
+		{
+			N = -N;
+		}
+		if (Normals.IsValidIndex(V))
+		{
+			Normals[V] = N;
+		}
 	}
 
 	if (Ring.GridDim >= 2 && Ring.GridOf.Num() == Ring.GridDim * Ring.GridDim)
@@ -656,8 +651,8 @@ void FGXHorizonClipmap::ApplyRingEdits(
 	Comp->SetVisibility(true);
 	Comp->SetHiddenInGame(false);
 	Comp->UpdateBounds();
-	GX_PERF(1, TEXT("GX-clipmap drop cell=%.0f verts=%d / %d"),
-		Ring.CellM, Dropped, Positions.Num());
+	GX_PERF(1, TEXT("GX-clipmap edit cell=%.0f punch=%d drop=%d tris=%d"),
+		Ring.CellM, Punched, Dropped, Indices.Num() / 3);
 }
 
 void FGXHorizonClipmap::Update(
@@ -671,7 +666,8 @@ void FGXHorizonClipmap::Update(
 	UMaterialInterface* PatchMaterial,
 	const FGXCrustAtlas* Atlas,
 	TFunction<bool(const FVector&)> ShouldPunch,
-	TFunction<float(const FVector&)> DensityAt)
+	TFunction<float(const FVector&)> DensityAt,
+	TFunction<bool(const FVector&)> HasCaveMesh)
 {
 	if (!Owner || Rings.Num() == 0)
 	{
@@ -704,7 +700,7 @@ void FGXHorizonClipmap::Update(
 	{
 		for (FRing& Ring : Rings)
 		{
-			ApplyRingEdits(Ring, Stamp, (Ring.CellM <= 3.0f) ? NearLit : FarLit, ShouldPunch, DensityAt);
+			ApplyRingEdits(Ring, Stamp, (Ring.CellM <= 3.0f) ? NearLit : FarLit, ShouldPunch, DensityAt, HasCaveMesh);
 		}
 		bEditsDirty = false;
 	}
@@ -753,7 +749,7 @@ void FGXHorizonClipmap::Update(
 			BuildRing(Ring, Stamp, CenterDir, T, B, UseMat, Atlas, DensityAt);
 			if (ShouldPunch)
 			{
-				ApplyRingEdits(Ring, Stamp, UseMat, ShouldPunch, DensityAt);
+				ApplyRingEdits(Ring, Stamp, UseMat, ShouldPunch, DensityAt, HasCaveMesh);
 			}
 			Ring.LastBuild = ViewerLocalM;
 			++Built;

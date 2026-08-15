@@ -146,7 +146,9 @@ void UGXTerrainToolComponent::TickComponent(float DeltaTime, ELevelTick TickType
 			PreviewAt = Hit.Location;
 			if (Mode == EGXToolMode::Drill)
 			{
-				PreviewAt -= Hit.Normal * (BrushRadiusM * 0.45f * 100.0f);
+				// Sit the ball along the aim, not planet-down. Radial sink
+				// missed walls and stacked floor clicks did nothing.
+				PreviewAt += Dir * (BrushRadiusM * 0.50f * 100.0f);
 			}
 			bHit = true;
 		}
@@ -197,9 +199,7 @@ void UGXTerrainToolComponent::ApplyTool()
 	}
 	if (Mode == EGXToolMode::Drill)
 	{
-		// Sit the sphere on the hit, not centered on it — half the brush was
-		// already air so stacked clicks barely deepened the floor.
-		const FVector Into = -Hit.Normal * (BrushRadiusM * 0.45f * 100.0f);
+		const FVector Into = GetTraceDir() * (BrushRadiusM * 0.50f * 100.0f);
 		const FGXDigOutcome R = World->DigSphere(Hit.Location + Into, BrushRadiusM, DigSpeedMul, RecoveryMul, WearMul);
 		if (R.bSuccess && R.MaterialId > 0)
 		{

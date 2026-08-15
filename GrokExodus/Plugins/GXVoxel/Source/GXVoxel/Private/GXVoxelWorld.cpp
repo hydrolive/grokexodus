@@ -384,6 +384,16 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			[this](const FVector& LocalM)
 			{
 				return SampleDensityMeters(FVector3d(LocalM.X, LocalM.Y, LocalM.Z));
+			},
+			[this](const FVector& LocalM)
+			{
+				if (!Volume)
+				{
+					return false;
+				}
+				const FGXChunkKey Key = FGXVoxelVolume::VoxelToChunk(
+					FGXVoxelVolume::WorldToVoxel(FVector3d(LocalM.X, LocalM.Y, LocalM.Z), VoxelSize));
+				return ChunkVisuals.Contains(Key);
 			});
 	}
 	if (bWorldReady && bPersistDirty && AutoSaveIntervalSeconds > 0.0f)
@@ -2022,9 +2032,7 @@ bool AGXVoxelWorld::ShouldPunchClipmap(const FVector& LocalM) const
 	{
 		return true;
 	}
-	if (Volume->TryGetAuthoritative(P + FVector3d(Rad) * 1.0, Stored)
-		&& Stored.IsAuthoritative()
-		&& Stored.ToDensityMeters() > 0.0f)
+	if (Volume->TryGetAuthoritative(P - FVector3d(Rad) * 0.9, Stored) && Stored.ToDensityMeters() <= 0.0f)
 	{
 		return true;
 	}

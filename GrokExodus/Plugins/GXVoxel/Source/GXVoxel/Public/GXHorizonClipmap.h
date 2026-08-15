@@ -33,7 +33,8 @@ public:
 		UMaterialInterface* PatchMaterial = nullptr,
 		const FGXCrustAtlas* Atlas = nullptr,
 		TFunction<bool(const FVector&)> ShouldPunch = nullptr,
-		TFunction<float(const FVector&)> DensityAt = nullptr);
+		TFunction<float(const FVector&)> DensityAt = nullptr,
+		TFunction<bool(const FVector&)> HasCaveMesh = nullptr);
 
 	void Invalidate();
 	/** Punch clipmap quads over edited volume pages. Do not resample stamp heights. */
@@ -81,6 +82,7 @@ private:
 		FRing& Ring,
 		const FGXSphereStamp& Stamp,
 		UMaterialInterface* Material,
-		const TFunction<bool(const FVector&)>& ShouldDrop,
-		const TFunction<float(const FVector&)>& DensityAt);
+		const TFunction<bool(const FVector&)>& ShouldCut,
+		const TFunction<float(const FVector&)>& DensityAt,
+		const TFunction<bool(const FVector&)>& HasCaveMesh);
 };
