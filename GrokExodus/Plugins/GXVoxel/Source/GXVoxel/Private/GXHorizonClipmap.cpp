@@ -158,8 +158,11 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// under every walk quad — punch a 2 m hole and you get an undiggable
 	// "core" floor plus leftover floating tris (0.8.6 shot). Hole stays
 	// around the viewer; rebuild ring 1 with ring 0 so the hole moves.
+	// Tiny underfoot disk so a dig CreateMeshSection is instant.
+	// Updating the 180 m / 30 k vert walk ring lagged a frame (0.8.18).
 	const FSpec Specs[] = {
-		{ 0.0f, 180.0f, 2.0f, 0.0f },
+		{ 0.0f, 40.0f, 2.0f, 0.0f },
+		{ 32.0f, 180.0f, 2.0f, 0.0f },
 		{ 160.0f, 700.0f, 8.0f, 2.0f },
 		{ 660.0f, 2800.0f, 32.0f, 3.2f },
 		{ 2600.0f, 10000.0f, 96.0f, 6.0f },
@@ -216,7 +219,22 @@ void FGXHorizonClipmap::NotifyBrush(
 		return;
 	}
 	(void)DensityAt;
-	FRing& Ring = Rings[0];
+	// Only the tiny underfoot disk. The 180 m ring is too big to rebuild
+	// on a click — that was the lagged rectangle under the ball.
+	FRing* Edit = nullptr;
+	for (FRing& R : Rings)
+	{
+		if (R.CellM <= 3.0f && R.OuterM <= 48.0f)
+		{
+			Edit = &R;
+			break;
+		}
+	}
+	if (!Edit)
+	{
+		return;
+	}
+	FRing& Ring = *Edit;
 	UProceduralMeshComponent* Comp = Ring.Comp.Get();
 	if (!Comp || Ring.StampDir.Num() == 0)
 	{
@@ -283,15 +301,71 @@ void FGXHorizonClipmap::NotifyBrush(
 		}
 		++Dropped;
 	}
-	if (Dropped == 0 || Ring.LivePos.Num() < 3)
+	if (Dropped == 0)
 	{
+		// Guarantee the click is visible: pull the nearest grid verts down.
+		int32 Best[8];
+		float BestD[8];
+		for (int32 K = 0; K < 8; ++K) { Best[K] = INDEX_NONE; BestD[K] = Cover2; }
+		for (int32 VI = 0; VI < Ring.StampDir.Num(); ++VI)
+		{
+			if (!Ring.StampSurfM.IsValidIndex(VI))
+			{
+				continue;
+			}
+			const float D2 = FVector::DistSquared(Ring.StampDir[VI] * Ring.StampSurfM[VI], BrushDir * Ring.StampSurfM[VI]);
+			for (int32 K = 0; K < 8; ++K)
+			{
+				if (D2 < BestD[K])
+				{
+					for (int32 J = 7; J > K; --J) { BestD[J] = BestD[J - 1]; Best[J] = Best[J - 1]; }
+					BestD[K] = D2;
+					Best[K] = VI;
+					break;
+				}
+			}
+		}
+		const float Along = LocalM.Size();
+		const float FloorR = Along - RadiusM - 0.15f;
+		for (int32 K = 0; K < 8; ++K)
+		{
+			const int32 VI = Best[K];
+			if (VI == INDEX_NONE || !Ring.LivePos.IsValidIndex(VI) || !Ring.StampDir.IsValidIndex(VI))
+			{
+				continue;
+			}
+			const float CurR = Ring.LivePos[VI].Size() * 0.01f;
+			const float NewR = FMath::Min(CurR, FMath::Max(FloorR, Ring.StampSurfM[VI] - 48.0f));
+			if (NewR >= CurR - 0.05f)
+			{
+				continue;
+			}
+			Ring.LivePos[VI] = Ring.StampDir[VI] * NewR * 100.0f;
+			if (Ring.UV0.IsValidIndex(VI))
+			{
+				Ring.UV0[VI] = FVector2D(2.0f, 0.0f);
+			}
+			if (Ring.Colors.IsValidIndex(VI))
+			{
+				Ring.Colors[VI] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f);
+			}
+			++Dropped;
+		}
+	}
+	if (Dropped == 0 || Ring.LivePos.Num() < 3 || Ring.LiveIndices.Num() < 3)
+	{
+		GX_PERF(1, TEXT("GX-clipmap brush drop MISS r=%.2f verts=%d"), RadiusM, Ring.StampDir.Num());
 		return;
 	}
-	Comp->UpdateMeshSection_LinearColor(
-		0, Ring.LivePos, Ring.LiveN, Ring.UV0, Ring.Colors, Ring.Tangents);
+	// Create, not Update. UpdateMeshSection on the old 30 k vert ring
+	// landed a frame late — ball on grass, rectangle hole underneath.
+	Comp->ClearMeshSection(0);
+	Comp->CreateMeshSection_LinearColor(
+		0, Ring.LivePos, Ring.LiveIndices, Ring.LiveN, Ring.UV0, Ring.Colors, Ring.Tangents, false);
 	Comp->MarkRenderStateDirty();
 	Comp->UpdateBounds();
-	GX_PERF(1, TEXT("GX-clipmap brush drop verts=%d r=%.2f visR=%.2f"), Dropped, RadiusM, VisR);
+	GX_PERF(1, TEXT("GX-clipmap brush drop verts=%d r=%.2f visR=%.2f mesh=%d"),
+		Dropped, RadiusM, VisR, Ring.LivePos.Num());
 }
 
 void FGXHorizonClipmap::Shutdown()
@@ -363,6 +437,7 @@ void FGXHorizonClipmap::BuildRing(
 	Ring.Tangents.Reset();
 	Ring.LiveN.Reset();
 	Ring.StampIndices.Reset();
+	Ring.LiveIndices.Reset();
 	Ring.GridOf.Reset();
 	Ring.GridDim = 0;
 	Ring.SinkUsed = Sink;
@@ -515,6 +590,7 @@ void FGXHorizonClipmap::BuildRing(
 	Ring.UV0 = UV0;
 	Ring.Colors = Colors;
 	Ring.Tangents = Tangents;
+	Ring.LiveIndices = Indices;
 	Ring.GridOf = IndexOf;
 	Ring.GridDim = Dim;
 	Ring.SinkUsed = Sink;
@@ -977,8 +1053,8 @@ void FGXHorizonClipmap::Update(
 	for (int32 I = 0; I < Rings.Num(); ++I)
 	{
 		FRing& Ring = Rings[I];
-		const float RebuildM = (I == 0) ? 70.0f : (I == 1) ? 70.0f : 400.0f;
-		if (bReady && Built >= 1 && I > 1)
+		const float RebuildM = (I == 0) ? 25.0f : (I <= 2) ? 70.0f : 400.0f;
+		if (bReady && Built >= 2 && I > 2)
 		{
 			break;
 		}

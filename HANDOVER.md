@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.18**  
+Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.19**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.8.19** Still lagged: ball on grass, rectangle hole late (UpdateMeshSection on 30 k verts; first click often dropped 0). Underfoot **40 m / 2 m** disk is CreateMeshSection'd on the click (~400 verts). If no vert is in the sphere, the nearest 8 still drop.
 - **GX 0.8.18** Open-ground dig: clipmap lagged, then the ball sat **under** it. 1.2 m CSG only moved verts inside 1.2 m on a 2 m grid. Visual drop radius is **R+cell** so the first click is a bowl. Brush sit 0.20 R. MarkRenderStateDirty after UpdateMeshSection.
 - **GX 0.8.17** Play never left the load screen. 0.8.16 stopped meshing surface chunks so near stayed 0/0; overlay waited. Ready as soon as the clipmap exists. Overlay force-fades after ~6.5 s. No spawn FlushMeshQueue in clipmap-only mode.
 - **GX 0.8.16** 0.8.15 #1: walk **behind clipmap** (edited chunks still meshed). #2: new ground only **stained** (2 m verts missed the 1.2 m SDF). Clipmap verts now drop to the **sphere floor** along each radial. Surface edited chunks are **not** meshed.
