@@ -826,10 +826,18 @@ void AGXVoxelWorld::RefreshLoadState()
 	}
 
 	// Clipmap is the walkable planet. Voxel shells are optional detail.
+	// 0.8.16 skipped surface meshes, so LastMeshedNear stayed 0 and the
+	// overlay never left "Generating crust".
 	const bool bClipReady = HorizonClipmap && HorizonClipmap->IsReady();
 	const bool bHaveGround = bDrawVoxelVisuals ? (LastMeshedNear >= 2) : bClipReady;
-	if (bAtlasReady && bHaveGround && bClipReady)
+	if (bAtlasReady && (bHaveGround || bClipReady))
 	{
+		if (!bWorldReady)
+		{
+			UE_LOG(LogGXVoxel, Warning,
+				TEXT("GX-%s Ready clip=%d near=%d drawVox=%d"),
+				GX_VERSION_STRING, bClipReady ? 1 : 0, LastMeshedNear, bDrawVoxelVisuals ? 1 : 0);
+		}
 		LoadStatus = TEXT("Ready");
 		LoadProgress = 1.0f;
 		bWorldReady = true;
@@ -1025,7 +1033,8 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 	int32 SkippedAir = 0;
 	int32 DeferredFar = 0;
 	TSet<FGXChunkKey> Desired;
-	const bool bNearBusy = NearMeshQueue.Num() > 0 || LastMeshedNear < 2;
+	const bool bNearBusy = bDrawVoxelVisuals
+		&& (NearMeshQueue.Num() > 0 || LastMeshedNear < 2);
 	for (int32 Z = -ChunkRadius; Z <= ChunkRadius; ++Z)
 	{
 		for (int32 Y = -ChunkRadius; Y <= ChunkRadius; ++Y)
@@ -1565,7 +1574,7 @@ bool AGXVoxelWorld::PlacePawnOnSurface(APawn* Pawn, FVector RadialHint)
 	LastStreamViewerWorld = FVector(1e12f, 0, 0);
 	ActiveStreamRadius = FMath::Max(ActiveStreamRadius, 140.0f);
 	EnsureCrustAtlas();
-	if (bAtlasReady)
+	if (bAtlasReady && bDrawVoxelVisuals)
 	{
 		UpdateStreaming(SpawnLoc);
 		FlushMeshQueue(8);

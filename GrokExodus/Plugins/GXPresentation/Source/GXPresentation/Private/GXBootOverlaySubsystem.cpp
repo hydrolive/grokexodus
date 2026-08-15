@@ -57,7 +57,10 @@ void UGXBootOverlaySubsystem::Tick(float DeltaTime)
 	}
 
 	const bool bReady = WorldActor && WorldActor->IsWorldReady();
-	if (bReady && Elapsed >= MinHoldSeconds)
+	// Never pin the player on the load screen if the world hitch or
+	// mesh count never reaches the old near-field quota (0.8.16).
+	const bool bForceFade = Elapsed >= (MinHoldSeconds + 4.0f);
+	if ((bReady && Elapsed >= MinHoldSeconds) || bForceFade)
 	{
 		OverlayAlpha = FMath::Max(0.0f, OverlayAlpha - DeltaTime / FMath::Max(FadeSeconds, 0.05f));
 	}
