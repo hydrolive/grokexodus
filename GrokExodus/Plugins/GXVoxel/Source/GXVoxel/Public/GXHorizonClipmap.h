@@ -58,6 +58,8 @@ private:
 		TArray<FLinearColor> Colors;
 		TArray<FProcMeshTangent> Tangents;
 		TArray<int32> StampIndices;
+		TArray<int32> GridOf;
+		int32 GridDim = 0;
 	};
 
 	TArray<FRing> Rings;

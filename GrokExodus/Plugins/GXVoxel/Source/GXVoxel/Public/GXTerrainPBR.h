@@ -32,7 +32,6 @@ private:
 	TObjectPtr<UTexture2D> NormalAtlas;
 	TObjectPtr<UTexture2D> RoughAtlas;
 	TObjectPtr<UMaterialInstanceDynamic> Mid;
-	TObjectPtr<UMaterialInstanceDynamic> PatchMid;
 	TObjectPtr<UMaterialInterface> Applied;
 	TArray<TObjectPtr<UObject>> Roots;
 
