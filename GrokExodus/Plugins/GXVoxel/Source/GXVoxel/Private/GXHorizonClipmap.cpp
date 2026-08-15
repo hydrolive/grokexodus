@@ -29,53 +29,19 @@ namespace
 		return PMC;
 	}
 
-	bool RayHitsAabb(const FVector& Origin, const FVector& Dir, const FBox& Box)
+	bool QuadShouldPunch(
+		const FVector& A,
+		const FVector& B,
+		const FVector& C,
+		const FVector& D,
+		const TFunction<bool(const FVector&)>& ShouldPunch)
 	{
-		FVector D = Dir;
-		if (FMath::Abs(D.X) < 1e-8f) D.X = 1e-8f;
-		if (FMath::Abs(D.Y) < 1e-8f) D.Y = 1e-8f;
-		if (FMath::Abs(D.Z) < 1e-8f) D.Z = 1e-8f;
-		const FVector Inv(1.0f / D.X, 1.0f / D.Y, 1.0f / D.Z);
-		const FVector T0 = (Box.Min - Origin) * Inv;
-		const FVector T1 = (Box.Max - Origin) * Inv;
-		const float TMin = FMath::Max3(FMath::Min(T0.X, T1.X), FMath::Min(T0.Y, T1.Y), FMath::Min(T0.Z, T1.Z));
-		const float TMax = FMath::Min3(FMath::Max(T0.X, T1.X), FMath::Max(T0.Y, T1.Y), FMath::Max(T0.Z, T1.Z));
-		return TMax >= TMin && TMax >= 0.0f;
-	}
-
-	bool QuadOverlapsEdited(const FVector& A, const FVector& B, const FVector& C, const FVector& D, const TArray<FBox>* Boxes, float CellM)
-	{
-		if (!Boxes || Boxes->Num() == 0)
+		if (!ShouldPunch)
 		{
 			return false;
 		}
-		FBox Quad(A, A);
-		Quad += B;
-		Quad += C;
-		Quad += D;
-		// 0.8.1 punched 685 walk quads (radial lid + CellM expand + dilate)
-		// and the 10 m ring showed through as flat orange dirt.
-		Quad = Quad.ExpandBy(FMath::Min(CellM * 0.2f, 1.25f));
 		const FVector Mid = (A + B + C + D) * 0.25f;
-		const float MidR = Mid.Size();
-		FVector Rad = Mid.GetSafeNormal();
-		if (Rad.IsNearlyZero())
-		{
-			Rad = FVector(1, 0, 0);
-		}
-		for (const FBox& Box : *Boxes)
-		{
-			if (Quad.Intersect(Box))
-			{
-				return true;
-			}
-			const float BoxR = FMath::Max(Box.Min.Size(), Box.Max.Size());
-			if (BoxR + 3.0f < MidR && RayHitsAabb(FVector::ZeroVector, Rad, Box))
-			{
-				return true;
-			}
-		}
-		return false;
+		return ShouldPunch(A) || ShouldPunch(B) || ShouldPunch(C) || ShouldPunch(D) || ShouldPunch(Mid);
 	}
 
 	void AppendRimSkirts(
@@ -496,7 +462,7 @@ void FGXHorizonClipmap::ApplyRingEdits(
 	FRing& Ring,
 	const FGXSphereStamp& Stamp,
 	UMaterialInterface* Material,
-	const TArray<FBox>* EditedPageBoxesM)
+	const TFunction<bool(const FVector&)>& ShouldPunch)
 {
 	UProceduralMeshComponent* Comp = Ring.Comp.Get();
 	if (!Comp || Ring.StampPos.Num() == 0 || Ring.StampIndices.Num() < 3)
@@ -512,7 +478,7 @@ void FGXHorizonClipmap::ApplyRingEdits(
 	TArray<FProcMeshTangent> Tangents = Ring.Tangents;
 	TArray<int32> Indices;
 
-	const bool bHaveBoxes = EditedPageBoxesM && EditedPageBoxesM->Num() > 0 && Ring.CellM <= 12.0f;
+	const bool bHaveBoxes = ShouldPunch && Ring.CellM <= 3.0f;
 	const bool bHaveGrid = Ring.GridDim >= 2 && Ring.GridOf.Num() == Ring.GridDim * Ring.GridDim;
 	int32 Punched = 0;
 	if (bHaveBoxes && bHaveGrid)
@@ -545,7 +511,7 @@ void FGXHorizonClipmap::ApplyRingEdits(
 				{
 					continue;
 				}
-				if (QuadOverlapsEdited(GuessOf(A), GuessOf(B), GuessOf(C), GuessOf(D), EditedPageBoxesM, Ring.CellM))
+				if (QuadShouldPunch(GuessOf(A), GuessOf(B), GuessOf(C), GuessOf(D), ShouldPunch))
 				{
 					Mark[I + J * QW] = 1;
 				}
@@ -640,7 +606,7 @@ void FGXHorizonClipmap::Update(
 	UMaterialInterface* FarMaterial,
 	UMaterialInterface* PatchMaterial,
 	const FGXCrustAtlas* Atlas,
-	const TArray<FBox>* EditedPageBoxesM,
+	TFunction<bool(const FVector&)> ShouldPunch,
 	TFunction<float(const FVector&)> DensityAt)
 {
 	if (!Owner || Rings.Num() == 0)
@@ -674,7 +640,7 @@ void FGXHorizonClipmap::Update(
 	{
 		for (FRing& Ring : Rings)
 		{
-			ApplyRingEdits(Ring, Stamp, (Ring.CellM <= 3.0f) ? NearLit : FarLit, EditedPageBoxesM);
+			ApplyRingEdits(Ring, Stamp, (Ring.CellM <= 3.0f) ? NearLit : FarLit, ShouldPunch);
 		}
 		bEditsDirty = false;
 	}
@@ -721,9 +687,9 @@ void FGXHorizonClipmap::Update(
 		{
 			UMaterialInterface* UseMat = (I == 0) ? NearLit : FarLit;
 			BuildRing(Ring, Stamp, CenterDir, T, B, UseMat, Atlas, DensityAt);
-			if (EditedPageBoxesM && EditedPageBoxesM->Num() > 0)
+			if (ShouldPunch)
 			{
-				ApplyRingEdits(Ring, Stamp, UseMat, EditedPageBoxesM);
+				ApplyRingEdits(Ring, Stamp, UseMat, ShouldPunch);
 			}
 			Ring.LastBuild = ViewerLocalM;
 			++Built;

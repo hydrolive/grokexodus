@@ -376,7 +376,10 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			TerrainMaterial.Get(),
 			TerrainPBR ? TerrainPBR->GetPatchMaterial() : TerrainMaterial.Get(),
 			CrustAtlas.Get(),
-			&EditedPageBoxesM,
+			[this](const FVector& LocalM)
+			{
+				return ShouldPunchClipmap(LocalM);
+			},
 			[this](const FVector& LocalM)
 			{
 				return SampleDensityMeters(FVector3d(LocalM.X, LocalM.Y, LocalM.Z));
@@ -1964,6 +1967,38 @@ bool AGXVoxelWorld::LocalInEditedPage(const FVector& LocalM) const
 		{
 			return true;
 		}
+	}
+	return false;
+}
+
+bool AGXVoxelWorld::ShouldPunchClipmap(const FVector& LocalM) const
+{
+	if (!Volume)
+	{
+		return false;
+	}
+	FGXVoxelPacked Stored;
+	const FVector3d P(LocalM.X, LocalM.Y, LocalM.Z);
+	if (Volume->TryGetAuthoritative(P, Stored) && Stored.ToDensityMeters() <= 0.0f)
+	{
+		return true;
+	}
+	FVector Rad = LocalM.GetSafeNormal();
+	if (Rad.IsNearlyZero())
+	{
+		return false;
+	}
+	// Shallow hole just under the stamp.
+	if (Volume->TryGetAuthoritative(P - FVector3d(Rad) * 1.0, Stored) && Stored.ToDensityMeters() <= 0.0f)
+	{
+		return true;
+	}
+	// Mound sitting on the grass.
+	if (Volume->TryGetAuthoritative(P + FVector3d(Rad) * 1.0, Stored)
+		&& Stored.IsAuthoritative()
+		&& Stored.ToDensityMeters() > 0.0f)
+	{
+		return true;
 	}
 	return false;
 }

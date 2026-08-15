@@ -32,7 +32,7 @@ public:
 		UMaterialInterface* FarMaterial = nullptr,
 		UMaterialInterface* PatchMaterial = nullptr,
 		const FGXCrustAtlas* Atlas = nullptr,
-		const TArray<FBox>* EditedPageBoxesM = nullptr,
+		TFunction<bool(const FVector&)> ShouldPunch = nullptr,
 		TFunction<float(const FVector&)> DensityAt = nullptr);
 
 	void Invalidate();
@@ -81,5 +81,5 @@ private:
 		FRing& Ring,
 		const FGXSphereStamp& Stamp,
 		UMaterialInterface* Material,
-		const TArray<FBox>* EditedPageBoxesM);
+		const TFunction<bool(const FVector&)>& ShouldPunch);
 };

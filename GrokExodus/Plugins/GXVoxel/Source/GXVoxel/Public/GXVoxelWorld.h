@@ -334,5 +334,6 @@ protected:
 	bool ChunkOverlapsSurface(const FGXChunkKey& Coord, float ChunkM) const;
 	void RebuildEditedPageBoxes();
 	bool LocalInEditedPage(const FVector& LocalM) const;
+	bool ShouldPunchClipmap(const FVector& LocalM) const;
 	void MarkPersistDirty();
 };
