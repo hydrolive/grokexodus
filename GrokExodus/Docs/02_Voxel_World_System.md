@@ -88,7 +88,7 @@ Unedited space is **not stored**. Mesh jobs sample the stamp + overlay.
 
 - The **clipmap is the unedited crust**. It cannot have a roof.
 - Every dig/place writes **sparse 8³ pages** (`Deformed` / `PlayerPlaced`). There is **no stroke cap**.
-- Visual caves: remesh **only edited chunks** (marching cubes). Clipmap **does not delete quads**. Walk-ring verts **drop to the volume floor** (or rise for a mound) when the vert or the 2 m quad midpoint is air. The 8 m ring starts at **160 m** so it is never an undiggable floor under a 2 m hole.
+- Visual caves: remesh **only edited chunks** (marching cubes). Clipmap **does not delete quads**. Walk-ring verts **drop to the volume floor** (or rise for a mound) when the vert, a point 80 cm under it, or the 2 m quad midpoint is air. One-cell dilate pulls the grass shelf into the bowl. Dropped verts and excavated faces are **dirt** (atlas 3), not grass. The 8 m ring starts at **160 m** so it is never an undiggable floor under a 2 m hole.
 - Tool ray: stamp height, or **authoritative** voxel density. Never the padded page AABB (that was a fake 3 m floor). Brush is sunk 0.45 R into the hit.
 - Dig/place is a **CSG sphere** (one click = the preview ball), not a 1 m SDF nibble. Cave lighting N faces air; edited chunks cast shadows.
 - Walk: nearest density floor under the capsule (bowl / cave), not the outer crust. Airborne snap is skipped when solid is within 12 m.

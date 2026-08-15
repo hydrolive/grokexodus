@@ -282,7 +282,13 @@ FGXVoxelVolume::FBrushResult FGXVoxelVolume::ApplySphereBrush(
 					NewD = SphereSdf;
 					if (NewD > 0.0f)
 					{
-						Cell = FGXVoxelPacked::FromDensity(NewD, Cell.Material, Cell.Flags | EGXVoxelFlags::Deformed);
+						// Scraped grass becomes dirt. Keep rock/ore/placed mats.
+						uint8 Mat = Cell.Material;
+						if (Mat <= 1)
+						{
+							Mat = 3;
+						}
+						Cell = FGXVoxelPacked::FromDensity(NewD, Mat, Cell.Flags | EGXVoxelFlags::Deformed);
 					}
 					else
 					{

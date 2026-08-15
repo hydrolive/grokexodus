@@ -101,6 +101,31 @@ void UGXBodyMovement::NotifyPlayerJumped()
 	AirborneSeconds = 0.0f;
 }
 
+void UGXBodyMovement::NotifyJustSpawned()
+{
+	SpawnSettleSeconds = 0.60f;
+	AirborneSeconds = 0.0f;
+	JumpIgnoreSnapSeconds = 0.0f;
+	Velocity = FVector::ZeroVector;
+	StopMovementImmediately();
+	SetMovementMode(MOVE_Walking);
+}
+
+bool UGXBodyMovement::IsNearFloor(float MaxErrCm) const
+{
+	if (!UpdatedComponent)
+	{
+		return false;
+	}
+	FVector Surface, Desired;
+	if (!FindLocalFloor(UpdatedComponent->GetComponentLocation(), Surface, Desired))
+	{
+		return false;
+	}
+	const float Err = FVector::DotProduct(Desired - UpdatedComponent->GetComponentLocation(), GetUpDir());
+	return FMath::Abs(Err) <= FMath::Max(MaxErrCm, 1.0f);
+}
+
 bool UGXBodyMovement::IsJumpingUp() const
 {
 	return JumpIgnoreSnapSeconds > 0.0f && FVector::DotProduct(Velocity, GetUpDir()) > 40.0f;
@@ -397,7 +422,11 @@ void UGXBodyMovement::TickComponent(float DeltaTime, ELevelTick TickType, FActor
 		TryFindField();
 	}
 	UpdateGravity();
-	if (bUnstickFromSolid)
+	if (SpawnSettleSeconds > 0.0f)
+	{
+		SpawnSettleSeconds = FMath::Max(0.0f, SpawnSettleSeconds - DeltaTime);
+	}
+	if (bUnstickFromSolid && SpawnSettleSeconds <= 0.0f)
 	{
 		UnstickIfBuried(DeltaTime);
 	}
@@ -414,7 +443,24 @@ void UGXBodyMovement::TickComponent(float DeltaTime, ELevelTick TickType, FActor
 
 	// Banks have no collision. Stamp isosurface is the walk floor.
 	// Old 0.08 s snap + "eject until feet are air" was the bounce.
-	StickToStampFloor();
+	// Spawn settle: 0.25 s re-place + stick-lift was the first-spawn hop.
+	if (SpawnSettleSeconds > 0.0f)
+	{
+		const FVector Up = GetUpDir();
+		const float Into = FVector::DotProduct(Velocity, -Up);
+		if (Into > 0.0f)
+		{
+			Velocity += Up * Into;
+		}
+		if (MovementMode == MOVE_Falling)
+		{
+			SetMovementMode(MOVE_Walking);
+		}
+	}
+	else
+	{
+		StickToStampFloor();
+	}
 
 	if (JumpIgnoreSnapSeconds > 0.0f)
 	{

@@ -26,8 +26,10 @@ FGXMeshBuffers FGXMesher::MeshChunk(
 
 	TArray<float> Densities;
 	TArray<int32> Materials;
+	TArray<uint8> Auth;
 	Densities.SetNumUninitialized(SampleCount);
 	Materials.SetNumUninitialized(SampleCount);
+	Auth.SetNumZeroed(SampleCount);
 
 	const int32 BaseMinX = Coord.X * CS - Pad * Stride;
 	const int32 BaseMinY = Coord.Y * CS - Pad * Stride;
@@ -51,6 +53,7 @@ FGXMeshBuffers FGXMesher::MeshChunk(
 				{
 					Densities[Idx] = Packed.ToDensityMeters();
 					Materials[Idx] = Packed.Material;
+					Auth[Idx] = 1;
 				}
 				else if (Snapshot.Atlas.IsValid())
 				{
@@ -100,6 +103,10 @@ FGXMeshBuffers FGXMesher::MeshChunk(
 	{
 		return Materials[GridIndex(X, Y, Z, SizeX, SizeY)];
 	};
+	auto SampleA = [&](int32 X, int32 Y, int32 Z) -> uint8
+	{
+		return Auth[GridIndex(X, Y, Z, SizeX, SizeY)];
+	};
 
 	TMap<uint64, int32> EdgeVert;
 	auto EdgeKey = [](int32 X, int32 Y, int32 Z, int32 Axis) -> uint64
@@ -132,7 +139,12 @@ FGXMeshBuffers FGXMesher::MeshChunk(
 		const FVector Local = FMath::Lerp(FVector(float(Ax), float(Ay), float(Az)), FVector(float(Bx), float(By), float(Bz)), T);
 		const FVector World = Origin + Local * VoxelSize;
 		const int32 SolidMat = (Da >= Settings.IsoLevel) ? Ma : Mb;
-		const int32 MatId = SolidMat != 0 ? SolidMat : ((Ma != 0) ? Ma : (Mb != 0 ? Mb : 1));
+		int32 MatId = SolidMat != 0 ? SolidMat : ((Ma != 0) ? Ma : (Mb != 0 ? Mb : 1));
+		// Edited air/solid grass faces are scraped soil, not a lawn.
+		if (MatId == 1 && (SampleA(Ax, Ay, Az) || SampleA(Bx, By, Bz)))
+		{
+			MatId = 3;
+		}
 		int32 AtlasId = MatId;
 		if (AtlasId <= 0) AtlasId = 1;
 		if (AtlasId == 8 || AtlasId == 9 || AtlasId == 12) AtlasId = 2;

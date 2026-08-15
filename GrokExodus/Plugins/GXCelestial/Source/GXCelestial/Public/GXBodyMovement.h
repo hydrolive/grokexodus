@@ -50,6 +50,12 @@ public:
 	/** Skip airborne crust-snap for this many seconds (call when the player jumps). */
 	void NotifyPlayerJumped();
 
+	/** Called after a spawn snap so stick/unstick cannot hop the pawn. */
+	void NotifyJustSpawned();
+
+	/** True when the capsule is already sitting on the density floor. */
+	bool IsNearFloor(float MaxErrCm = 120.0f) const;
+
 	virtual void BeginPlay() override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
@@ -71,4 +77,5 @@ protected:
 
 	float AirborneSeconds = 0.0f;
 	float JumpIgnoreSnapSeconds = 0.0f;
+	float SpawnSettleSeconds = 0.0f;
 };

@@ -29,6 +29,7 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
+#include "Components/CapsuleComponent.h"
 
 static constexpr float GMetersToUU = 100.0f;
 static constexpr float GUUToMeters = 0.01f;
@@ -1514,9 +1515,33 @@ bool AGXVoxelWorld::PlacePawnOnSurface(APawn* Pawn, FVector RadialHint)
 		return false;
 	}
 
+	if (ACharacter* Already = Cast<ACharacter>(Pawn))
+	{
+		if (UGXBodyMovement* Move = Cast<UGXBodyMovement>(Already->GetCharacterMovement()))
+		{
+			Move->TryFindField();
+			if (Move->IsNearFloor(120.0f))
+			{
+				Move->NotifyJustSpawned();
+				UE_LOG(LogGXVoxel, Warning,
+					TEXT("GX-%s PlacePawnOnSurface skip (already on floor)"),
+					GX_VERSION_STRING);
+				return true;
+			}
+		}
+	}
+
 	const FVector Surface = FindSurfaceWorldLocation(RadialHint);
 	const FVector Up = -GetGravityDirectionAt(Surface);
-	const FVector SpawnLoc = Surface + Up * 180.0f;
+	float Half = 88.0f;
+	if (ACharacter* Char = Cast<ACharacter>(Pawn))
+	{
+		if (UCapsuleComponent* Cap = Char->GetCapsuleComponent())
+		{
+			Half = Cap->GetScaledCapsuleHalfHeight();
+		}
+	}
+	const FVector SpawnLoc = Surface + Up * (Half + 4.0f);
 	CachedViewerWorld = SpawnLoc;
 	LastStreamViewerWorld = FVector(1e12f, 0, 0);
 	ActiveStreamRadius = FMath::Max(ActiveStreamRadius, 140.0f);
@@ -1541,6 +1566,7 @@ bool AGXVoxelWorld::PlacePawnOnSurface(APawn* Pawn, FVector RadialHint)
 		{
 			Move->TryFindField();
 			Move->SnapToSurface(true);
+			Move->NotifyJustSpawned();
 		}
 		else if (UCharacterMovementComponent* CMC = Char->GetCharacterMovement())
 		{

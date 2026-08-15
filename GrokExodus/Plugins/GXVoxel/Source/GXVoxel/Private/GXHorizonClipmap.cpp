@@ -485,13 +485,24 @@ void FGXHorizonClipmap::ApplyRingEdits(
 				Mark[VI] = 1;
 			}
 		};
+		auto CutAt = [&](const FVector& Dir, float Surf) -> bool
+		{
+			const FVector P = Dir * Surf;
+			if (ShouldDrop(P))
+			{
+				return true;
+			}
+			// Sphere carve undercuts the heightfield. Air 80 cm down
+			// is a surface dent, not a cave roof (those sit metres under).
+			return ShouldDrop(Dir * (Surf - 0.8f));
+		};
 		for (int32 VI = 0; VI < Positions.Num(); ++VI)
 		{
 			if (!Ring.StampDir.IsValidIndex(VI) || !Ring.StampSurfM.IsValidIndex(VI))
 			{
 				continue;
 			}
-			if (ShouldDrop(Ring.StampDir[VI] * Ring.StampSurfM[VI]))
+			if (CutAt(Ring.StampDir[VI], Ring.StampSurfM[VI]))
 			{
 				MarkIf(VI);
 			}
@@ -511,16 +522,49 @@ void FGXHorizonClipmap::ApplyRingEdits(
 				{
 					continue;
 				}
-				const FVector MidM = (
-					Ring.StampDir[A] * Ring.StampSurfM[A]
-					+ Ring.StampDir[B] * Ring.StampSurfM[B]
-					+ Ring.StampDir[C] * Ring.StampSurfM[C]
-					+ Ring.StampDir[D] * Ring.StampSurfM[D]) * 0.25f;
-				if (ShouldDrop(MidM))
+				const FVector MidDir = (
+					Ring.StampDir[A] + Ring.StampDir[B]
+					+ Ring.StampDir[C] + Ring.StampDir[D]).GetSafeNormal();
+				const float MidSurf = 0.25f * (
+					Ring.StampSurfM[A] + Ring.StampSurfM[B]
+					+ Ring.StampSurfM[C] + Ring.StampSurfM[D]);
+				if (CutAt(MidDir.IsNearlyZero() ? Ring.StampDir[A] : MidDir, MidSurf))
 				{
 					MarkIf(A); MarkIf(B); MarkIf(C); MarkIf(D);
 				}
 			}
+			// One-cell dilate: a marked corner pulls the whole quad down
+			// so a grass shelf cannot hang over the bowl (0.8.7 shot).
+			TArray<uint8> Dilate = Mark;
+			for (int32 T0 = 0; T0 + 5 < Ring.StampIndices.Num(); T0 += 6)
+			{
+				const int32 Corners[4] = {
+					Ring.StampIndices[T0],
+					Ring.StampIndices[T0 + 1],
+					Ring.StampIndices[T0 + 2],
+					Ring.StampIndices[T0 + 4]
+				};
+				bool bAny = false;
+				for (int32 K = 0; K < 4; ++K)
+				{
+					if (Mark.IsValidIndex(Corners[K]) && Mark[Corners[K]])
+					{
+						bAny = true;
+						break;
+					}
+				}
+				if (bAny)
+				{
+					for (int32 K = 0; K < 4; ++K)
+					{
+						if (Dilate.IsValidIndex(Corners[K]))
+						{
+							Dilate[Corners[K]] = 1;
+						}
+					}
+				}
+			}
+			Mark = MoveTemp(Dilate);
 		}
 		for (int32 VI = 0; VI < Positions.Num(); ++VI)
 		{
@@ -536,7 +580,9 @@ void FGXHorizonClipmap::ApplyRingEdits(
 			const float Surf = Ring.StampSurfM[VI];
 			const FVector Guess = Dir * Surf;
 			float R = Surf;
-			if (DensityAt(Guess) > 0.05f)
+			const bool bAirBelow = DensityAt(Dir * (Surf - 0.4f)) <= 0.05f
+				|| DensityAt(Dir * (Surf - 0.8f)) <= 0.05f;
+			if (DensityAt(Guess) > 0.05f && !bAirBelow)
 			{
 				for (int32 Step = 0; Step < 80; ++Step)
 				{
@@ -570,6 +616,15 @@ void FGXHorizonClipmap::ApplyRingEdits(
 				R -= 0.25f;
 			}
 			Positions[VI] = Dir * R * 100.0f;
+			// Exposed soil, not the grass lid. Atlas 3 = DryDirt.
+			if (UV0.IsValidIndex(VI))
+			{
+				UV0[VI] = FVector2D(3.0f, 0.0f);
+			}
+			if (Colors.IsValidIndex(VI))
+			{
+				Colors[VI] = FLinearColor(0.68f, 0.48f, 0.28f, 1.0f);
+			}
 			++Dropped;
 		}
 	}
