@@ -415,17 +415,16 @@ void FGXHorizonClipmap::ApplyRingEdits(
 	TArray<int32> Indices;
 
 	int32 Refined = 0;
-	TArray<FVector4> Recent;
+	TArray<FVector4> HotEdits;
 	if (Edits && Edits->Num() > 0)
 	{
-		// Last 8 only. All 48 on ring 0+1 was 200k verts / 80–130 ms
-		// and 8 m CSG spikes in the mid hills (0.7.51 #1).
-		const int32 Start = FMath::Max(0, Edits->Num() - 8);
-		for (int32 I = Start; I < Edits->Num(); ++I)
+		// All strokes keep their height. Only the last 8 are tessellated
+		// fine — older pits stay as 2 m dents instead of healing (0.7.56 #9).
+		const int32 HotStart = FMath::Max(0, Edits->Num() - 8);
+		for (int32 I = HotStart; I < Edits->Num(); ++I)
 		{
-			Recent.Add((*Edits)[I]);
+			HotEdits.Add((*Edits)[I]);
 		}
-		Edits = &Recent;
 	}
 	const bool bHaveEdits = Edits && Edits->Num() > 0;
 	const bool bHaveGrid = Ring.GridDim >= 2 && Ring.GridOf.Num() == Ring.GridDim * Ring.GridDim;
@@ -467,11 +466,11 @@ void FGXHorizonClipmap::ApplyRingEdits(
 				const FVector GC = GuessOf(C);
 				const FVector GD = GuessOf(D);
 				const FVector Mid = (GA + GB + GC + GD) * 0.25f;
-				if (PointNearEdit(GA, Edits, Ring.CellM)
-					|| PointNearEdit(GB, Edits, Ring.CellM)
-					|| PointNearEdit(GC, Edits, Ring.CellM)
-					|| PointNearEdit(GD, Edits, Ring.CellM)
-					|| PointNearEdit(Mid, Edits, Ring.CellM))
+				if (PointNearEdit(GA, &HotEdits, Ring.CellM)
+					|| PointNearEdit(GB, &HotEdits, Ring.CellM)
+					|| PointNearEdit(GC, &HotEdits, Ring.CellM)
+					|| PointNearEdit(GD, &HotEdits, Ring.CellM)
+					|| PointNearEdit(Mid, &HotEdits, Ring.CellM))
 				{
 					Mark[I + J * QW] = 1;
 				}
@@ -522,6 +521,14 @@ void FGXHorizonClipmap::ApplyRingEdits(
 			const float NewS = ApplyEditSpheres(Surf, Dir * Surf, Edits);
 			Positions[VI] = Dir * NewS * 100.0f;
 		};
+
+		for (int32 VI = 0; VI < Ring.StampPos.Num(); ++VI)
+		{
+			if (PointNearEdit(GuessOf(VI), Edits, Ring.CellM))
+			{
+				CSGStampVert(VI);
+			}
+		}
 
 		TMap<int64, int32> FineOf;
 		FineOf.Reserve(4096);
@@ -591,12 +598,15 @@ void FGXHorizonClipmap::ApplyRingEdits(
 				{
 					continue;
 				}
-				if (Dilated[I + J * QW])
+				const FVector QuadMid = (GuessOf(A) + GuessOf(B) + GuessOf(C) + GuessOf(D)) * 0.25f;
+				if (Ring.CellM > 3.0f && PointNearEdit(QuadMid, &HotEdits, Ring.CellM))
 				{
-					CSGStampVert(A);
-					CSGStampVert(B);
-					CSGStampVert(C);
-					CSGStampVert(D);
+					// Hot pit is the fine ring-0 bowl. Leave an 8 m hole
+					// so a deep dig does not hit an uncut floor (#4).
+					continue;
+				}
+				if (Ring.CellM <= 3.0f && Dilated[I + J * QW])
+				{
 					for (int32 SJ = 0; SJ < Sub; ++SJ)
 					{
 						for (int32 SI = 0; SI < Sub; ++SI)
@@ -720,11 +730,9 @@ void FGXHorizonClipmap::Update(
 	{
 		for (FRing& Ring : Rings)
 		{
-			// Ring 0 only. 8 m ring CSG of a 1.2 m brush is a spike
-			// field in the mid hills (0.7.51 #1) and a 100 ms hitch.
-			if (Ring.CellM <= 3.0f)
+			if (Ring.CellM <= 10.0f)
 			{
-				ApplyRingEdits(Ring, Stamp, NearLit, EditHolesLocalM);
+				ApplyRingEdits(Ring, Stamp, (Ring.CellM <= 3.0f) ? NearLit : FarLit, EditHolesLocalM);
 			}
 		}
 		bEditsDirty = false;
@@ -760,7 +768,7 @@ void FGXHorizonClipmap::Update(
 	{
 		FRing& Ring = Rings[I];
 		const float RebuildM = (I == 0) ? 70.0f : (I == 1) ? 180.0f : 400.0f;
-		if (bReady && Built >= 1 && I > 0)
+		if (bReady && Built >= 1 && I > 1)
 		{
 			break;
 		}
@@ -772,7 +780,7 @@ void FGXHorizonClipmap::Update(
 		{
 			UMaterialInterface* UseMat = (I == 0) ? NearLit : FarLit;
 			BuildRing(Ring, Stamp, CenterDir, T, B, UseMat, Atlas, DensityAt);
-			if (Ring.CellM <= 3.0f)
+			if (Ring.CellM <= 10.0f)
 			{
 				ApplyRingEdits(Ring, Stamp, UseMat, EditHolesLocalM);
 			}

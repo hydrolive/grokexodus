@@ -543,8 +543,7 @@ FGXVoxelHit AGXVoxelWorld::RaycastVoxels(FVector WorldOrigin, FVector WorldDirec
 		}
 		const FGXEarthField F = Stamp.SampleEarthField(FVector3f(Rad.X, Rad.Y, Rad.Z), false);
 		float Surf = R0 + F.HeightM;
-		const int32 Start = FMath::Max(0, EditHolesLocalM.Num() - 8);
-		for (int32 I = Start; I < EditHolesLocalM.Num(); ++I)
+		for (int32 I = 0; I < EditHolesLocalM.Num(); ++I)
 		{
 			const FVector4& E = EditHolesLocalM[I];
 			const float RadM = FMath::Abs(E.W);
@@ -653,29 +652,12 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			EnqueueRemesh(C, true);
 		}
 	}
+	// Do not merge. Same-spot merge kept one radius so you could not
+	// dig deeper, and oldest pits healed (0.7.56 #6–#11).
+	EditHolesLocalM.Add(FVector4(L.X, L.Y, L.Z, -(RadiusM * DigSpeedMul)));
+	if (EditHolesLocalM.Num() > 64)
 	{
-		const float SignedR = -(RadiusM * DigSpeedMul);
-		bool bMerged = false;
-		for (FVector4& H : EditHolesLocalM)
-		{
-			if (FVector::DistSquared(FVector(H.X, H.Y, H.Z), L) < 0.25f && H.W < 0.0f)
-			{
-				if (FMath::Abs(SignedR) > FMath::Abs(H.W))
-				{
-					H = FVector4(L.X, L.Y, L.Z, SignedR);
-				}
-				bMerged = true;
-				break;
-			}
-		}
-		if (!bMerged)
-		{
-			EditHolesLocalM.Add(FVector4(L.X, L.Y, L.Z, SignedR));
-		}
-	}
-	if (EditHolesLocalM.Num() > 48)
-	{
-		EditHolesLocalM.RemoveAt(0, EditHolesLocalM.Num() - 48, EAllowShrinking::No);
+		EditHolesLocalM.RemoveAt(0, EditHolesLocalM.Num() - 64, EAllowShrinking::No);
 	}
 	if (HorizonClipmap)
 	{
@@ -712,29 +694,10 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 			EnqueueRemesh(C, true);
 		}
 	}
+	EditHolesLocalM.Add(FVector4(L.X, L.Y, L.Z, RadiusM));
+	if (EditHolesLocalM.Num() > 64)
 	{
-		const float SignedR = RadiusM;
-		bool bMerged = false;
-		for (FVector4& H : EditHolesLocalM)
-		{
-			if (FVector::DistSquared(FVector(H.X, H.Y, H.Z), L) < 0.25f && H.W > 0.0f)
-			{
-				if (SignedR > H.W)
-				{
-					H = FVector4(L.X, L.Y, L.Z, SignedR);
-				}
-				bMerged = true;
-				break;
-			}
-		}
-		if (!bMerged)
-		{
-			EditHolesLocalM.Add(FVector4(L.X, L.Y, L.Z, SignedR));
-		}
-	}
-	if (EditHolesLocalM.Num() > 48)
-	{
-		EditHolesLocalM.RemoveAt(0, EditHolesLocalM.Num() - 48, EAllowShrinking::No);
+		EditHolesLocalM.RemoveAt(0, EditHolesLocalM.Num() - 64, EAllowShrinking::No);
 	}
 	if (HorizonClipmap)
 	{

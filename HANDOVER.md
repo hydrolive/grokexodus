@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.56**  
+Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.57**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.7.57** 0.7.56: oldest pits **healed** (last-8 visual), same-spot dig **did not deepen** (merge), deep pit hit the **8 m floor** (#4), hill **texture seam** (#2/#3), look-back **missing chunks** (#5). All 64 strokes keep height; last 8 stay fine. No merge. Ring 1 is punched under hot pits and rebuilt with ring 0. Heightfield can deepen a quarry; a true tunnel under the crust is still volume (later).
 - **GX 0.7.56** Dig went **under** the grass and could not cut it. Tool ray used voxel density; after a carve that is a hole under the clipmap (no collision). Ray now hits the **visible stamp+edit surface**.
 - **GX 0.7.55** Remove: brush sinks, **grass lid stays**. Ring 1 is a full disk with InnerM=0, so `Sink = (InnerM<1) ? 0` sat it on the walk surface. Only the 2 m ring is unsunk now; ring 1 stays 2 m under.
 - **GX 0.7.54** 0.7.53 shots: far range was **wallpaper rock** (`RockMacroMul` 0.07 ≈ 376 m tiles). Dig next to an add **left a grass lid** (max-sub + max-add cancelled). Far rock is ~5 km. CSG is **stroke order**.
@@ -88,6 +89,12 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 - Live Coding often blocks `Build.bat`. The agent **closes Unreal and rebuilds Development Editor `-NoUBA`** (see `AGENTS.md`). Do not ask the user to do that.
 - **Unreal MCP:** `UnrealMCPython` plugin listens on `127.0.0.1:12029`. Agent **must Start-Process the editor** and confirm a PID before polling the port. Never wait on 12029 with no UnrealEditor process (the user had to launch it by hand). Run Python via `unreal-mcpython__util execute_python`. Unity MCP is disabled.
 - **Plugin GXCore failed to load / GetLastError=4551:** Development `UnrealEditor-GXCore.dll` was an unloadable image (UBA served a bad cached link). DebugGame DLL was fine; the editor loads Development. Fix: delete `Plugins/*/Binaries/Win64/UnrealEditor-GX*.dll` and `Binaries/Win64/UnrealEditor-GrokExodus.dll`, rebuild `GrokExodusEditor Win64 Development -NoUBA`. All six project DLLs now map with `LoadLibraryEx(DONT_RESOLVE)`.
+
+## Verify after 0.7.57
+
+1. Gold `GX 0.7.57`. Dig 10 bowls in a line — the first ones stay, they do not fill in.
+2. Dig the same pit several times — it goes deeper.
+3. Walk 200 m, turn around — ground is there (coarse old pits OK).
 
 ## Verify after 0.7.56
 
