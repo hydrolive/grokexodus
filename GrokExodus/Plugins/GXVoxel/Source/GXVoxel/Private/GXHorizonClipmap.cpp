@@ -626,6 +626,14 @@ void FGXHorizonClipmap::ApplyRingEdits(
 			{
 				N = Positions[V].GetSafeNormal();
 			}
+			// BuildRing winding's Cross points inward. Lighting must still
+			// face the sun — 0.7.50 left these inward and the refine disk
+			// went pitch black.
+			const FVector Radial = Positions[V].GetSafeNormal();
+			if (!Radial.IsNearlyZero() && FVector::DotProduct(N, Radial) < 0.0f)
+			{
+				N = -N;
+			}
 			Normals[V] = N;
 		}
 	}
