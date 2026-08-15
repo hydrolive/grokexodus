@@ -348,10 +348,11 @@ def main():
     # 3 m tiles + a 30 m macro (old 0.0028 / 0.12) read as a grid of edges.
     tile = scalar("TileScale", 0.00038, x0, 600)
     macro = scalar("MacroScale", 0.040, x0, 720)
-    rock_mul = scalar("RockTileMul", 0.28, x0, 840)
-    rock_mac = scalar("RockMacroMul", 0.07, x0, 960)
-    fade_a = scalar("DistanceFadeStart", 3500.0, x0, 1080)
-    fade_b = scalar("DistanceFadeEnd", 22000.0, x0, 1200)
+    rock_mul = scalar("RockTileMul", 0.18, x0, 840)
+    # ~5 km rock tiles at distance so a range is geology, not wallpaper.
+    rock_mac = scalar("RockMacroMul", 0.005, x0, 960)
+    fade_a = scalar("DistanceFadeStart", 2500.0, x0, 1080)
+    fade_b = scalar("DistanceFadeEnd", 18000.0, x0, 1200)
     slope_a = scalar("SlopeStart", 0.09, x0, 1320)
     slope_b = scalar("SlopeMid", 0.15, x0, 1440)
     slope_c = scalar("SlopeEnd", 0.30, x0, 1560)

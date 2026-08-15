@@ -57,15 +57,16 @@ namespace
 		return false;
 	}
 
-	/** W<0 bowl, W>0 cap. Union, not sum — stacked digs bored to the core. */
+	/** W<0 bowl, W>0 cap. Apply in stroke order so a nearby add cannot
+	 *  cancel a dig (0.7.53 left a grass lid inside a ring). */
 	float ApplyEditSpheres(float SurfR, const FVector& Guess, const TArray<FVector4>* Edits)
 	{
 		if (!Edits || Edits->Num() == 0)
 		{
 			return SurfR;
 		}
-		float Sub = 0.0f;
-		float Add = 0.0f;
+		const float FloorR = SurfR * 0.5f;
+		float S = SurfR;
 		for (const FVector4& E : *Edits)
 		{
 			const float Rad = FMath::Abs(E.W);
@@ -82,15 +83,14 @@ namespace
 			const float Drop = FMath::Sqrt(FMath::Max(0.0f, Rad * Rad - D2));
 			if (E.W < 0.0f)
 			{
-				Sub = FMath::Max(Sub, Drop);
+				S -= Drop;
 			}
 			else
 			{
-				Add = FMath::Max(Add, Drop);
+				S += Drop;
 			}
 		}
-		// Never pull a vert through the planet (0.7.46 #4 teal core).
-		return FMath::Max(SurfR - Sub + Add, SurfR * 0.5f);
+		return FMath::Max(S, FloorR);
 	}
 
 }

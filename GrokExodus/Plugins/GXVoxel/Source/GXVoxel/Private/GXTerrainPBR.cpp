@@ -122,6 +122,10 @@ void FGXTerrainPBR::Initialize(UObject* Outer)
 		{
 			Mid->SetScalarParameterValue(TEXT("TileScale"), 0.00038f);
 			Mid->SetScalarParameterValue(TEXT("MacroScale"), 0.040f);
+			Mid->SetScalarParameterValue(TEXT("RockTileMul"), 0.18f);
+			Mid->SetScalarParameterValue(TEXT("RockMacroMul"), 0.005f);
+			Mid->SetScalarParameterValue(TEXT("DistanceFadeStart"), 2500.0f);
+			Mid->SetScalarParameterValue(TEXT("DistanceFadeEnd"), 18000.0f);
 			Mid->SetScalarParameterValue(TEXT("SlopeStart"), 0.09f);
 			Mid->SetScalarParameterValue(TEXT("SlopeMid"), 0.15f);
 			Mid->SetScalarParameterValue(TEXT("SlopeEnd"), 0.30f);
