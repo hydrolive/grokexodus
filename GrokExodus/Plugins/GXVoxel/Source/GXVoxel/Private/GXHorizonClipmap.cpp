@@ -93,6 +93,28 @@ namespace
 		return FMath::Max(SurfR - Sub + Add, SurfR * 0.5f);
 	}
 
+	/** GPU culls on winding, not the normal attribute. Steep bowls invert. */
+	void FixOutwardWinding(const TArray<FVector>& Positions, TArray<int32>& Indices)
+	{
+		for (int32 T0 = 0; T0 + 2 < Indices.Num(); T0 += 3)
+		{
+			const int32 IA = Indices[T0];
+			const int32 IB = Indices[T0 + 1];
+			const int32 IC = Indices[T0 + 2];
+			if (!Positions.IsValidIndex(IA) || !Positions.IsValidIndex(IB) || !Positions.IsValidIndex(IC))
+			{
+				continue;
+			}
+			const FVector FN = FVector::CrossProduct(Positions[IB] - Positions[IA], Positions[IC] - Positions[IA]);
+			const FVector Radial = (Positions[IA] + Positions[IB] + Positions[IC]).GetSafeNormal();
+			if (!Radial.IsNearlyZero() && FVector::DotProduct(FN, Radial) < 0.0f)
+			{
+				Indices[T0 + 1] = IC;
+				Indices[T0 + 2] = IB;
+			}
+		}
+	}
+
 	/** Subdivide one coarse quad so the crater welds to the landscape. */
 	void EmitRefinedQuad(
 		const FVector& PA, const FVector& PB, const FVector& PC, const FVector& PD,
@@ -107,7 +129,7 @@ namespace
 		TArray<FProcMeshTangent>& Tangents,
 		TArray<int32>& Indices)
 	{
-		Sub = FMath::Clamp(Sub, 2, 16);
+		Sub = FMath::Clamp(Sub, 8, 20);
 		const int32 Dim = Sub + 1;
 		const int32 Base = Positions.Num();
 		const int32 FirstTri = Indices.Num();
@@ -511,7 +533,7 @@ void FGXHorizonClipmap::ApplyRingEdits(
 
 		const int32 Dim = Ring.GridDim;
 		const int32 QW = Dim - 1;
-		const int32 Sub = FMath::Clamp(FMath::RoundToInt(Ring.CellM / 0.22f), 2, 16);
+		const int32 Sub = FMath::Clamp(FMath::RoundToInt(Ring.CellM / 0.15f), 8, 20);
 		auto Grid = [&](int32 I, int32 J) -> int32
 		{
 			return Ring.GridOf[I + J * Dim];
@@ -546,30 +568,35 @@ void FGXHorizonClipmap::ApplyRingEdits(
 				}
 			}
 		}
-		// One-cell skirt so a carved quad never shares an edge with an
-		// unrefined neighbour (that crack was the 2 m window to the core).
+		// Two-cell skirt so a steep bowl never shares an edge with a
+		// coarse neighbour (0.7.47 still left a 2 m missing rectangle).
 		TArray<uint8> Dilated = Mark;
-		for (int32 J = 0; J < QW; ++J)
+		for (int32 Pass = 0; Pass < 2; ++Pass)
 		{
-			for (int32 I = 0; I < QW; ++I)
+			TArray<uint8> Next = Dilated;
+			for (int32 J = 0; J < QW; ++J)
 			{
-				if (!Mark[I + J * QW])
+				for (int32 I = 0; I < QW; ++I)
 				{
-					continue;
-				}
-				for (int32 DJ = -1; DJ <= 1; ++DJ)
-				{
-					for (int32 DI = -1; DI <= 1; ++DI)
+					if (!Dilated[I + J * QW])
 					{
-						const int32 NI = I + DI;
-						const int32 NJ = J + DJ;
-						if (NI >= 0 && NJ >= 0 && NI < QW && NJ < QW)
+						continue;
+					}
+					for (int32 DJ = -1; DJ <= 1; ++DJ)
+					{
+						for (int32 DI = -1; DI <= 1; ++DI)
 						{
-							Dilated[NI + NJ * QW] = 1;
+							const int32 NI = I + DI;
+							const int32 NJ = J + DJ;
+							if (NI >= 0 && NJ >= 0 && NI < QW && NJ < QW)
+							{
+								Next[NI + NJ * QW] = 1;
+							}
 						}
 					}
 				}
 			}
+			Dilated = MoveTemp(Next);
 		}
 
 		for (int32 J = 0; J < QW; ++J)
@@ -611,6 +638,42 @@ void FGXHorizonClipmap::ApplyRingEdits(
 	{
 		UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap edit left empty ring"));
 		return;
+	}
+
+	FixOutwardWinding(Positions, Indices);
+	{
+		TArray<FVector> AccN;
+		AccN.Init(FVector::ZeroVector, Positions.Num());
+		for (int32 T0 = 0; T0 + 2 < Indices.Num(); T0 += 3)
+		{
+			const int32 IA = Indices[T0], IB = Indices[T0 + 1], IC = Indices[T0 + 2];
+			if (!Positions.IsValidIndex(IA) || !Positions.IsValidIndex(IB) || !Positions.IsValidIndex(IC))
+			{
+				continue;
+			}
+			const FVector FN = FVector::CrossProduct(Positions[IB] - Positions[IA], Positions[IC] - Positions[IA]);
+			AccN[IA] += FN;
+			AccN[IB] += FN;
+			AccN[IC] += FN;
+		}
+		if (Normals.Num() != Positions.Num())
+		{
+			Normals.SetNum(Positions.Num());
+		}
+		for (int32 V = 0; V < Positions.Num(); ++V)
+		{
+			FVector N = AccN[V].GetSafeNormal();
+			if (N.IsNearlyZero())
+			{
+				N = Positions[V].GetSafeNormal();
+			}
+			const FVector Radial = Positions[V].GetSafeNormal();
+			if (!Radial.IsNearlyZero() && FVector::DotProduct(N, Radial) < 0.0f)
+			{
+				N = -N;
+			}
+			Normals[V] = N;
+		}
 	}
 
 	Comp->CreateMeshSection_LinearColor(0, Positions, Indices, Normals, UV0, Colors, Tangents, false);
