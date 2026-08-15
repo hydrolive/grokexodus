@@ -36,7 +36,7 @@ public:
 		TFunction<float(const FVector&)> DensityAt = nullptr);
 
 	void Invalidate();
-	/** Rebuild only the circular brush patch. Do not remesh the walk ring. */
+	/** Punch ring 0 and stitch the crater. Do not resample stamp heights. */
 	void NotifyEdits();
 	bool IsReady() const { return bReady; }
 
@@ -57,10 +57,10 @@ private:
 		TArray<FVector2D> UV0;
 		TArray<FLinearColor> Colors;
 		TArray<FProcMeshTangent> Tangents;
+		TArray<int32> StampIndices;
 	};
 
 	TArray<FRing> Rings;
-	TWeakObjectPtr<UProceduralMeshComponent> EditPatch;
 	FVector LastViewerLocal = FVector(1e12f, 0, 0);
 	bool bReady = false;
 	bool bEditsDirty = false;
@@ -75,11 +75,9 @@ private:
 		const FGXCrustAtlas* Atlas,
 		const TFunction<float(const FVector&)>& DensityAt);
 
-	void ApplyRingEdits(FRing& Ring, const TArray<FVector4>* Edits);
-
-	static void BuildEditPatch(
-		UProceduralMeshComponent* Comp,
+	void ApplyRingEdits(
+		FRing& Ring,
 		const FGXSphereStamp& Stamp,
 		UMaterialInterface* Material,
-		const TArray<FVector4>* EditHolesLocalM);
+		const TArray<FVector4>* Edits);
 };

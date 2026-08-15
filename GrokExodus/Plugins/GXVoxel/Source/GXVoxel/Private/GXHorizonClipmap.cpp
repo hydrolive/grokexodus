@@ -29,16 +29,19 @@ namespace
 		return PMC;
 	}
 
-	/** Ring-0 cell. Hide + patch share this so a 2 m fade cannot open a halo. */
+	/** Ring-0 cell. Hole and fill share this so the crater is one surface. */
 	constexpr float GClipCellM = 2.0f;
 
-	/** High-res disk that replaces clipmap under a brush (metres). */
-	float EditCoverM(float Rad)
+	/** Delete any 2 m triangle that touches this disk. */
+	float EditHoleM(float Rad)
 	{
-		// Two clip cells past R: every 2 m quad that touches the sphere is
-		// inside the patch, and the vertex-A fade (one cell) stays on the
-		// patch skirt — not as a hole or a coarse dent.
-		return Rad + 2.0f * GClipCellM + 0.5f;
+		return Rad + GClipCellM + 0.35f;
+	}
+
+	/** Fine fill must reach the surviving verts (hole + one diagonal). */
+	float EditFillM(float Rad)
+	{
+		return EditHoleM(Rad) + GClipCellM * 1.42f + 0.25f;
 	}
 
 	/** W<0 bowl, W>0 cap. Offset the *local* stamp, not HoleR. */
@@ -76,6 +79,145 @@ namespace
 		}
 		return SurfR;
 	}
+
+	/** High-res bowl/cap appended onto the clipmap section (same mesh). */
+	void AppendEditPatches(
+		TArray<FVector>& Positions,
+		TArray<FVector>& Normals,
+		TArray<FVector2D>& UV0,
+		TArray<FLinearColor>& Colors,
+		TArray<FProcMeshTangent>& Tangents,
+		TArray<int32>& Indices,
+		const FGXSphereStamp& Stamp,
+		const TArray<FVector4>* Edits)
+	{
+		if (!Edits)
+		{
+			return;
+		}
+		const float R0 = Stamp.GetParams().Radius;
+		const float CellM = 0.22f;
+		constexpr int32 MaxPatches = 8;
+		const int32 Start = FMath::Max(0, Edits->Num() - MaxPatches);
+
+		for (int32 P = Start; P < Edits->Num(); ++P)
+		{
+			const FVector4& E = (*Edits)[P];
+			const float Rad = FMath::Abs(E.W);
+			if (Rad < 0.05f)
+			{
+				continue;
+			}
+			const FVector Hole(E.X, E.Y, E.Z);
+			FVector CenterDir = Hole.GetSafeNormal();
+			if (CenterDir.IsNearlyZero())
+			{
+				CenterDir = FVector(1, 0, 0);
+			}
+			FVector TanU, TanV;
+			CenterDir.FindBestAxisVectors(TanU, TanV);
+			const float Cover = EditFillM(Rad);
+			const int32 Half = FMath::Max(4, FMath::CeilToInt(Cover / CellM));
+			const int32 Dim = Half * 2 + 1;
+			const float Cover2 = Cover * Cover;
+			const int32 Base = Positions.Num();
+
+			TArray<int32> IndexOf;
+			IndexOf.Init(INDEX_NONE, Dim * Dim);
+			TArray<int32> LocalTris;
+
+			for (int32 J = 0; J < Dim; ++J)
+			{
+				const float V = (static_cast<float>(J - Half) + 0.5f) * CellM;
+				for (int32 I = 0; I < Dim; ++I)
+				{
+					const float U = (static_cast<float>(I - Half) + 0.5f) * CellM;
+					if (U * U + V * V > Cover2)
+					{
+						continue;
+					}
+					FVector Dir = (CenterDir * R0 + TanU * U + TanV * V).GetSafeNormal();
+					if (Dir.IsNearlyZero())
+					{
+						Dir = CenterDir;
+					}
+					const FGXEarthField Field = Stamp.SampleEarthField(FVector3f(Dir.X, Dir.Y, Dir.Z), false);
+					float SurfR = R0 + Field.HeightM;
+					SurfR = ApplyEditSpheres(SurfR, Dir * SurfR, Edits);
+					IndexOf[I + J * Dim] = Positions.Num() - Base;
+					Positions.Add(Dir * SurfR * 100.0f);
+					Normals.Add(Dir);
+					float AtlasId = 1.0f;
+					if (Field.SlopeProxy > 0.16f || Field.Orogeny > 0.15f || Field.Volcano > 0.18f)
+					{
+						AtlasId = 2.0f;
+					}
+					UV0.Add(FVector2D(AtlasId, 0.0f));
+					Colors.Add(FLinearColor(0.52f, 0.60f, 0.34f, 1.0f));
+					FVector Tan = FVector::CrossProduct(Dir, FVector::ZAxisVector);
+					if (Tan.SizeSquared() < 1e-6f)
+					{
+						Tan = FVector::CrossProduct(Dir, FVector::YAxisVector);
+					}
+					Tan.Normalize();
+					Tangents.Add(FProcMeshTangent(Tan, false));
+				}
+			}
+
+			auto VertAt = [&](int32 I, int32 J) -> int32
+			{
+				if (I < 0 || J < 0 || I >= Dim || J >= Dim)
+				{
+					return INDEX_NONE;
+				}
+				return IndexOf[I + J * Dim];
+			};
+			for (int32 J = 0; J < Dim - 1; ++J)
+			{
+				for (int32 I = 0; I < Dim - 1; ++I)
+				{
+					const int32 A = VertAt(I, J);
+					const int32 B = VertAt(I + 1, J);
+					const int32 C = VertAt(I, J + 1);
+					const int32 D = VertAt(I + 1, J + 1);
+					if (A == INDEX_NONE || B == INDEX_NONE || C == INDEX_NONE || D == INDEX_NONE)
+					{
+						continue;
+					}
+					LocalTris.Add(A); LocalTris.Add(B); LocalTris.Add(C);
+					LocalTris.Add(B); LocalTris.Add(D); LocalTris.Add(C);
+				}
+			}
+
+			TArray<FVector> AccN;
+			AccN.Init(FVector::ZeroVector, Positions.Num() - Base);
+			for (int32 T0 = 0; T0 + 2 < LocalTris.Num(); T0 += 3)
+			{
+				const int32 IA = LocalTris[T0], IB = LocalTris[T0 + 1], IC = LocalTris[T0 + 2];
+				const FVector FN = FVector::CrossProduct(
+					Positions[Base + IB] - Positions[Base + IA],
+					Positions[Base + IC] - Positions[Base + IA]);
+				AccN[IA] += FN; AccN[IB] += FN; AccN[IC] += FN;
+			}
+			for (int32 V = 0; V < AccN.Num(); ++V)
+			{
+				FVector N = AccN[V].GetSafeNormal();
+				if (N.IsNearlyZero())
+				{
+					N = Normals[Base + V];
+				}
+				if (FVector::DotProduct(N, Positions[Base + V].GetSafeNormal()) < 0.0f)
+				{
+					N = -N;
+				}
+				Normals[Base + V] = N;
+			}
+			for (int32 T0 = 0; T0 < LocalTris.Num(); ++T0)
+			{
+				Indices.Add(Base + LocalTris[T0]);
+			}
+		}
+	}
 }
 
 void FGXHorizonClipmap::Initialize(AActor* Owner)
@@ -112,8 +254,16 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 		Ring.SinkM = S.Sink;
 		Rings.Add(Ring);
 	}
-	EditPatch = MakeClipPMC(Owner);
-	UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap: %d rings + edit patch"), Rings.Num());
+	// Ring 0 is the walk surface we punch. Async cook delayed the hole
+	// and left the old lid up (the 0.7.43 shell).
+	if (Rings.Num() > 0)
+	{
+		if (UProceduralMeshComponent* C = Rings[0].Comp.Get())
+		{
+			C->bUseAsyncCooking = false;
+		}
+	}
+	UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap: %d rings (edits stitch into ring 0)"), Rings.Num());
 }
 
 void FGXHorizonClipmap::Invalidate()
@@ -141,11 +291,6 @@ void FGXHorizonClipmap::Shutdown()
 		}
 	}
 	Rings.Reset();
-	if (UProceduralMeshComponent* C = EditPatch.Get())
-	{
-		C->DestroyComponent();
-	}
-	EditPatch.Reset();
 	bReady = false;
 	bEditsDirty = false;
 }
@@ -200,6 +345,7 @@ void FGXHorizonClipmap::BuildRing(
 	Ring.Colors.Reset();
 	Ring.Tangents.Reset();
 	Ring.LiveN.Reset();
+	Ring.StampIndices.Reset();
 	Ring.SinkUsed = Sink;
 
 	TArray<int32> IndexOf;
@@ -341,6 +487,7 @@ void FGXHorizonClipmap::BuildRing(
 	Ring.Colors = Colors;
 	Ring.Tangents = Tangents;
 	Ring.LiveN = Normals;
+	Ring.StampIndices = Indices;
 	Ring.SinkUsed = Sink;
 
 	Comp->ClearAllMeshSections();
@@ -363,23 +510,36 @@ void FGXHorizonClipmap::BuildRing(
 	}
 }
 
-void FGXHorizonClipmap::ApplyRingEdits(FRing& Ring, const TArray<FVector4>* Edits)
+void FGXHorizonClipmap::ApplyRingEdits(
+	FRing& Ring,
+	const FGXSphereStamp& Stamp,
+	UMaterialInterface* Material,
+	const TArray<FVector4>* Edits)
 {
 	UProceduralMeshComponent* Comp = Ring.Comp.Get();
-	if (!Comp || Ring.StampPos.Num() == 0)
+	if (!Comp || Ring.StampPos.Num() == 0 || Ring.StampIndices.Num() < 3)
 	{
 		return;
 	}
-	// Keep stamp height (no coarse dent). Hide the lid by vertex alpha so
-	// the high-res bowl is visible. Shader WP masks never punched.
-	// A=0 only inside (Cover − cell) so the interpolated clip (~0.333)
-	// lands inside the patch, not as a halo past it.
-	for (int32 I = 0; I < Ring.StampPos.Num(); ++I)
+
+	TArray<FVector> Positions = Ring.StampPos;
+	TArray<FVector> Normals = Ring.LiveN;
+	TArray<FVector2D> UV0 = Ring.UV0;
+	TArray<FLinearColor> Colors = Ring.Colors;
+	TArray<FProcMeshTangent> Tangents = Ring.Tangents;
+	TArray<int32> Indices;
+
+	int32 Dropped = 0;
+	const bool bHaveEdits = Edits && Edits->Num() > 0;
+	if (bHaveEdits)
 	{
-		float A = 1.0f;
-		if (Edits)
+		auto VertInHole = [&](int32 VI) -> bool
 		{
-			const FVector Guess = Ring.StampDir[I] * Ring.StampSurfM[I];
+			if (!Ring.StampDir.IsValidIndex(VI) || !Ring.StampSurfM.IsValidIndex(VI))
+			{
+				return false;
+			}
+			const FVector Guess = Ring.StampDir[VI] * Ring.StampSurfM[VI];
 			for (const FVector4& E : *Edits)
 			{
 				const float Rad = FMath::Abs(E.W);
@@ -387,176 +547,54 @@ void FGXHorizonClipmap::ApplyRingEdits(FRing& Ring, const TArray<FVector4>* Edit
 				{
 					continue;
 				}
-				const float Hide = FMath::Max(Rad, EditCoverM(Rad) - Ring.CellM);
-				if (FVector::DistSquared(Guess, FVector(E.X, E.Y, E.Z)) < Hide * Hide)
+				const float Hole = EditHoleM(Rad);
+				if (FVector::DistSquared(Guess, FVector(E.X, E.Y, E.Z)) < Hole * Hole)
 				{
-					A = 0.0f;
-					break;
+					return true;
 				}
 			}
-		}
-		Ring.Colors[I].A = A;
-	}
-	Comp->UpdateMeshSection_LinearColor(0, Ring.StampPos, Ring.LiveN, Ring.UV0, Ring.Colors, Ring.Tangents);
-}
-
-void FGXHorizonClipmap::BuildEditPatch(
-	UProceduralMeshComponent* Comp,
-	const FGXSphereStamp& Stamp,
-	UMaterialInterface* Material,
-	const TArray<FVector4>* EditHolesLocalM)
-{
-	if (!Comp)
-	{
-		return;
-	}
-	Comp->ClearAllMeshSections();
-	if (!EditHolesLocalM || EditHolesLocalM->Num() == 0)
-	{
-		Comp->SetVisibility(false);
-		return;
-	}
-
-	const float R0 = Stamp.GetParams().Radius;
-	const float CellM = 0.22f;
-	constexpr int32 MaxPatches = 8;
-	const int32 Start = FMath::Max(0, EditHolesLocalM->Num() - MaxPatches);
-	int32 Sections = 0;
-	int32 TotalVerts = 0;
-
-	for (int32 P = Start; P < EditHolesLocalM->Num(); ++P)
-	{
-		const FVector4& E = (*EditHolesLocalM)[P];
-		const float Rad = FMath::Abs(E.W);
-		if (Rad < 0.05f)
-		{
-			continue;
-		}
-		const FVector Hole(E.X, E.Y, E.Z);
-		FVector CenterDir = Hole.GetSafeNormal();
-		if (CenterDir.IsNearlyZero())
-		{
-			CenterDir = FVector(1, 0, 0);
-		}
-		FVector TanU, TanV;
-		CenterDir.FindBestAxisVectors(TanU, TanV);
-		// Same disk ApplyRingEdits hides, plus one 2 m cell of A fade.
-		// Outside R this is stamp height — rim sits on the grass.
-		const float Cover = EditCoverM(Rad);
-		const int32 Half = FMath::Max(4, FMath::CeilToInt(Cover / CellM));
-		const int32 Dim = Half * 2 + 1;
-		const float Cover2 = Cover * Cover;
-
-		TArray<FVector> Positions;
-		TArray<FVector> Normals;
-		TArray<FVector2D> UV0;
-		TArray<FLinearColor> Colors;
-		TArray<int32> Indices;
-		TArray<FProcMeshTangent> Tangents;
-		TArray<int32> IndexOf;
-		IndexOf.Init(INDEX_NONE, Dim * Dim);
-
-		for (int32 J = 0; J < Dim; ++J)
-		{
-			const float V = (static_cast<float>(J - Half) + 0.5f) * CellM;
-			for (int32 I = 0; I < Dim; ++I)
-			{
-				const float U = (static_cast<float>(I - Half) + 0.5f) * CellM;
-				if (U * U + V * V > Cover2)
-				{
-					continue;
-				}
-				FVector Dir = (CenterDir * R0 + TanU * U + TanV * V).GetSafeNormal();
-				if (Dir.IsNearlyZero())
-				{
-					Dir = CenterDir;
-				}
-				const FGXEarthField Field = Stamp.SampleEarthField(FVector3f(Dir.X, Dir.Y, Dir.Z), false);
-				float SurfR = R0 + Field.HeightM;
-				SurfR = ApplyEditSpheres(SurfR, Dir * SurfR, EditHolesLocalM);
-				IndexOf[I + J * Dim] = Positions.Num();
-				Positions.Add(Dir * SurfR * 100.0f);
-				Normals.Add(Dir);
-				float AtlasId = 1.0f;
-				if (Field.SlopeProxy > 0.16f || Field.Orogeny > 0.15f || Field.Volcano > 0.18f)
-				{
-					AtlasId = 2.0f;
-				}
-				UV0.Add(FVector2D(AtlasId, 0.0f));
-				Colors.Add(FLinearColor(0.52f, 0.60f, 0.34f, 1.0f));
-				FVector Tan = FVector::CrossProduct(Dir, FVector::ZAxisVector);
-				if (Tan.SizeSquared() < 1e-6f)
-				{
-					Tan = FVector::CrossProduct(Dir, FVector::YAxisVector);
-				}
-				Tan.Normalize();
-				Tangents.Add(FProcMeshTangent(Tan, false));
-			}
-		}
-
-		auto VertAt = [&](int32 I, int32 J) -> int32
-		{
-			if (I < 0 || J < 0 || I >= Dim || J >= Dim)
-			{
-				return INDEX_NONE;
-			}
-			return IndexOf[I + J * Dim];
+			return false;
 		};
-		for (int32 J = 0; J < Dim - 1; ++J)
-		{
-			for (int32 I = 0; I < Dim - 1; ++I)
-			{
-				const int32 A = VertAt(I, J);
-				const int32 B = VertAt(I + 1, J);
-				const int32 C = VertAt(I, J + 1);
-				const int32 D = VertAt(I + 1, J + 1);
-				if (A == INDEX_NONE || B == INDEX_NONE || C == INDEX_NONE || D == INDEX_NONE)
-				{
-					continue;
-				}
-				Indices.Add(A); Indices.Add(B); Indices.Add(C);
-				Indices.Add(B); Indices.Add(D); Indices.Add(C);
-			}
-		}
 
-		TArray<FVector> AccN;
-		AccN.Init(FVector::ZeroVector, Positions.Num());
-		for (int32 T0 = 0; T0 + 2 < Indices.Num(); T0 += 3)
+		// Cut a real hole in THE landscape. Vertex-A never opened the lid
+		// (0.7.43 shell sat on uncut grass).
+		for (int32 T0 = 0; T0 + 2 < Ring.StampIndices.Num(); T0 += 3)
 		{
-			const int32 IA = Indices[T0], IB = Indices[T0 + 1], IC = Indices[T0 + 2];
-			const FVector FN = FVector::CrossProduct(Positions[IB] - Positions[IA], Positions[IC] - Positions[IA]);
-			AccN[IA] += FN; AccN[IB] += FN; AccN[IC] += FN;
-		}
-		for (int32 V = 0; V < Positions.Num(); ++V)
-		{
-			FVector N = AccN[V].GetSafeNormal();
-			if (N.IsNearlyZero())
+			const int32 A = Ring.StampIndices[T0];
+			const int32 B = Ring.StampIndices[T0 + 1];
+			const int32 C = Ring.StampIndices[T0 + 2];
+			if (VertInHole(A) || VertInHole(B) || VertInHole(C))
 			{
-				N = Normals[V];
+				++Dropped;
+				continue;
 			}
-			if (FVector::DotProduct(N, Positions[V].GetSafeNormal()) < 0.0f)
-			{
-				N = -N;
-			}
-			Normals[V] = N;
+			Indices.Add(A);
+			Indices.Add(B);
+			Indices.Add(C);
 		}
-
-		if (Positions.Num() >= 3 && Indices.Num() >= 3)
-		{
-			Comp->CreateMeshSection_LinearColor(Sections, Positions, Indices, Normals, UV0, Colors, Tangents, false);
-			if (Material)
-			{
-				Comp->SetMaterial(Sections, Material);
-			}
-			TotalVerts += Positions.Num();
-			++Sections;
-		}
+		AppendEditPatches(Positions, Normals, UV0, Colors, Tangents, Indices, Stamp, Edits);
+	}
+	else
+	{
+		Indices = Ring.StampIndices;
 	}
 
-	Comp->SetVisibility(Sections > 0);
+	if (Positions.Num() < 3 || Indices.Num() < 3)
+	{
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap edit left empty ring"));
+		return;
+	}
+
+	Comp->CreateMeshSection_LinearColor(0, Positions, Indices, Normals, UV0, Colors, Tangents, false);
+	if (Material)
+	{
+		Comp->SetMaterial(0, Material);
+	}
+	Comp->SetVisibility(true);
 	Comp->SetHiddenInGame(false);
 	Comp->UpdateBounds();
-	GX_PERF(1, TEXT("GX-editpatch sections=%d verts=%d"), Sections, TotalVerts);
+	GX_PERF(1, TEXT("GX-ring0 stitch dropped=%d tris=%d verts=%d"),
+		Dropped, Indices.Num() / 3, Positions.Num());
 }
 
 void FGXHorizonClipmap::Update(
@@ -576,6 +614,7 @@ void FGXHorizonClipmap::Update(
 	{
 		return;
 	}
+	(void)PatchMaterial;
 
 	UMaterialInterface* NearLit = NearMaterial;
 	UMaterialInterface* FarLit = FarMaterial;
@@ -600,16 +639,11 @@ void FGXHorizonClipmap::Update(
 
 	if (bEditsDirty)
 	{
-		if (UProceduralMeshComponent* Patch = EditPatch.Get())
-		{
-			BuildEditPatch(Patch, Stamp, PatchMaterial ? PatchMaterial : NearLit, EditHolesLocalM);
-		}
 		for (FRing& Ring : Rings)
 		{
-			// Ring 0 only. Punching the 8 m ring hid a huge low-res disk.
 			if (Ring.CellM <= 3.0f)
 			{
-				ApplyRingEdits(Ring, EditHolesLocalM);
+				ApplyRingEdits(Ring, Stamp, NearLit, EditHolesLocalM);
 			}
 		}
 		bEditsDirty = false;
@@ -659,7 +693,7 @@ void FGXHorizonClipmap::Update(
 			BuildRing(Ring, Stamp, CenterDir, T, B, UseMat, Atlas, DensityAt);
 			if (Ring.CellM <= 3.0f)
 			{
-				ApplyRingEdits(Ring, EditHolesLocalM);
+				ApplyRingEdits(Ring, Stamp, UseMat, EditHolesLocalM);
 			}
 			Ring.LastBuild = ViewerLocalM;
 			++Built;
