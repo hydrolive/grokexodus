@@ -137,47 +137,41 @@ namespace
 		}
 	}
 
-	// First solid under excavated air. Stamp density at the isosurface is
-	// ~0, so a walk from Surf stops in the crust and leaves the grass lid
-	// (0.8.20 shots). Skip through that crust when the column has air.
+	// Skip the stamp crust. A walk that starts at the isosurface (~0 density)
+	// stops 5–30 cm down and leaves the grass lid (0.8.20–21). Find the
+	// cavity, then the first solid under it.
 	float FindEditFloorM(
 		const FVector& Dir,
 		float Surf,
 		const TFunction<bool(const FVector&)>& ShouldCut,
 		const TFunction<float(const FVector&)>& DensityAt)
 	{
-		float DeepAir = -1.0f;
-		for (float D = 0.0f; D <= 48.0f; D += 0.75f)
+		bool bSawAir = false;
+		float Floor = Surf;
+		for (float D = 0.25f; D <= 48.0f; D += 0.25f)
 		{
 			const FVector P = Dir * (Surf - D);
-			const bool bAuthAir = ShouldCut && ShouldCut(P);
-			const bool bDensAir = DensityAt && D >= 1.25f && DensityAt(P) <= 0.05f;
-			if (bAuthAir || bDensAir)
+			bool bAir = ShouldCut && ShouldCut(P);
+			if (!bAir && DensityAt && D >= 1.0f && DensityAt(P) <= 0.05f)
 			{
-				DeepAir = Surf - D;
+				bAir = true;
+			}
+			if (bAir)
+			{
+				bSawAir = true;
+				Floor = Surf - D;
+			}
+			else if (bSawAir)
+			{
+				Floor = Surf - D;
+				break;
 			}
 		}
-		if (DeepAir < 0.0f)
+		if (!bSawAir)
 		{
 			return Surf;
 		}
-		float R = DeepAir;
-		if (DensityAt)
-		{
-			for (int32 Step = 0; Step < 80; ++Step)
-			{
-				if (DensityAt(Dir * R) > 0.05f)
-				{
-					break;
-				}
-				R -= 0.25f;
-				if (R < Surf - 48.0f)
-				{
-					break;
-				}
-			}
-		}
-		return FMath::Clamp(R - 0.08f, Surf - 48.0f, Surf);
+		return FMath::Clamp(Floor - 0.08f, Surf - 48.0f, Surf);
 	}
 
 }
@@ -249,123 +243,201 @@ void FGXHorizonClipmap::NotifyEdits()
 void FGXHorizonClipmap::NotifyBrush(
 	const FVector& LocalM,
 	float RadiusM,
-	TFunction<float(const FVector&)> DensityAt)
+	TFunction<float(const FVector&)> DensityAt,
+	TFunction<bool(const FVector&)> ShouldCut)
 {
 	if (Rings.Num() == 0 || RadiusM <= 0.0f)
 	{
 		return;
 	}
-	FVector BrushDir = LocalM.GetSafeNormal();
-	if (BrushDir.IsNearlyZero())
-	{
-		BrushDir = FVector(1, 0, 0);
-	}
-
 	for (FRing& Ring : Rings)
 	{
-		// Only the walk disk. Coarse rings sit sunk and must not become a lid.
 		if (Ring.CellM > 3.0f)
 		{
 			continue;
 		}
-		UProceduralMeshComponent* Comp = Ring.Comp.Get();
-		if (!Comp || Ring.StampDir.Num() == 0)
-		{
-			continue;
-		}
-		if (Ring.LivePos.Num() < Ring.StampDir.Num()
-			|| Ring.LiveN.Num() != Ring.LivePos.Num()
-			|| Ring.UV0.Num() != Ring.LivePos.Num())
-		{
-			continue;
-		}
-
-		// Cover a couple of 2 m cells so the first click is a bowl, not a
-		// nick. Depth matches the preview ball — VisR CSG was 4 m and the
-		// volume was 1.2 m, so the ball sat on a leftover grass sheet.
-		const float Cover = RadiusM + Ring.CellM * 2.0f + 0.5f;
-		const float Cover2 = Cover * Cover;
-
-		int32 Dropped = 0;
-		float MinDrop = 0.0f;
-		float MaxDrop = 0.0f;
-		for (int32 VI = 0; VI < Ring.StampDir.Num(); ++VI)
-		{
-			if (!Ring.StampSurfM.IsValidIndex(VI) || !Ring.LivePos.IsValidIndex(VI))
-			{
-				continue;
-			}
-			const FVector Dir = Ring.StampDir[VI];
-			const float Surf = Ring.StampSurfM[VI];
-			const FVector AtSurf = Dir * Surf;
-			const FVector BrushOnSurf = BrushDir * Surf;
-			const float Dist2 = FVector::DistSquared(AtSurf, BrushOnSurf);
-			if (Dist2 > Cover2)
-			{
-				continue;
-			}
-
-			const float Dist = FMath::Sqrt(Dist2);
-			const float T = FMath::Clamp(1.0f - Dist / Cover, 0.0f, 1.0f);
-			float FloorR = Surf - (RadiusM + 0.45f) * T * T;
-			const float EditFloor = FindEditFloorM(Dir, Surf, nullptr, DensityAt);
-			if (EditFloor < Surf - 0.04f)
-			{
-				FloorR = FMath::Min(FloorR, EditFloor);
-			}
-
-			const float CurR = Ring.LivePos[VI].Size() * 0.01f;
-			const float NewR = FMath::Clamp(FMath::Min(CurR, FloorR), Surf - 48.0f, CurR);
-			const float Drop = CurR - NewR;
-			if (Drop < 0.04f)
-			{
-				continue;
-			}
-			Ring.LivePos[VI] = Dir * NewR * 100.0f;
-			if (Ring.UV0.IsValidIndex(VI))
-			{
-				Ring.UV0[VI] = FVector2D(2.0f, 0.0f);
-			}
-			if (Ring.Colors.IsValidIndex(VI))
-			{
-				Ring.Colors[VI] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f);
-			}
-			if (Ring.LiveN.IsValidIndex(VI))
-			{
-				const FVector Away = (AtSurf - BrushOnSurf).GetSafeNormal();
-				FVector N = (Dir * 0.65f - Away * 0.35f).GetSafeNormal();
-				if (N.IsNearlyZero())
-				{
-					N = Dir;
-				}
-				Ring.LiveN[VI] = N;
-			}
-			++Dropped;
-			MinDrop = (Dropped == 1) ? Drop : FMath::Min(MinDrop, Drop);
-			MaxDrop = FMath::Max(MaxDrop, Drop);
-		}
-
-		if (Dropped == 0 || Ring.LivePos.Num() < 3 || Ring.LiveIndices.Num() < 3)
-		{
-			GX_PERF(1, TEXT("GX-clipmap brush drop MISS r=%.2f outer=%.0f verts=%d"),
-				RadiusM, Ring.OuterM, Ring.StampDir.Num());
-			continue;
-		}
-
-		UMaterialInterface* Mat = Ring.Material.Get();
-		Comp->ClearMeshSection(0);
-		Comp->CreateMeshSection_LinearColor(
-			0, Ring.LivePos, Ring.LiveIndices, Ring.LiveN, Ring.UV0, Ring.Colors, Ring.Tangents, false);
-		if (Mat)
-		{
-			Comp->SetMaterial(0, Mat);
-		}
-		Comp->MarkRenderStateDirty();
-		Comp->UpdateBounds();
-		GX_PERF(1, TEXT("GX-clipmap brush drop verts=%d r=%.2f drop=%.2f..%.2f mesh=%d outer=%.0f"),
-			Dropped, RadiusM, MinDrop, MaxDrop, Ring.LivePos.Num(), Ring.OuterM);
+		OpenWalkRing(Ring, LocalM, RadiusM, ShouldCut, DensityAt);
 	}
 	LastBrushSeconds = FPlatformTime::Seconds();
+}
+
+void FGXHorizonClipmap::OpenWalkRing(
+	FRing& Ring,
+	const FVector& BrushLocal,
+	float BrushRadius,
+	const TFunction<bool(const FVector&)>& ShouldCut,
+	const TFunction<float(const FVector&)>& DensityAt)
+{
+	UProceduralMeshComponent* Comp = Ring.Comp.Get();
+	if (!Comp || Ring.StampDir.Num() == 0 || Ring.LiveIndices.Num() < 3)
+	{
+		return;
+	}
+	const int32 NGrid = Ring.StampDir.Num();
+	if (Ring.LivePos.Num() < NGrid
+		|| Ring.LiveN.Num() != Ring.LivePos.Num()
+		|| Ring.UV0.Num() != Ring.LivePos.Num())
+	{
+		return;
+	}
+
+	const bool bHaveBrush = BrushRadius > 0.0f && !BrushLocal.IsNearlyZero();
+	FVector BrushDir = bHaveBrush ? BrushLocal.GetSafeNormal() : FVector::ZeroVector;
+	if (bHaveBrush && BrushDir.IsNearlyZero())
+	{
+		BrushDir = FVector(1, 0, 0);
+	}
+	const float KillR = bHaveBrush ? (BrushRadius + Ring.CellM * 0.85f) : 0.0f;
+	const float Cover = bHaveBrush ? (BrushRadius + Ring.CellM * 1.75f) : 0.0f;
+	const float KillR2 = KillR * KillR;
+	const float Cover2 = Cover * Cover;
+
+	TArray<float> FloorOf;
+	FloorOf.SetNumUninitialized(NGrid);
+	int32 Dropped = 0;
+	float MinDrop = 0.0f;
+	float MaxDrop = 0.0f;
+	for (int32 VI = 0; VI < NGrid; ++VI)
+	{
+		if (!Ring.StampSurfM.IsValidIndex(VI))
+		{
+			FloorOf[VI] = 0.0f;
+			continue;
+		}
+		const FVector Dir = Ring.StampDir[VI];
+		const float Surf = Ring.StampSurfM[VI];
+		float FloorR = FindEditFloorM(Dir, Surf, ShouldCut, DensityAt);
+		if (bHaveBrush)
+		{
+			const float Dist2 = FVector::DistSquared(Dir * Surf, BrushDir * Surf);
+			if (Dist2 <= KillR2)
+			{
+				FloorR = FMath::Min(FloorR, Surf - BrushRadius - 0.35f);
+			}
+			else if (Dist2 <= Cover2)
+			{
+				const float Dist = FMath::Sqrt(Dist2);
+				const float Span = FMath::Max(Cover - KillR, 0.1f);
+				const float T = FMath::Clamp(1.0f - (Dist - KillR) / Span, 0.0f, 1.0f);
+				FloorR = FMath::Min(FloorR, Surf - (BrushRadius + 0.35f) * T);
+			}
+		}
+		FloorOf[VI] = FloorR;
+		const float CurR = Ring.LivePos[VI].Size() * 0.01f;
+		const float NewR = FMath::Clamp(FMath::Min(CurR, FloorR), Surf - 48.0f, CurR);
+		const float Drop = CurR - NewR;
+		if (Drop < 0.04f)
+		{
+			continue;
+		}
+		Ring.LivePos[VI] = Dir * NewR * 100.0f;
+		if (Ring.UV0.IsValidIndex(VI))
+		{
+			Ring.UV0[VI] = FVector2D(2.0f, 0.0f);
+		}
+		if (Ring.Colors.IsValidIndex(VI))
+		{
+			Ring.Colors[VI] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f);
+		}
+		++Dropped;
+		MinDrop = (Dropped == 1) ? Drop : FMath::Min(MinDrop, Drop);
+		MaxDrop = FMath::Max(MaxDrop, Drop);
+	}
+
+	auto VertOpen = [&](int32 VI) -> bool
+	{
+		if (!FloorOf.IsValidIndex(VI) || !Ring.StampSurfM.IsValidIndex(VI))
+		{
+			return false;
+		}
+		if (Ring.StampSurfM[VI] - FloorOf[VI] >= 0.70f)
+		{
+			return true;
+		}
+		if (!bHaveBrush)
+		{
+			return false;
+		}
+		return FVector::DistSquared(
+			Ring.StampDir[VI] * Ring.StampSurfM[VI],
+			BrushDir * Ring.StampSurfM[VI]) <= KillR2;
+	};
+
+	TArray<int32> NewIdx;
+	NewIdx.Reserve(Ring.LiveIndices.Num());
+	int32 Punched = 0;
+	for (int32 T0 = 0; T0 + 2 < Ring.LiveIndices.Num(); T0 += 3)
+	{
+		const int32 A = Ring.LiveIndices[T0];
+		const int32 B = Ring.LiveIndices[T0 + 1];
+		const int32 C = Ring.LiveIndices[T0 + 2];
+		const bool bGrid = A >= 0 && B >= 0 && C >= 0 && A < NGrid && B < NGrid && C < NGrid;
+		if (bGrid)
+		{
+			const int32 Hits = (VertOpen(A) ? 1 : 0) + (VertOpen(B) ? 1 : 0) + (VertOpen(C) ? 1 : 0);
+			bool bMid = false;
+			if (Hits < 2)
+			{
+				FVector MidDir = (Ring.StampDir[A] + Ring.StampDir[B] + Ring.StampDir[C]).GetSafeNormal();
+				if (MidDir.IsNearlyZero())
+				{
+					MidDir = Ring.StampDir[A];
+				}
+				const float MidSurf = (Ring.StampSurfM[A] + Ring.StampSurfM[B] + Ring.StampSurfM[C]) * (1.0f / 3.0f);
+				if (bHaveBrush
+					&& FVector::DistSquared(MidDir * MidSurf, BrushDir * MidSurf) <= KillR2)
+				{
+					bMid = true;
+				}
+				else
+				{
+					const float MidFloor = FindEditFloorM(MidDir, MidSurf, ShouldCut, DensityAt);
+					bMid = (MidSurf - MidFloor) >= 0.70f;
+				}
+			}
+			if (Hits >= 2 || bMid)
+			{
+				++Punched;
+				continue;
+			}
+		}
+		NewIdx.Add(A);
+		NewIdx.Add(B);
+		NewIdx.Add(C);
+	}
+
+	if (Dropped == 0 && Punched == 0)
+	{
+		if (bHaveBrush)
+		{
+			GX_PERF(1, TEXT("GX-clipmap brush drop MISS r=%.2f outer=%.0f verts=%d"),
+				BrushRadius, Ring.OuterM, NGrid);
+		}
+		return;
+	}
+	if (Punched > 0)
+	{
+		Ring.LiveIndices = MoveTemp(NewIdx);
+	}
+	if (Ring.LiveIndices.Num() < 3)
+	{
+		Comp->ClearMeshSection(0);
+		GX_PERF(1, TEXT("GX-clipmap open EMPTY punch=%d drop=%d"), Punched, Dropped);
+		return;
+	}
+
+	UMaterialInterface* Mat = Ring.Material.Get();
+	Comp->ClearMeshSection(0);
+	Comp->CreateMeshSection_LinearColor(
+		0, Ring.LivePos, Ring.LiveIndices, Ring.LiveN, Ring.UV0, Ring.Colors, Ring.Tangents, false);
+	if (Mat)
+	{
+		Comp->SetMaterial(0, Mat);
+	}
+	Comp->MarkRenderStateDirty();
+	Comp->UpdateBounds();
+	GX_PERF(1, TEXT("GX-clipmap open punch=%d drop=%d r=%.2f depth=%.2f..%.2f tris=%d outer=%.0f"),
+		Punched, Dropped, BrushRadius, MinDrop, MaxDrop, Ring.LiveIndices.Num() / 3, Ring.OuterM);
 }
 
 void FGXHorizonClipmap::Shutdown()
@@ -624,8 +696,7 @@ void FGXHorizonClipmap::ApplyRingEdits(
 	const TFunction<float(const FVector&)>& DensityAt,
 	const TFunction<bool(const FVector&)>& HasCaveMesh)
 {
-	UProceduralMeshComponent* Comp = Ring.Comp.Get();
-	if (!Comp || Ring.StampPos.Num() == 0 || Ring.StampIndices.Num() < 3)
+	if (!Ring.Comp.IsValid() || Ring.StampPos.Num() == 0 || Ring.StampIndices.Num() < 3)
 	{
 		return;
 	}
@@ -633,57 +704,13 @@ void FGXHorizonClipmap::ApplyRingEdits(
 	(void)Material;
 	(void)HasCaveMesh;
 
-	// Never delete quads. 0.8.9–0.8.11 punch opened 400+ faces on a hill
-	// (saved air still in the 180 m disk, no mesh to fill). Drop only.
-	if (!ShouldCut || !DensityAt || Ring.CellM > 3.0f)
+	// Open excavated columns. A 5 cm vert drop left the 2 m grass lid
+	// (0.8.21). Punch those quads so the voxel bowl is the surface.
+	if (Ring.CellM > 3.0f)
 	{
 		return;
 	}
-	if (Ring.LivePos.Num() < Ring.StampDir.Num()
-		|| Ring.LiveN.Num() != Ring.LivePos.Num()
-		|| Ring.UV0.Num() != Ring.LivePos.Num())
-	{
-		return;
-	}
-
-	int32 Dropped = 0;
-	for (int32 VI = 0; VI < Ring.StampDir.Num(); ++VI)
-	{
-		if (!Ring.StampSurfM.IsValidIndex(VI))
-		{
-			continue;
-		}
-		const FVector Dir = Ring.StampDir[VI];
-		const float Surf = Ring.StampSurfM[VI];
-		const float FloorR = FindEditFloorM(Dir, Surf, ShouldCut, DensityAt);
-		if (FloorR >= Surf - 0.04f)
-		{
-			continue;
-		}
-		const float CurR = Ring.LivePos[VI].Size() * 0.01f;
-		const float R = FMath::Min(CurR, FloorR);
-		if (CurR - R < 0.04f)
-		{
-			continue;
-		}
-		Ring.LivePos[VI] = Dir * R * 100.0f;
-		if (Ring.UV0.IsValidIndex(VI))
-		{
-			Ring.UV0[VI] = FVector2D(2.0f, 0.0f);
-		}
-		if (Ring.Colors.IsValidIndex(VI))
-		{
-			Ring.Colors[VI] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f);
-		}
-		++Dropped;
-	}
-	if (Dropped == 0)
-	{
-		return;
-	}
-	Comp->UpdateMeshSection_LinearColor(
-		0, Ring.LivePos, Ring.LiveN, Ring.UV0, Ring.Colors, Ring.Tangents);
-	GX_PERF(1, TEXT("GX-clipmap rebuild-drop verts=%d"), Dropped);
+	OpenWalkRing(Ring, FVector::ZeroVector, 0.0f, ShouldCut, DensityAt);
 }
 
 #if 0

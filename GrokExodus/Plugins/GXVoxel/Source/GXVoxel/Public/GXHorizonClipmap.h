@@ -37,10 +37,14 @@ public:
 		TFunction<bool(const FVector&)> HasCaveMesh = nullptr);
 
 	void Invalidate();
-	/** Re-drop saved air after a ring rebuild. Does not delete quads. */
+	/** Re-open saved air after a ring rebuild. */
 	void NotifyEdits();
-	/** Drop walk-ring verts near this brush. One surface — no second 2 m lid. */
-	void NotifyBrush(const FVector& LocalM, float RadiusM, TFunction<float(const FVector&)> DensityAt);
+	/** Open the walk disk under this brush. Removes the grass lid. */
+	void NotifyBrush(
+		const FVector& LocalM,
+		float RadiusM,
+		TFunction<float(const FVector&)> DensityAt,
+		TFunction<bool(const FVector&)> ShouldCut = nullptr);
 	bool IsReady() const { return bReady; }
 
 private:
@@ -91,4 +95,11 @@ private:
 		const TFunction<bool(const FVector&)>& ShouldCut,
 		const TFunction<float(const FVector&)>& DensityAt,
 		const TFunction<bool(const FVector&)>& HasCaveMesh);
+
+	void OpenWalkRing(
+		FRing& Ring,
+		const FVector& BrushLocal,
+		float BrushRadius,
+		const TFunction<bool(const FVector&)>& ShouldCut,
+		const TFunction<float(const FVector&)>& DensityAt);
 };

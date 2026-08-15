@@ -707,20 +707,13 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	Out.YieldAmount = Brush.VolumeChanged * 0.7f * RecoveryMul;
 	Out.ToolWear = Brush.VolumeChanged * WearMul;
 	if (Jobs) Jobs->BumpStamp();
-	FVector Rad = L.GetSafeNormal();
-	if (Rad.IsNearlyZero())
-	{
-		Rad = FVector(1, 0, 0);
-	}
-	const float Surf = Volume->GetStamp().SampleSurfaceRadius(FVector3f(Rad.X, Rad.Y, Rad.Z));
-	const bool bCave = L.Size() + 1.5f < Surf;
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
 		BrushForceLOD0.Add(C);
-		// Surface bowls are the dropped clipmap. Remeshing voxels here
-		// stacked a second crust (0.8.14 overlapping layers).
-		if (bCave && Volume->ChunkHasEdits(C))
+		// Clipmap lid is punched. Edited crust must remesh or the hole
+		// is a sky window (0.8.9). Surface + cave both fill with MC.
+		if (Volume->ChunkHasEdits(C))
 		{
 			EnqueueRemesh(C, true);
 		}
@@ -735,6 +728,10 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			[this](const FVector& P)
 			{
 				return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z));
+			},
+			[this](const FVector& P)
+			{
+				return ShouldPunchClipmap(P);
 			});
 	}
 	GX_PERF(1, TEXT("GX-dig volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d boxes=%d"),
@@ -769,6 +766,10 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 			[this](const FVector& P)
 			{
 				return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z));
+			},
+			[this](const FVector& P)
+			{
+				return ShouldPunchClipmap(P);
 			});
 	}
 	GX_PERF(1, TEXT("GX-place volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d boxes=%d"),
@@ -1107,9 +1108,9 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 					++SkippedAir;
 					continue;
 				}
-				// Clipmap is THE surface. Meshing edited crust chunks stacked
-				// a second layer you could walk behind (0.8.15 #1).
-				if (ChunkOverlapsSurface(CC, ChunkM) && !bDrawVoxelVisuals)
+				// Unedited crust is clipmap-only. Edited crust is punched
+				// open and must keep its voxel bowl (0.8.22).
+				if (ChunkOverlapsSurface(CC, ChunkM) && !bDrawVoxelVisuals && !bEdited)
 				{
 					continue;
 				}
