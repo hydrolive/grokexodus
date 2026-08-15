@@ -170,13 +170,6 @@ UMaterialInterface* FGXTerrainPBR::GetPatchMaterial() const
 	return Applied.Get();
 }
 
-void FGXTerrainPBR::SetEditHoles(const TArray<FVector4>& HolesLocalM)
-{
-	// Shader hole MIDs are unused. Writing PatchMid after it was
-	// collected crashed PlaceSphere (0.7.44, LoginId a2d1a034…).
-	(void)HolesLocalM;
-}
-
 bool FGXTerrainPBR::LoadJpg(const FString& Path, TArray<uint8>& OutBGRA, int32& OutW, int32& OutH)
 {
 	OutW = 0;

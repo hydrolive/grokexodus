@@ -641,10 +641,6 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	{
 		EditHolesLocalM.RemoveAt(0, EditHolesLocalM.Num() - 48, EAllowShrinking::No);
 	}
-	if (TerrainPBR)
-	{
-		TerrainPBR->SetEditHoles(EditHolesLocalM);
-	}
 	if (HorizonClipmap)
 	{
 		HorizonClipmap->NotifyEdits();
@@ -703,10 +699,6 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	if (EditHolesLocalM.Num() > 48)
 	{
 		EditHolesLocalM.RemoveAt(0, EditHolesLocalM.Num() - 48, EAllowShrinking::No);
-	}
-	if (TerrainPBR)
-	{
-		TerrainPBR->SetEditHoles(EditHolesLocalM);
 	}
 	if (HorizonClipmap)
 	{

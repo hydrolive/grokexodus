@@ -18,7 +18,6 @@ public:
 
 	UMaterialInterface* GetMaterial() const;
 	UMaterialInterface* GetPatchMaterial() const;
-	void SetEditHoles(const TArray<FVector4>& HolesLocalM);
 
 	static FString GetSourceDir();
 
