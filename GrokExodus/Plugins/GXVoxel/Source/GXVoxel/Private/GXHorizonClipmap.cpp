@@ -228,8 +228,11 @@ void FGXHorizonClipmap::NotifyBrush(
 	{
 		return;
 	}
-	const float R2 = RadiusM * RadiusM;
-	const float Cover = RadiusM + FMath::Max(Ring.CellM, 2.0f);
+	// Visual bowl must cover a 2 m cell or the first click only nicks one
+	// vert and the ball sits under the leftover lid (0.8.17).
+	const float VisR = RadiusM + FMath::Max(Ring.CellM, 2.0f);
+	const float R2 = VisR * VisR;
+	const float Cover = VisR + Ring.CellM;
 	const float Cover2 = Cover * Cover;
 	FVector BrushDir = LocalM.GetSafeNormal();
 	if (BrushDir.IsNearlyZero())
@@ -262,13 +265,14 @@ void FGXHorizonClipmap::NotifyBrush(
 			continue;
 		}
 		const float Half = FMath::Sqrt(R2 - Perp2);
-		const float FloorR = Along - Half - 0.08f;
-		if (FloorR >= Surf - 0.05f)
+		const float FloorR = Along - Half - 0.05f;
+		const float CurR = Ring.LivePos[VI].Size() * 0.01f;
+		const float NewR = FMath::Clamp(FMath::Min(CurR, FloorR), Surf - 48.0f, CurR);
+		if (NewR >= CurR - 0.05f)
 		{
 			continue;
 		}
-		const float R = FMath::Max(FloorR, Surf - 48.0f);
-		Ring.LivePos[VI] = Dir * R * 100.0f;
+		Ring.LivePos[VI] = Dir * NewR * 100.0f;
 		if (Ring.UV0.IsValidIndex(VI))
 		{
 			Ring.UV0[VI] = FVector2D(2.0f, 0.0f); // rock
@@ -285,7 +289,9 @@ void FGXHorizonClipmap::NotifyBrush(
 	}
 	Comp->UpdateMeshSection_LinearColor(
 		0, Ring.LivePos, Ring.LiveN, Ring.UV0, Ring.Colors, Ring.Tangents);
-	GX_PERF(1, TEXT("GX-clipmap brush drop verts=%d r=%.2f"), Dropped, RadiusM);
+	Comp->MarkRenderStateDirty();
+	Comp->UpdateBounds();
+	GX_PERF(1, TEXT("GX-clipmap brush drop verts=%d r=%.2f visR=%.2f"), Dropped, RadiusM, VisR);
 }
 
 void FGXHorizonClipmap::Shutdown()
