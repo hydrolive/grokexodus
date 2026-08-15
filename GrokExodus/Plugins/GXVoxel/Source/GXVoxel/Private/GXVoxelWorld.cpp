@@ -532,21 +532,62 @@ FGXVoxelHit AGXVoxelWorld::RaycastVoxels(FVector WorldOrigin, FVector WorldDirec
 	{
 		return Hit;
 	}
+	const FGXSphereStamp& Stamp = Volume->GetStamp();
+	const float R0 = Stamp.GetParams().Radius;
+	auto VisualSurfM = [&](const FVector& LocalM) -> float
+	{
+		FVector Rad = LocalM.GetSafeNormal();
+		if (Rad.IsNearlyZero())
+		{
+			return R0;
+		}
+		const FGXEarthField F = Stamp.SampleEarthField(FVector3f(Rad.X, Rad.Y, Rad.Z), false);
+		float Surf = R0 + F.HeightM;
+		const int32 Start = FMath::Max(0, EditHolesLocalM.Num() - 8);
+		for (int32 I = Start; I < EditHolesLocalM.Num(); ++I)
+		{
+			const FVector4& E = EditHolesLocalM[I];
+			const float RadM = FMath::Abs(E.W);
+			if (RadM < 0.05f)
+			{
+				continue;
+			}
+			const FVector C(E.X, E.Y, E.Z);
+			const FVector Guess = Rad * Surf;
+			const float D2 = FVector::DistSquared(Guess, C);
+			if (D2 >= RadM * RadM)
+			{
+				continue;
+			}
+			const float Drop = FMath::Sqrt(FMath::Max(0.0f, RadM * RadM - D2));
+			Surf += (E.W < 0.0f) ? -Drop : Drop;
+		}
+		return FMath::Max(Surf, R0 * 0.5f);
+	};
+	auto AboveCrust = [&](const FVector& WorldCm) -> bool
+	{
+		const FVector L = WorldToLocalMeters(WorldCm);
+		return L.Size() > VisualSurfM(L);
+	};
+
+	// Hit the *visible* stamp+edit surface. Voxel density after a dig is a
+	// hole under the clipmap (NoCollision), so the brush sank and could not
+	// cut the lid (0.7.55).
 	const FVector Dir = WorldDirection.GetSafeNormal();
-	const float StepCm = FMath::Max(VoxelSize * GMetersToUU * 0.35f, 25.0f);
-	float PrevD = SampleDensityWorld(WorldOrigin);
+	const float StepCm = 40.0f;
+	bool bPrevAbove = AboveCrust(WorldOrigin);
 	for (float T = StepCm; T <= MaxDistance; T += StepCm)
 	{
 		const FVector Pos = WorldOrigin + Dir * T;
-		const float D = SampleDensityWorld(Pos);
-		if (PrevD < 0.0f && D >= 0.0f)
+		const bool bAbove = AboveCrust(Pos);
+		if (bPrevAbove && !bAbove)
 		{
 			float T0 = T - StepCm, T1 = T;
 			for (int32 I = 0; I < 8; ++I)
 			{
 				const float Tm = 0.5f * (T0 + T1);
-				if (SampleDensityWorld(WorldOrigin + Dir * Tm) >= 0.0f) T1 = Tm;
-				else T0 = Tm;
+				if (AboveCrust(WorldOrigin + Dir * Tm)) T0 = Tm;
+				else T1 = Tm;
 			}
 			const FVector HitPos = WorldOrigin + Dir * T1;
 			const FVector Local = WorldToLocalMeters(HitPos);
@@ -554,17 +595,12 @@ FGXVoxelHit AGXVoxelWorld::RaycastVoxels(FVector WorldOrigin, FVector WorldDirec
 			Hit.Location = HitPos;
 			Hit.Distance = T1;
 			Hit.MaterialId = SampleMaterial(FVector3d(Local.X, Local.Y, Local.Z));
-			const float E = VoxelSize * 0.5f;
-			const FVector3d LM(Local.X, Local.Y, Local.Z);
-			const float Dx = SampleDensityMeters(LM + FVector3d(E, 0, 0)) - SampleDensityMeters(LM - FVector3d(E, 0, 0));
-			const float Dy = SampleDensityMeters(LM + FVector3d(0, E, 0)) - SampleDensityMeters(LM - FVector3d(0, E, 0));
-			const float Dz = SampleDensityMeters(LM + FVector3d(0, 0, E)) - SampleDensityMeters(LM - FVector3d(0, 0, E));
-			FVector N(-Dx, -Dy, -Dz);
-			if (!N.Normalize()) N = -Dir;
+			FVector N = Local.GetSafeNormal();
+			if (N.IsNearlyZero()) N = -Dir;
 			Hit.Normal = N;
 			return Hit;
 		}
-		PrevD = D;
+		bPrevAbove = bAbove;
 	}
 	return Hit;
 }
