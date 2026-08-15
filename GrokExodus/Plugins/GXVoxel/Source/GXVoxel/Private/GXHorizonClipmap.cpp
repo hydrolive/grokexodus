@@ -29,7 +29,19 @@ namespace
 		return PMC;
 	}
 
-	/** W<0 bowl, W>0 cap. Full brush radius — a sunk cap was a weak bump. */
+	/** Ring-0 cell. Hide + patch share this so a 2 m fade cannot open a halo. */
+	constexpr float GClipCellM = 2.0f;
+
+	/** High-res disk that replaces clipmap under a brush (metres). */
+	float EditCoverM(float Rad)
+	{
+		// Two clip cells past R: every 2 m quad that touches the sphere is
+		// inside the patch, and the vertex-A fade (one cell) stays on the
+		// patch skirt — not as a hole or a coarse dent.
+		return Rad + 2.0f * GClipCellM + 0.5f;
+	}
+
+	/** W<0 bowl, W>0 cap. Offset the *local* stamp, not HoleR. */
 	float ApplyEditSpheres(float SurfR, const FVector& Guess, const TArray<FVector4>* Edits)
 	{
 		if (!Edits || Edits->Num() == 0)
@@ -50,51 +62,16 @@ namespace
 				continue;
 			}
 			const float Drop = FMath::Sqrt(FMath::Max(0.0f, Rad * Rad - D2));
-			const float HoleR = C.Size();
+			// HoleR ± drop put the rim at the hit radius on a slope
+			// (add trim that missed the grass). Local stamp ± drop
+			// keeps the rim on the landscape.
 			if (E.W < 0.0f)
 			{
-				SurfR = FMath::Min(SurfR, HoleR - Drop);
+				SurfR -= Drop;
 			}
 			else
 			{
-				SurfR = FMath::Max(SurfR, HoleR + Drop);
-			}
-		}
-		return SurfR;
-	}
-
-	/** Dig also sags verts out to R+Cell so the 2 m lid cannot cover the bowl. */
-	float ApplyEditSpheresClip(float SurfR, const FVector& Guess, const TArray<FVector4>* Edits, float CellM)
-	{
-		if (!Edits || Edits->Num() == 0)
-		{
-			return SurfR;
-		}
-		for (const FVector4& E : *Edits)
-		{
-			const float Rad = FMath::Abs(E.W);
-			if (Rad < 0.05f)
-			{
-				continue;
-			}
-			const FVector C(E.X, E.Y, E.Z);
-			const float D = FVector::Dist(Guess, C);
-			const float Infl = Rad + CellM * 1.25f;
-			if (D >= Infl)
-			{
-				continue;
-			}
-			const float HoleR = C.Size();
-			if (E.W < 0.0f)
-			{
-				const float SphereDrop = (D < Rad) ? FMath::Sqrt(Rad * Rad - D * D) : 0.0f;
-				const float ConeDrop = Rad * (1.0f - D / Infl);
-				SurfR = FMath::Min(SurfR, HoleR - FMath::Max(SphereDrop, ConeDrop));
-			}
-			else if (D < Rad)
-			{
-				const float Drop = FMath::Sqrt(FMath::Max(0.0f, Rad * Rad - D * D));
-				SurfR = FMath::Max(SurfR, HoleR + Drop);
+				SurfR += Drop;
 			}
 		}
 		return SurfR;
@@ -393,16 +370,34 @@ void FGXHorizonClipmap::ApplyRingEdits(FRing& Ring, const TArray<FVector4>* Edit
 	{
 		return;
 	}
-	TArray<FVector> Live;
-	Live.SetNumUninitialized(Ring.StampPos.Num());
+	// Keep stamp height (no coarse dent). Hide the lid by vertex alpha so
+	// the high-res bowl is visible. Shader WP masks never punched.
+	// A=0 only inside (Cover − cell) so the interpolated clip (~0.333)
+	// lands inside the patch, not as a halo past it.
 	for (int32 I = 0; I < Ring.StampPos.Num(); ++I)
 	{
-		const FVector Dir = Ring.StampDir[I];
-		float SurfR = Ring.StampSurfM[I];
-		SurfR = ApplyEditSpheresClip(SurfR, Dir * SurfR, Edits, Ring.CellM);
-		Live[I] = Dir * (SurfR - Ring.SinkUsed) * 100.0f;
+		float A = 1.0f;
+		if (Edits)
+		{
+			const FVector Guess = Ring.StampDir[I] * Ring.StampSurfM[I];
+			for (const FVector4& E : *Edits)
+			{
+				const float Rad = FMath::Abs(E.W);
+				if (Rad < 0.05f)
+				{
+					continue;
+				}
+				const float Hide = FMath::Max(Rad, EditCoverM(Rad) - Ring.CellM);
+				if (FVector::DistSquared(Guess, FVector(E.X, E.Y, E.Z)) < Hide * Hide)
+				{
+					A = 0.0f;
+					break;
+				}
+			}
+		}
+		Ring.Colors[I].A = A;
 	}
-	Comp->UpdateMeshSection_LinearColor(0, Live, Ring.LiveN, Ring.UV0, Ring.Colors, Ring.Tangents);
+	Comp->UpdateMeshSection_LinearColor(0, Ring.StampPos, Ring.LiveN, Ring.UV0, Ring.Colors, Ring.Tangents);
 }
 
 void FGXHorizonClipmap::BuildEditPatch(
@@ -445,7 +440,9 @@ void FGXHorizonClipmap::BuildEditPatch(
 		}
 		FVector TanU, TanV;
 		CenterDir.FindBestAxisVectors(TanU, TanV);
-		const float Cover = Rad + 0.35f;
+		// Same disk ApplyRingEdits hides, plus one 2 m cell of A fade.
+		// Outside R this is stamp height — rim sits on the grass.
+		const float Cover = EditCoverM(Rad);
 		const int32 Half = FMath::Max(4, FMath::CeilToInt(Cover / CellM));
 		const int32 Dim = Half * 2 + 1;
 		const float Cover2 = Cover * Cover;
@@ -609,7 +606,8 @@ void FGXHorizonClipmap::Update(
 		}
 		for (FRing& Ring : Rings)
 		{
-			if (Ring.CellM <= 10.0f)
+			// Ring 0 only. Punching the 8 m ring hid a huge low-res disk.
+			if (Ring.CellM <= 3.0f)
 			{
 				ApplyRingEdits(Ring, EditHolesLocalM);
 			}
@@ -659,7 +657,7 @@ void FGXHorizonClipmap::Update(
 		{
 			UMaterialInterface* UseMat = (I == 0) ? NearLit : FarLit;
 			BuildRing(Ring, Stamp, CenterDir, T, B, UseMat, Atlas, DensityAt);
-			if (Ring.CellM <= 10.0f)
+			if (Ring.CellM <= 3.0f)
 			{
 				ApplyRingEdits(Ring, EditHolesLocalM);
 			}

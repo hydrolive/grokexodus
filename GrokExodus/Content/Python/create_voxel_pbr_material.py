@@ -531,35 +531,9 @@ def main():
     plug(albedo, "", unreal.MaterialProperty.MP_BASE_COLOR)
     plug(lerp_r, "", unreal.MaterialProperty.MP_ROUGHNESS)
 
-    # Clipmap discards pixels inside recent brush spheres so the circular
-    # patch is the surface (no second sheet, no 140 m remesh wobble).
-    # Actor-local cm (WP - ObjectPos). Absolute WP vs LWC origin made
-    # distance(wp, hole) huge, so subtract never punched the grass.
-    objp = node(unreal.MaterialExpressionObjectPositionWS, x0, -80, "ObjPos")
-    local_cm = sub(wp, "", objp, "", x0 + 280, -80, "LocalCm")
-    fade_cm = const(12.0, x0 + 9880, 700, "holeFadeCm")
-    keep_all = const(1.0, x0 + 9880, 760, "keepAll")
-    for i in range(8):
-        hp = node(unreal.MaterialExpressionVectorParameter, x0 + 7500, 1800 + i * 180, "EditHole%d" % i)
-        _set(hp, "parameter_name", "EditHole%d" % i)
-        _set(hp, "default_value", unreal.LinearColor(0.0, 0.0, 0.0, 1.0))
-        _set(hp, "group", "Edits")
-        rs = node(unreal.MaterialExpressionScalarParameter, x0 + 7760, 1800 + i * 180, "EditRadius%d" % i)
-        _set(rs, "parameter_name", "EditRadius%d" % i)
-        _set(rs, "default_value", 0.0)
-        _set(rs, "group", "Edits")
-        dist_h = node(unreal.MaterialExpressionDistance, x0 + 8020, 1800 + i * 180, "hD%d" % i)
-        connect(local_cm, "", dist_h, "A")
-        if not connect(hp, "RGB", dist_h, "B"):
-            connect(hp, "", dist_h, "B")
-        keep_i = sat(div(sub(dist_h, "", rs, "", x0 + 8260, 1800 + i * 180), "",
-                         fade_cm, "", x0 + 8500, 1800 + i * 180),
-                     "", x0 + 8740, 1800 + i * 180, "keep%d" % i)
-        kn = node(unreal.MaterialExpressionMin, x0 + 8980, 1800 + i * 180, "kmin%d" % i)
-        connect(keep_all, "", kn, "A")
-        connect(keep_i, "", kn, "B")
-        keep_all = kn
-    plug(keep_all, "", unreal.MaterialProperty.MP_OPACITY_MASK)
+    # Clipmap lid: vertex color A is 0 on verts inside a brush (ApplyRingEdits).
+    # World-position hole masks never punched (LWC). Patch verts keep A=1.
+    plug(vc, "A", unreal.MaterialProperty.MP_OPACITY_MASK)
     # Back-lit / sky-facing hills were pitch black (0.7.33 #1). 18% of the
     # albedo plus a tiny ambient so auto-exposure against the sky cannot
     # crush the crust to a silhouette — still textured, not a flat tint.
