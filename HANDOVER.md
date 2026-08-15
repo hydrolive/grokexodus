@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.41**  
+Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.42**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.7.42** 0.7.41 shot: still a **stone ring** on uncut grass. Shader mask cannot punch LWC WP. Subtract now **sags clipmap verts** out to R+1.25×cell via `UpdateMeshSection` (no full remesh). Fine patch is the circular bowl inside that pit.
 - **GX 0.7.41** 0.7.40 shot: add OK, subtract only a **stone ring** — the bowl sat under uncut grass. Mask compared absolute hole cm to LWC/camera WP so `d >> r` and never clipped. Mask is **WP − ObjectPos** (actor-local cm). Patch is two-sided so the crater floor draws.
 - **GX 0.7.40** 0.7.39 shot: add/remove **floated above the grass**. Ring 0 was sunk 50 cm (`Max(Sink,0.5)`) while the patch sat on the stamp, and the hole mask read radius from Vector A (often unused) so the clipmap never punched. Ring 0 sink is 0. Mask uses `EditRadiusN` scalars. Radius padded 30 cm.
 - **GX 0.7.39** 0.7.38: add/remove **wobbled** the whole near crust (2 m ring remeshed every stroke) and the cut was a **flat pyramid**, not a circle. Circular 22 cm patch is back. Walk ring is not remeshed on brush. Clipmap **masks** pixels inside the last 8 brush spheres so the circle is the surface, not a blob on the grass.
@@ -73,6 +74,10 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 - Live Coding often blocks `Build.bat`. The agent **closes Unreal and rebuilds Development Editor `-NoUBA`** (see `AGENTS.md`). Do not ask the user to do that.
 - **Unreal MCP:** `UnrealMCPython` plugin listens on `127.0.0.1:12029`. Agent **must Start-Process the editor** and confirm a PID before polling the port. Never wait on 12029 with no UnrealEditor process (the user had to launch it by hand). Run Python via `unreal-mcpython__util execute_python`. Unity MCP is disabled.
 - **Plugin GXCore failed to load / GetLastError=4551:** Development `UnrealEditor-GXCore.dll` was an unloadable image (UBA served a bad cached link). DebugGame DLL was fine; the editor loads Development. Fix: delete `Plugins/*/Binaries/Win64/UnrealEditor-GX*.dll` and `Binaries/Win64/UnrealEditor-GrokExodus.dll`, rebuild `GrokExodusEditor Win64 Development -NoUBA`. All six project DLLs now map with `LoadLibraryEx(DONT_RESOLVE)`.
+
+## Verify after 0.7.42
+
+1. Gold `GX 0.7.42`. Subtract is a crater in the grass, not a ring on a flat lid.
 
 ## Verify after 0.7.41
 

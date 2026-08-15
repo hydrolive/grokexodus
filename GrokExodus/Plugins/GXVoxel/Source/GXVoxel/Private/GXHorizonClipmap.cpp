@@ -62,6 +62,43 @@ namespace
 		}
 		return SurfR;
 	}
+
+	/** Dig also sags verts out to R+Cell so the 2 m lid cannot cover the bowl. */
+	float ApplyEditSpheresClip(float SurfR, const FVector& Guess, const TArray<FVector4>* Edits, float CellM)
+	{
+		if (!Edits || Edits->Num() == 0)
+		{
+			return SurfR;
+		}
+		for (const FVector4& E : *Edits)
+		{
+			const float Rad = FMath::Abs(E.W);
+			if (Rad < 0.05f)
+			{
+				continue;
+			}
+			const FVector C(E.X, E.Y, E.Z);
+			const float D = FVector::Dist(Guess, C);
+			const float Infl = Rad + CellM * 1.25f;
+			if (D >= Infl)
+			{
+				continue;
+			}
+			const float HoleR = C.Size();
+			if (E.W < 0.0f)
+			{
+				const float SphereDrop = (D < Rad) ? FMath::Sqrt(Rad * Rad - D * D) : 0.0f;
+				const float ConeDrop = Rad * (1.0f - D / Infl);
+				SurfR = FMath::Min(SurfR, HoleR - FMath::Max(SphereDrop, ConeDrop));
+			}
+			else if (D < Rad)
+			{
+				const float Drop = FMath::Sqrt(FMath::Max(0.0f, Rad * Rad - D * D));
+				SurfR = FMath::Max(SurfR, HoleR + Drop);
+			}
+		}
+		return SurfR;
+	}
 }
 
 void FGXHorizonClipmap::Initialize(AActor* Owner)
@@ -137,25 +174,25 @@ void FGXHorizonClipmap::Shutdown()
 }
 
 void FGXHorizonClipmap::BuildRing(
-	UProceduralMeshComponent* Comp,
+	FRing& Ring,
 	const FGXSphereStamp& Stamp,
 	const FVector& CenterDir,
 	const FVector& Tangent,
 	const FVector& Bitangent,
-	float InnerM,
-	float OuterM,
-	float CellM,
-	float SinkM,
 	UMaterialInterface* Material,
 	const FGXCrustAtlas* Atlas,
-	const TArray<FVector4>* EditHolesLocalM,
 	const TFunction<float(const FVector&)>& DensityAt)
 {
+	UProceduralMeshComponent* Comp = Ring.Comp.Get();
 	if (!Comp)
 	{
 		return;
 	}
 
+	const float InnerM = Ring.InnerM;
+	const float OuterM = Ring.OuterM;
+	const float CellM = Ring.CellM;
+	const float SinkM = Ring.SinkM;
 	const int32 Half = FMath::Max(8, FMath::CeilToInt(OuterM / CellM));
 	const int32 Dim = Half * 2 + 1;
 	const float R0 = Stamp.GetParams().Radius;
@@ -178,6 +215,15 @@ void FGXHorizonClipmap::BuildRing(
 	UV0.Reserve(VertGuess);
 	Colors.Reserve(VertGuess);
 	Tangents.Reserve(VertGuess);
+
+	Ring.StampPos.Reset();
+	Ring.StampDir.Reset();
+	Ring.StampSurfM.Reset();
+	Ring.UV0.Reset();
+	Ring.Colors.Reset();
+	Ring.Tangents.Reset();
+	Ring.LiveN.Reset();
+	Ring.SinkUsed = Sink;
 
 	TArray<int32> IndexOf;
 	IndexOf.Init(INDEX_NONE, Dim * Dim);
@@ -207,12 +253,14 @@ void FGXHorizonClipmap::BuildRing(
 			(void)Atlas;
 			(void)DensityAt;
 			float SurfR = Stamp.GetParams().Radius + HeightM;
-			(void)EditHolesLocalM;
 			const FVector P = Dir * (SurfR - Sink) * 100.0f;
 			const int32 Idx = I + J * Dim;
 			IndexOf[Idx] = Positions.Num();
 			Positions.Add(P);
 			Normals.Add(Dir);
+			Ring.StampPos.Add(P);
+			Ring.StampDir.Add(Dir);
+			Ring.StampSurfM.Add(SurfR);
 			// Same atlas ids the near PBR reads from UV0.X (1 grass, 3 dirt, 2 rock).
 			float AtlasId = 1.0f;
 			if (Field.SlopeProxy > 0.16f || Field.Orogeny > 0.15f || Field.Volcano > 0.18f)
@@ -312,6 +360,12 @@ void FGXHorizonClipmap::BuildRing(
 		}
 	}
 
+	Ring.UV0 = UV0;
+	Ring.Colors = Colors;
+	Ring.Tangents = Tangents;
+	Ring.LiveN = Normals;
+	Ring.SinkUsed = Sink;
+
 	Comp->ClearAllMeshSections();
 	if (Positions.Num() >= 3 && Indices.Num() >= 3)
 	{
@@ -330,6 +384,25 @@ void FGXHorizonClipmap::BuildRing(
 	{
 		UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap empty ring inner=%.0f outer=%.0f"), InnerM, OuterM);
 	}
+}
+
+void FGXHorizonClipmap::ApplyRingEdits(FRing& Ring, const TArray<FVector4>* Edits)
+{
+	UProceduralMeshComponent* Comp = Ring.Comp.Get();
+	if (!Comp || Ring.StampPos.Num() == 0)
+	{
+		return;
+	}
+	TArray<FVector> Live;
+	Live.SetNumUninitialized(Ring.StampPos.Num());
+	for (int32 I = 0; I < Ring.StampPos.Num(); ++I)
+	{
+		const FVector Dir = Ring.StampDir[I];
+		float SurfR = Ring.StampSurfM[I];
+		SurfR = ApplyEditSpheresClip(SurfR, Dir * SurfR, Edits, Ring.CellM);
+		Live[I] = Dir * (SurfR - Ring.SinkUsed) * 100.0f;
+	}
+	Comp->UpdateMeshSection_LinearColor(0, Live, Ring.LiveN, Ring.UV0, Ring.Colors, Ring.Tangents);
 }
 
 void FGXHorizonClipmap::BuildEditPatch(
@@ -534,6 +607,13 @@ void FGXHorizonClipmap::Update(
 		{
 			BuildEditPatch(Patch, Stamp, PatchMaterial ? PatchMaterial : NearLit, EditHolesLocalM);
 		}
+		for (FRing& Ring : Rings)
+		{
+			if (Ring.CellM <= 10.0f)
+			{
+				ApplyRingEdits(Ring, EditHolesLocalM);
+			}
+		}
 		bEditsDirty = false;
 	}
 
@@ -578,7 +658,11 @@ void FGXHorizonClipmap::Update(
 		if (UProceduralMeshComponent* C = Ring.Comp.Get())
 		{
 			UMaterialInterface* UseMat = (I == 0) ? NearLit : FarLit;
-			BuildRing(C, Stamp, CenterDir, T, B, Ring.InnerM, Ring.OuterM, Ring.CellM, Ring.SinkM, UseMat, Atlas, EditHolesLocalM, DensityAt);
+			BuildRing(Ring, Stamp, CenterDir, T, B, UseMat, Atlas, DensityAt);
+			if (Ring.CellM <= 10.0f)
+			{
+				ApplyRingEdits(Ring, EditHolesLocalM);
+			}
 			Ring.LastBuild = ViewerLocalM;
 			++Built;
 		}

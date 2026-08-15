@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GXVoxelStamps.h"
 #include "GXCrustAtlas.h"
+#include "ProceduralMeshComponent.h"
 
 class AActor;
 class UProceduralMeshComponent;
@@ -47,7 +48,15 @@ private:
 		float OuterM = 0.0f;
 		float CellM = 24.0f;
 		float SinkM = 3.5f;
+		float SinkUsed = 0.0f;
 		FVector LastBuild = FVector(1e12f, 0, 0);
+		TArray<FVector> StampPos;
+		TArray<FVector> StampDir;
+		TArray<float> StampSurfM;
+		TArray<FVector> LiveN;
+		TArray<FVector2D> UV0;
+		TArray<FLinearColor> Colors;
+		TArray<FProcMeshTangent> Tangents;
 	};
 
 	TArray<FRing> Rings;
@@ -56,20 +65,17 @@ private:
 	bool bReady = false;
 	bool bEditsDirty = false;
 
-	static void BuildRing(
-		UProceduralMeshComponent* Comp,
+	void BuildRing(
+		FRing& Ring,
 		const FGXSphereStamp& Stamp,
 		const FVector& CenterDir,
 		const FVector& Tangent,
 		const FVector& Bitangent,
-		float InnerM,
-		float OuterM,
-		float CellM,
-		float SinkM,
 		UMaterialInterface* Material,
 		const FGXCrustAtlas* Atlas,
-		const TArray<FVector4>* EditHolesLocalM,
 		const TFunction<float(const FVector&)>& DensityAt);
+
+	void ApplyRingEdits(FRing& Ring, const TArray<FVector4>* Edits);
 
 	static void BuildEditPatch(
 		UProceduralMeshComponent* Comp,

@@ -208,8 +208,10 @@ void FGXTerrainPBR::SetEditHoles(const TArray<FVector4>& HolesLocalM)
 		{
 			const FVector4& H = HolesLocalM[Src];
 			V = FLinearColor(H.X * 100.0f, H.Y * 100.0f, H.Z * 100.0f, 1.0f);
-			// +30 cm so the clipmap is gone under the whole cap, not just the core.
-			RadiusCm = FMath::Abs(H.W) * 100.0f + 30.0f;
+			// Geometry (ApplyRingEdits) opens the lid. Shader mask kept at 0 —
+			// LWC WP never matched the hole (0.7.39–41 stone ring).
+			RadiusCm = 0.0f;
+			(void)H;
 		}
 		Mid->SetVectorParameterValue(*Name, V);
 		Mid->SetScalarParameterValue(*RadName, RadiusCm);
