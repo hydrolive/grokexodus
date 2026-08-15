@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.51**  
+Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.52**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.7.52** 0.7.51: local dig is good, but **mid hills spiked** (#1) and **seams** that a later dig healed (#2). Every stroke remeshed ring 0 **and** 1 for all 48 edits (~200 k verts, 80–130 ms hitch). Fine refine is **ring 0, last 8 strokes** only. 8 m CSG of a 1.2 m brush is gone.
 - **GX 0.7.51** 0.7.50 shots: add/remove painted a **black disk** (hex dirt specks). Fine-vert face Cross points inward (same as BuildRing); we never flipped lighting normals. Outward flip restored for new verts only.
 - **GX 0.7.50** 0.7.49 shots: **#1/#2** holes (each refined quad had its own verts — T-junctions). **#3** huge dirt triangle (recomputed stamp normals pulled crater slope onto neighbouring 8 m tris). Fine verts are **shared**. Stamp normals stay.
 - **GX 0.7.49** 0.7.48 shots: **entire crust inside-out** (underside hills, teal void, brush fragments). `FixOutwardWinding` treated planet-outward as front; UE culls the other way, so every triangle flipped. That pass is gone. Bowl displace is along the **quad normal** so winding cannot invert.
@@ -83,6 +84,11 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 - Live Coding often blocks `Build.bat`. The agent **closes Unreal and rebuilds Development Editor `-NoUBA`** (see `AGENTS.md`). Do not ask the user to do that.
 - **Unreal MCP:** `UnrealMCPython` plugin listens on `127.0.0.1:12029`. Agent **must Start-Process the editor** and confirm a PID before polling the port. Never wait on 12029 with no UnrealEditor process (the user had to launch it by hand). Run Python via `unreal-mcpython__util execute_python`. Unity MCP is disabled.
 - **Plugin GXCore failed to load / GetLastError=4551:** Development `UnrealEditor-GXCore.dll` was an unloadable image (UBA served a bad cached link). DebugGame DLL was fine; the editor loads Development. Fix: delete `Plugins/*/Binaries/Win64/UnrealEditor-GX*.dll` and `Binaries/Win64/UnrealEditor-GrokExodus.dll`, rebuild `GrokExodusEditor Win64 Development -NoUBA`. All six project DLLs now map with `LoadLibraryEx(DONT_RESOLVE)`.
+
+## Verify after 0.7.52
+
+1. Gold `GX 0.7.52`. Dig underfoot. Mid hills stay still — no new spikes, no new seam.
+2. Dig hitch should be much smaller (one ring, last 8 strokes).
 
 ## Verify after 0.7.51
 

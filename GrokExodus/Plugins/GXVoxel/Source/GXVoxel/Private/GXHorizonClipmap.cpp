@@ -410,6 +410,18 @@ void FGXHorizonClipmap::ApplyRingEdits(
 	TArray<int32> Indices;
 
 	int32 Refined = 0;
+	TArray<FVector4> Recent;
+	if (Edits && Edits->Num() > 0)
+	{
+		// Last 8 only. All 48 on ring 0+1 was 200k verts / 80–130 ms
+		// and 8 m CSG spikes in the mid hills (0.7.51 #1).
+		const int32 Start = FMath::Max(0, Edits->Num() - 8);
+		for (int32 I = Start; I < Edits->Num(); ++I)
+		{
+			Recent.Add((*Edits)[I]);
+		}
+		Edits = &Recent;
+	}
 	const bool bHaveEdits = Edits && Edits->Num() > 0;
 	const bool bHaveGrid = Ring.GridDim >= 2 && Ring.GridOf.Num() == Ring.GridDim * Ring.GridDim;
 	if (bHaveEdits && bHaveGrid)
@@ -425,7 +437,7 @@ void FGXHorizonClipmap::ApplyRingEdits(
 
 		const int32 Dim = Ring.GridDim;
 		const int32 QW = Dim - 1;
-		const int32 Sub = FMath::Clamp(FMath::RoundToInt(Ring.CellM / 0.15f), 8, 20);
+		const int32 Sub = FMath::Clamp(FMath::RoundToInt(Ring.CellM / 0.22f), 6, 10);
 		auto Grid = [&](int32 I, int32 J) -> int32
 		{
 			return Ring.GridOf[I + J * Dim];
@@ -460,10 +472,9 @@ void FGXHorizonClipmap::ApplyRingEdits(
 				}
 			}
 		}
-		// Two-cell skirt so a steep bowl never shares an edge with a
-		// coarse neighbour (0.7.47 still left a 2 m missing rectangle).
+		// One-cell skirt. Two cells plus 48 edits is what made the hitch.
 		TArray<uint8> Dilated = Mark;
-		for (int32 Pass = 0; Pass < 2; ++Pass)
+		for (int32 Pass = 0; Pass < 1; ++Pass)
 		{
 			TArray<uint8> Next = Dilated;
 			for (int32 J = 0; J < QW; ++J)
@@ -704,11 +715,11 @@ void FGXHorizonClipmap::Update(
 	{
 		for (FRing& Ring : Rings)
 		{
-			// Ring 0 and 1. Spawn edits must still be there when you
-			// walk away and look back (0.7.46 #3).
-			if (Ring.CellM <= 10.0f)
+			// Ring 0 only. 8 m ring CSG of a 1.2 m brush is a spike
+			// field in the mid hills (0.7.51 #1) and a 100 ms hitch.
+			if (Ring.CellM <= 3.0f)
 			{
-				ApplyRingEdits(Ring, Stamp, (Ring.CellM <= 3.0f) ? NearLit : FarLit, EditHolesLocalM);
+				ApplyRingEdits(Ring, Stamp, NearLit, EditHolesLocalM);
 			}
 		}
 		bEditsDirty = false;
@@ -756,7 +767,7 @@ void FGXHorizonClipmap::Update(
 		{
 			UMaterialInterface* UseMat = (I == 0) ? NearLit : FarLit;
 			BuildRing(Ring, Stamp, CenterDir, T, B, UseMat, Atlas, DensityAt);
-			if (Ring.CellM <= 10.0f)
+			if (Ring.CellM <= 3.0f)
 			{
 				ApplyRingEdits(Ring, Stamp, UseMat, EditHolesLocalM);
 			}
