@@ -40,8 +40,21 @@ namespace
 		{
 			return false;
 		}
-		const FVector Mid = (A + B + C + D) * 0.25f;
-		return ShouldPunch(A) || ShouldPunch(B) || ShouldPunch(C) || ShouldPunch(D) || ShouldPunch(Mid);
+		// 8 m quads miss a 1.2 m hole if we only test corners+mid.
+		for (int32 J = 0; J <= 2; ++J)
+		{
+			const float V = static_cast<float>(J) * 0.5f;
+			const FVector L = FMath::Lerp(A, C, V);
+			const FVector R = FMath::Lerp(B, D, V);
+			for (int32 I = 0; I <= 2; ++I)
+			{
+				if (ShouldPunch(FMath::Lerp(L, R, static_cast<float>(I) * 0.5f)))
+				{
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	void AppendRimSkirts(
@@ -478,7 +491,9 @@ void FGXHorizonClipmap::ApplyRingEdits(
 	TArray<FProcMeshTangent> Tangents = Ring.Tangents;
 	TArray<int32> Indices;
 
-	const bool bHaveBoxes = ShouldPunch && Ring.CellM <= 3.0f;
+	// 2 m and 8 m rings. Leaving the 8 m disk closed made a dirt "core"
+	// lid away from spawn; the brush went under it and could not cut it.
+	const bool bHaveBoxes = ShouldPunch && Ring.CellM <= 12.0f;
 	const bool bHaveGrid = Ring.GridDim >= 2 && Ring.GridOf.Num() == Ring.GridDim * Ring.GridDim;
 	int32 Punched = 0;
 	if (bHaveBoxes && bHaveGrid)

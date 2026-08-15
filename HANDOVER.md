@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.4**  
+Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.5**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.8.5** 0.8.4: away from spawn the **8 m clipmap was a dirt lid** (we stopped punching it). The brush went under it and could not cut it. The 8 m ring is punched again, but only on **real surface air** (3×3 samples per quad), not whole saved pages.
 - **GX 0.8.4** 0.8.3: dig near spawn **deleted a rectangle of walk faces** so you saw the sunk 8 m ring (and holes through it to the core). 29 saved pages punched **585** 2 m quads. Punch is only where the **surface is authoritative air** (or a mound), and **only the 2 m walk ring**. The 8 m ring stays closed.
 - **GX 0.8.3** 0.8.2: mid hills were **blocky dirt stairs** with no grass/dirt blend (#1/#2). Clipmap no longer hard-assigns rock/dirt IDs — PBR slope blends. Fine disk 180 m / 8 m mid / 96 m far. Voxel transvoxel skirts only on LOD≥1 — LOD0 cave skirts were the floating black slabs and poles you could not fill or dig (#3/#4).
 - **GX 0.8.2** 0.8.1 shot: landscape was **orange dirt with grass islands**. Radial lid + 4 m pad + dilate punched **685** walk quads so the 10 m ring (sunk, faceted) showed through. Punch is tight AABB; radial lid only for underground pages; no punch on 36/120 m rings; skirts no longer tilt stamp normals; coarse rings blend N toward radial so PBR stays grass.
