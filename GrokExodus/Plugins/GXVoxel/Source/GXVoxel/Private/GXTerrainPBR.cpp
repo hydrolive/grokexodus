@@ -141,6 +141,8 @@ void FGXTerrainPBR::Initialize(UObject* Outer)
 		if (PatchMid)
 		{
 			Roots.Add(PatchMid);
+			PatchMid->BasePropertyOverrides.bOverride_TwoSided = true;
+			PatchMid->BasePropertyOverrides.TwoSided = 1;
 		}
 	}
 	if (!Applied)
@@ -211,6 +213,11 @@ void FGXTerrainPBR::SetEditHoles(const TArray<FVector4>& HolesLocalM)
 		}
 		Mid->SetVectorParameterValue(*Name, V);
 		Mid->SetScalarParameterValue(*RadName, RadiusCm);
+		if (RadiusCm > 0.0f)
+		{
+			UE_LOG(LogGXVoxel, Warning, TEXT("GX-edithole %d localcm=(%.0f,%.0f,%.0f) r=%.0f"),
+				I, V.R, V.G, V.B, RadiusCm);
+		}
 		if (PatchMid)
 		{
 			PatchMid->SetVectorParameterValue(*Name, FLinearColor(0.f, 0.f, 0.f, 1.f));

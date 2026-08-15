@@ -533,6 +533,10 @@ def main():
 
     # Clipmap discards pixels inside recent brush spheres so the circular
     # patch is the surface (no second sheet, no 140 m remesh wobble).
+    # Actor-local cm (WP - ObjectPos). Absolute WP vs LWC origin made
+    # distance(wp, hole) huge, so subtract never punched the grass.
+    objp = node(unreal.MaterialExpressionObjectPositionWS, x0, -80, "ObjPos")
+    local_cm = sub(wp, "", objp, "", x0 + 280, -80, "LocalCm")
     fade_cm = const(12.0, x0 + 9880, 700, "holeFadeCm")
     keep_all = const(1.0, x0 + 9880, 760, "keepAll")
     for i in range(8):
@@ -545,7 +549,7 @@ def main():
         _set(rs, "default_value", 0.0)
         _set(rs, "group", "Edits")
         dist_h = node(unreal.MaterialExpressionDistance, x0 + 8020, 1800 + i * 180, "hD%d" % i)
-        connect(wp, "", dist_h, "A")
+        connect(local_cm, "", dist_h, "A")
         if not connect(hp, "RGB", dist_h, "B"):
             connect(hp, "", dist_h, "B")
         keep_i = sat(div(sub(dist_h, "", rs, "", x0 + 8260, 1800 + i * 180), "",
