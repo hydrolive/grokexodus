@@ -193,7 +193,10 @@ void UGXTerrainToolComponent::ApplyTool()
 	}
 	if (Mode == EGXToolMode::Drill)
 	{
-		const FGXDigOutcome R = World->DigSphere(Hit.Location, BrushRadiusM, DigSpeedMul, RecoveryMul, WearMul);
+		// Sit the sphere on the hit, not centered on it — half the brush was
+		// already air so stacked clicks barely deepened the floor.
+		const FVector Into = -Hit.Normal * (BrushRadiusM * 0.45f * 100.0f);
+		const FGXDigOutcome R = World->DigSphere(Hit.Location + Into, BrushRadiusM, DigSpeedMul, RecoveryMul, WearMul);
 		if (R.bSuccess && R.MaterialId > 0)
 		{
 			MaterialStock.FindOrAdd(R.MaterialId) += R.YieldAmount;

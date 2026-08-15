@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.58**  
+Last updated: **2026-08-14** · On-disk build stamp: **GX 0.7.59**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.7.59** 0.7.58: pit stopped ~3 m down (ray hit the **page AABB face**), leftover **floating clipmap triangle** (5-point punch missed 8 m quads; unedited neighbors remeshed a stamp sliver). Punch is quad-AABB + 1-cell dilate + **radial lid** (origin→stamp hits the page). Ray uses **authoritative density or stamp**, never the pad box. Only edited chunks remesh. Brush sits *into* the hit so stacked digs deepen. Save/toast unchanged.
 - **GX 0.7.58** 0.7.57: could not **cave** (heightfield lid), oldest bowls **healed** (last-8 / 64-cap). Volume pages are the unlimited store. Clipmap **punches edited 8³ page AABBs**; only those chunks get an MC mesh (roof + walls). No stroke cap. Hybrid ray = stamp outside / voxel density inside pages. F5 + **180 s autosave** writes `Saved/VoxelWorld/earth_default.gxsav`; overlay shows **`Saved HH:MM`**. Auto-load on PIE. Walk uses the **nearest isosurface** (cave floor), not the outer crust. Healing is later, only when no player/structure is around.
 - **GX 0.7.57** 0.7.56: oldest pits **healed** (last-8 visual), same-spot dig **did not deepen** (merge), deep pit hit the **8 m floor** (#4), hill **texture seam** (#2/#3), look-back **missing chunks** (#5). All 64 strokes keep height; last 8 stay fine. No merge. Ring 1 is punched under hot pits and rebuilt with ring 0. Heightfield can deepen a quarry; a true tunnel under the crust is still volume (later).
 - **GX 0.7.56** Dig went **under** the grass and could not cut it. Tool ray used voxel density; after a carve that is a hole under the clipmap (no collision). Ray now hits the **visible stamp+edit surface**.

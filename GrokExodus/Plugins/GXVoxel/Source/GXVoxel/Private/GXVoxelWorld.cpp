@@ -557,14 +557,17 @@ FGXVoxelHit AGXVoxelWorld::RaycastVoxels(FVector WorldOrigin, FVector WorldDirec
 		const FGXEarthField F = Stamp.SampleEarthField(FVector3f(Rad.X, Rad.Y, Rad.Z), false);
 		return R0 + F.HeightM;
 	};
-	// Stamp height on unedited crust. Voxel isosurface inside dirty pages so
-	// a cave wall / floor is a real hit (heightfield CSG cannot have a roof).
+	// Authoritative cells only — a padded page AABB was a fake wall at the
+	// page face (~3 m down) so the tool could not reach the next solid.
+	// Leftover clipmap over air is skipped (density air) so the ray hits
+	// the real cave floor instead of a triangle we cannot carve.
 	auto AboveVisual = [&](const FVector& WorldCm) -> bool
 	{
 		const FVector L = WorldToLocalMeters(WorldCm);
-		if (LocalInEditedPage(L))
+		FGXVoxelPacked Stored;
+		if (Volume->TryGetAuthoritative(FVector3d(L.X, L.Y, L.Z), Stored))
 		{
-			return SampleDensityMeters(FVector3d(L.X, L.Y, L.Z)) <= 0.0f;
+			return Stored.ToDensityMeters() <= 0.0f;
 		}
 		return L.Size() > StampSurfM(L);
 	};
@@ -644,7 +647,12 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
 		BrushForceLOD0.Add(C);
-		EnqueueRemesh(C, true);
+		// Unedited face-neighbors remeshed the whole stamp crust and left
+		// floating triangles the brush could not delete (0.7.58).
+		if (Volume->ChunkHasEdits(C))
+		{
+			EnqueueRemesh(C, true);
+		}
 	}
 	RebuildEditedPageBoxes();
 	MarkPersistDirty();
@@ -680,7 +688,10 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
 		BrushForceLOD0.Add(C);
-		EnqueueRemesh(C, true);
+		if (Volume->ChunkHasEdits(C))
+		{
+			EnqueueRemesh(C, true);
+		}
 	}
 	RebuildEditedPageBoxes();
 	MarkPersistDirty();
@@ -1906,9 +1917,23 @@ bool AGXVoxelWorld::LoadWorld()
 void AGXVoxelWorld::RebuildEditedPageBoxes()
 {
 	EditedPageBoxesM.Reset();
-	if (Volume)
+	if (!Volume)
 	{
-		Volume->GetEditedPageBoxes(EditedPageBoxesM, VoxelSize * 1.5f);
+		return;
+	}
+	Volume->GetEditedPageBoxes(EditedPageBoxesM, FMath::Max(4.0f, VoxelSize * 4.0f));
+	const FGXSphereStamp& Stamp = Volume->GetStamp();
+	const float R0 = Stamp.GetParams().Radius;
+	for (FBox& B : EditedPageBoxesM)
+	{
+		const FVector C = B.GetCenter();
+		FVector Dir = C.GetSafeNormal();
+		if (Dir.IsNearlyZero())
+		{
+			continue;
+		}
+		const FGXEarthField F = Stamp.SampleEarthField(FVector3f(Dir.X, Dir.Y, Dir.Z), false);
+		B += Dir * (R0 + F.HeightM + 4.0f);
 	}
 }
 

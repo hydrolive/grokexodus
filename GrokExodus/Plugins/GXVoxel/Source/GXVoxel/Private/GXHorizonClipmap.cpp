@@ -29,15 +29,46 @@ namespace
 		return PMC;
 	}
 
-	bool PointInEditedPages(const FVector& LocalM, const TArray<FBox>* Boxes)
+	bool RayHitsAabb(const FVector& Origin, const FVector& Dir, const FBox& Box)
 	{
-		if (!Boxes)
+		FVector D = Dir;
+		if (FMath::Abs(D.X) < 1e-8f) D.X = 1e-8f;
+		if (FMath::Abs(D.Y) < 1e-8f) D.Y = 1e-8f;
+		if (FMath::Abs(D.Z) < 1e-8f) D.Z = 1e-8f;
+		const FVector Inv(1.0f / D.X, 1.0f / D.Y, 1.0f / D.Z);
+		const FVector T0 = (Box.Min - Origin) * Inv;
+		const FVector T1 = (Box.Max - Origin) * Inv;
+		const float TMin = FMath::Max3(FMath::Min(T0.X, T1.X), FMath::Min(T0.Y, T1.Y), FMath::Min(T0.Z, T1.Z));
+		const float TMax = FMath::Min3(FMath::Max(T0.X, T1.X), FMath::Max(T0.Y, T1.Y), FMath::Max(T0.Z, T1.Z));
+		return TMax >= TMin && TMax >= 0.0f;
+	}
+
+	bool QuadOverlapsEdited(const FVector& A, const FVector& B, const FVector& C, const FVector& D, const TArray<FBox>* Boxes, float CellM)
+	{
+		if (!Boxes || Boxes->Num() == 0)
 		{
 			return false;
 		}
-		for (const FBox& B : *Boxes)
+		FBox Quad(A, A);
+		Quad += B;
+		Quad += C;
+		Quad += D;
+		Quad = Quad.ExpandBy(FMath::Max(CellM * 0.55f, 1.0f));
+		const FVector Mid = (A + B + C + D) * 0.25f;
+		FVector Rad = Mid.GetSafeNormal();
+		if (Rad.IsNearlyZero())
 		{
-			if (B.IsInsideOrOn(LocalM))
+			Rad = FVector(1, 0, 0);
+		}
+		for (const FBox& Box : *Boxes)
+		{
+			if (Quad.Intersect(Box))
+			{
+				return true;
+			}
+			// Lid over a cave: the stamp quad sits on the crust, the page is
+			// under it. AABB of the page does not contain the quad.
+			if (RayHitsAabb(FVector::ZeroVector, Rad, Box))
 			{
 				return true;
 			}
@@ -385,6 +416,8 @@ void FGXHorizonClipmap::ApplyRingEdits(
 		{
 			return Ring.GridOf[I + J * Dim];
 		};
+		TArray<uint8> Mark;
+		Mark.Init(0, QW * QW);
 		for (int32 J = 0; J < QW; ++J)
 		{
 			for (int32 I = 0; I < QW; ++I)
@@ -397,16 +430,48 @@ void FGXHorizonClipmap::ApplyRingEdits(
 				{
 					continue;
 				}
-				const FVector GA = GuessOf(A);
-				const FVector GB = GuessOf(B);
-				const FVector GC = GuessOf(C);
-				const FVector GD = GuessOf(D);
-				const FVector Mid = (GA + GB + GC + GD) * 0.25f;
-				if (PointInEditedPages(GA, EditedPageBoxesM)
-					|| PointInEditedPages(GB, EditedPageBoxesM)
-					|| PointInEditedPages(GC, EditedPageBoxesM)
-					|| PointInEditedPages(GD, EditedPageBoxesM)
-					|| PointInEditedPages(Mid, EditedPageBoxesM))
+				if (QuadOverlapsEdited(GuessOf(A), GuessOf(B), GuessOf(C), GuessOf(D), EditedPageBoxesM, Ring.CellM))
+				{
+					Mark[I + J * QW] = 1;
+				}
+			}
+		}
+		TArray<uint8> Dilated = Mark;
+		for (int32 J = 0; J < QW; ++J)
+		{
+			for (int32 I = 0; I < QW; ++I)
+			{
+				if (!Mark[I + J * QW])
+				{
+					continue;
+				}
+				for (int32 DJ = -1; DJ <= 1; ++DJ)
+				{
+					for (int32 DI = -1; DI <= 1; ++DI)
+					{
+						const int32 NI = I + DI;
+						const int32 NJ = J + DJ;
+						if (NI >= 0 && NJ >= 0 && NI < QW && NJ < QW)
+						{
+							Dilated[NI + NJ * QW] = 1;
+						}
+					}
+				}
+			}
+		}
+		for (int32 J = 0; J < QW; ++J)
+		{
+			for (int32 I = 0; I < QW; ++I)
+			{
+				const int32 A = Grid(I, J);
+				const int32 B = Grid(I + 1, J);
+				const int32 C = Grid(I, J + 1);
+				const int32 D = Grid(I + 1, J + 1);
+				if (A == INDEX_NONE || B == INDEX_NONE || C == INDEX_NONE || D == INDEX_NONE)
+				{
+					continue;
+				}
+				if (Dilated[I + J * QW])
 				{
 					++Punched;
 					continue;
