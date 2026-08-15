@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.11**  
+Last updated: **2026-08-15** · On-disk build stamp: **GX 0.8.12**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.8.12** 0.8.11 hill shot: still **removed faces + stacked layers**; each dig spiked FPS. Log: `punch=466` (55 k tris Create) vs 2 cave meshes; then 3 fps. Clipmap **never deletes quads**. A dig only **UpdateMeshSection** verts near the brush. Surface digs do not remesh voxels (that was the second layer).
 - **GX 0.8.11** 0.8.10 hill shot: **[VSM] Non-Nanite Marking Job Queue overflow**, missing faces, overlapping layers. Logs: 437 punched 2 m quads vs **2** live meshes; bank PMC shadows + 60 km bounds filled the VSM; clipmap remeshed every ApplyBuiltMesh (8 fps). Punch only over a **live cave mesh**, never the 8 m ring. Banks do not cast shadows. `r.Shadow.Virtual.NonNaniteVSM=0`. NotifyEdits only on first visual.
 - **GX 0.8.10** 0.8.9 shot: dirt bowl is good, but a **thin grass plane** sits on the new voxels (2 m quad missed mid/corners). Punch samples edge midpoints and dilates one shared edge. Walk ring opens air quads even before the cave mesh. Dig also scrapes a radial **lid column** so MC cannot keep a surface sheet.
 - **GX 0.8.9** 0.8.8 shot: some digs **raised** terrain (mound search on rim verts), grass **overhang**, grass crater, **black floating shards** (clipmap vs voxel z-fight), clicks that did nothing. Air clipmap quads **open** over a live cave mesh so dirt/rock MC is the hole. Never search up. Brush sits along the **aim ray**. No clipmap dirt paint.

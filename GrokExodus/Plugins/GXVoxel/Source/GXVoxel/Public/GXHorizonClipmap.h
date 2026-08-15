@@ -37,8 +37,10 @@ public:
 		TFunction<bool(const FVector&)> HasCaveMesh = nullptr);
 
 	void Invalidate();
-	/** Punch clipmap quads over edited volume pages. Do not resample stamp heights. */
+	/** Re-drop saved air after a ring rebuild. Does not delete quads. */
 	void NotifyEdits();
+	/** Cheap: drop walk-ring verts near this brush. UpdateMeshSection only. */
+	void NotifyBrush(const FVector& LocalM, float RadiusM, TFunction<float(const FVector&)> DensityAt);
 	bool IsReady() const { return bReady; }
 
 private:
@@ -52,6 +54,7 @@ private:
 		float SinkUsed = 0.0f;
 		FVector LastBuild = FVector(1e12f, 0, 0);
 		TArray<FVector> StampPos;
+		TArray<FVector> LivePos;
 		TArray<FVector> StampDir;
 		TArray<float> StampSurfM;
 		TArray<FVector> LiveN;

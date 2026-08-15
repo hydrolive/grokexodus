@@ -206,6 +206,105 @@ void FGXHorizonClipmap::NotifyEdits()
 	bEditsDirty = true;
 }
 
+void FGXHorizonClipmap::NotifyBrush(
+	const FVector& LocalM,
+	float RadiusM,
+	TFunction<float(const FVector&)> DensityAt)
+{
+	if (Rings.Num() == 0 || !DensityAt || RadiusM <= 0.0f)
+	{
+		return;
+	}
+	FRing& Ring = Rings[0];
+	UProceduralMeshComponent* Comp = Ring.Comp.Get();
+	if (!Comp || Ring.StampDir.Num() == 0)
+	{
+		return;
+	}
+	if (Ring.LivePos.Num() != Ring.StampDir.Num())
+	{
+		Ring.LivePos = Ring.StampPos;
+	}
+	const float BrushR = LocalM.Size();
+	const float Cover = RadiusM + FMath::Max(Ring.CellM, 2.0f) * 1.25f;
+	const float Cover2 = Cover * Cover;
+
+	int32 Dropped = 0;
+	for (int32 VI = 0; VI < Ring.StampDir.Num(); ++VI)
+	{
+		if (!Ring.StampSurfM.IsValidIndex(VI))
+		{
+			continue;
+		}
+		const FVector Dir = Ring.StampDir[VI];
+		const float Surf = Ring.StampSurfM[VI];
+		// Deep cave under this vert: keep the grass roof.
+		if (BrushR + 1.5f < Surf)
+		{
+			continue;
+		}
+		const FVector AtSurf = Dir * Surf;
+		if (FVector::DistSquared(AtSurf, LocalM) > Cover2)
+		{
+			continue;
+		}
+		float R = Surf;
+		if (DensityAt(Dir * Surf) > 0.05f)
+		{
+			for (int32 Step = 0; Step < 80; ++Step)
+			{
+				const float Next = R + 0.25f;
+				if (DensityAt(Dir * Next) <= 0.05f)
+				{
+					break;
+				}
+				R = Next;
+				if (R > Surf + 16.0f)
+				{
+					break;
+				}
+			}
+		}
+		else
+		{
+			for (int32 Step = 0; Step < 160; ++Step)
+			{
+				if (DensityAt(Dir * R) > 0.05f)
+				{
+					break;
+				}
+				R -= 0.25f;
+				if (R < Surf - 48.0f)
+				{
+					break;
+				}
+			}
+			R -= 0.08f;
+		}
+		if (FMath::Abs(R - Surf) < 0.05f)
+		{
+			continue;
+		}
+		Ring.LivePos[VI] = Dir * R * 100.0f;
+		if (Ring.UV0.IsValidIndex(VI))
+		{
+			Ring.UV0[VI] = FVector2D(2.0f, 0.0f); // rock
+		}
+		if (Ring.Colors.IsValidIndex(VI))
+		{
+			Ring.Colors[VI] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f);
+		}
+		++Dropped;
+	}
+	if (Dropped == 0 || Ring.LivePos.Num() < 3)
+	{
+		return;
+	}
+	Comp->UpdateMeshSection_LinearColor(
+		0, Ring.LivePos, Ring.LiveN, Ring.UV0, Ring.Colors, Ring.Tangents);
+	GX_PERF(1, TEXT("GX-clipmap brush drop verts=%d r=%.2f"), Dropped, RadiusM);
+}
+
 void FGXHorizonClipmap::Shutdown()
 {
 	for (FRing& R : Rings)
@@ -267,6 +366,7 @@ void FGXHorizonClipmap::BuildRing(
 	Tangents.Reserve(VertGuess);
 
 	Ring.StampPos.Reset();
+	Ring.LivePos.Reset();
 	Ring.StampDir.Reset();
 	Ring.StampSurfM.Reset();
 	Ring.UV0.Reset();
@@ -420,6 +520,7 @@ void FGXHorizonClipmap::BuildRing(
 	Ring.Tangents = Tangents;
 	Ring.LiveN = Normals;
 	Ring.StampIndices = Indices;
+	Ring.LivePos = Positions;
 
 	AppendRimSkirts(Positions, Indices, Normals, UV0, Colors, Tangents,
 		IndexOf, Dim, CellM, InnerM, OuterM, SinkM);
@@ -461,20 +562,73 @@ void FGXHorizonClipmap::ApplyRingEdits(
 		return;
 	}
 	(void)Stamp;
+	(void)Material;
+	(void)HasCaveMesh;
 
-	TArray<FVector> Positions = Ring.StampPos;
-	TArray<FVector> Normals = Ring.LiveN;
-	TArray<FVector2D> UV0 = Ring.UV0;
-	TArray<FLinearColor> Colors = Ring.Colors;
-	TArray<FProcMeshTangent> Tangents = Ring.Tangents;
-
-	// Only the 2 m walk ring. Punching the 8 m disk opened rectangles
-	// to the core on hills (0.8.10) and flooded VSM.
-	if (!ShouldCut || Ring.CellM > 3.0f)
+	// Never delete quads. 0.8.9–0.8.11 punch opened 400+ faces on a hill
+	// (saved air still in the 180 m disk, no mesh to fill). Drop only.
+	if (!ShouldCut || !DensityAt || Ring.CellM > 3.0f)
 	{
 		return;
 	}
+	if (Ring.LivePos.Num() != Ring.StampDir.Num())
+	{
+		Ring.LivePos = Ring.StampPos;
+	}
 
+	int32 Dropped = 0;
+	for (int32 VI = 0; VI < Ring.StampDir.Num(); ++VI)
+	{
+		if (!Ring.StampSurfM.IsValidIndex(VI))
+		{
+			continue;
+		}
+		const FVector Dir = Ring.StampDir[VI];
+		const float Surf = Ring.StampSurfM[VI];
+		if (!ShouldCut(Dir * Surf) && !ShouldCut(Dir * (Surf - 0.8f)))
+		{
+			continue;
+		}
+		float R = Surf;
+		for (int32 Step = 0; Step < 160; ++Step)
+		{
+			if (DensityAt(Dir * R) > 0.05f)
+			{
+				break;
+			}
+			R -= 0.25f;
+			if (R < Surf - 48.0f)
+			{
+				break;
+			}
+		}
+		if (FMath::Abs(R - Surf) < 0.05f)
+		{
+			continue;
+		}
+		R -= 0.08f;
+		Ring.LivePos[VI] = Dir * R * 100.0f;
+		if (Ring.UV0.IsValidIndex(VI))
+		{
+			Ring.UV0[VI] = FVector2D(2.0f, 0.0f);
+		}
+		if (Ring.Colors.IsValidIndex(VI))
+		{
+			Ring.Colors[VI] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f);
+		}
+		++Dropped;
+	}
+	if (Dropped == 0)
+	{
+		return;
+	}
+	Comp->UpdateMeshSection_LinearColor(
+		0, Ring.LivePos, Ring.LiveN, Ring.UV0, Ring.Colors, Ring.Tangents);
+	GX_PERF(1, TEXT("GX-clipmap rebuild-drop verts=%d"), Dropped);
+}
+
+#if 0
+void FGXHorizonClipmap::ApplyRingEdits_REMOVED_PUNCH(
 	auto CutAt = [&](const FVector& Dir, float Surf) -> bool
 	{
 		if (Dir.IsNearlyZero())
@@ -741,6 +895,7 @@ void FGXHorizonClipmap::ApplyRingEdits(
 	GX_PERF(1, TEXT("GX-clipmap edit cell=%.0f punch=%d drop=%d tris=%d"),
 		Ring.CellM, Punched, Dropped, Indices.Num() / 3);
 }
+#endif
 
 void FGXHorizonClipmap::Update(
 	AActor* Owner,

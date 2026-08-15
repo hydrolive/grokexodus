@@ -657,28 +657,35 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	Out.YieldAmount = Brush.VolumeChanged * 0.7f * RecoveryMul;
 	Out.ToolWear = Brush.VolumeChanged * WearMul;
 	if (Jobs) Jobs->BumpStamp();
+	FVector Rad = L.GetSafeNormal();
+	if (Rad.IsNearlyZero())
+	{
+		Rad = FVector(1, 0, 0);
+	}
+	const float Surf = Volume->GetStamp().SampleSurfaceRadius(FVector3f(Rad.X, Rad.Y, Rad.Z));
+	const bool bCave = L.Size() + 1.5f < Surf;
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
 		BrushForceLOD0.Add(C);
-		// Unedited face-neighbors remeshed the whole stamp crust and left
-		// floating triangles the brush could not delete (0.7.58).
-		if (Volume->ChunkHasEdits(C))
+		// Surface bowls are the clipmap (NotifyBrush). Remeshing voxels
+		// here stacked a second crust and punching it opened hill holes.
+		if (bCave && Volume->ChunkHasEdits(C))
 		{
 			EnqueueRemesh(C, true);
 		}
 	}
 	RebuildEditedPageBoxes();
 	MarkPersistDirty();
-	{
-		const int32 OldCap = MaxMeshCreatesPerTick;
-		MaxMeshCreatesPerTick = 6;
-		FlushMeshQueue(6);
-		MaxMeshCreatesPerTick = OldCap;
-	}
 	if (HorizonClipmap)
 	{
-		HorizonClipmap->NotifyEdits();
+		HorizonClipmap->NotifyBrush(
+			L,
+			RadiusM * DigSpeedMul,
+			[this](const FVector& P)
+			{
+				return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z));
+			});
 	}
 	GX_PERF(1, TEXT("GX-dig volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d boxes=%d"),
 		L.X, L.Y, L.Z, RadiusM * DigSpeedMul, Brush.DirtyChunks.Num(), EditedPageBoxesM.Num());
@@ -701,23 +708,18 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
-		BrushForceLOD0.Add(C);
-		if (Volume->ChunkHasEdits(C))
-		{
-			EnqueueRemesh(C, true);
-		}
 	}
 	RebuildEditedPageBoxes();
 	MarkPersistDirty();
-	{
-		const int32 OldCap = MaxMeshCreatesPerTick;
-		MaxMeshCreatesPerTick = 6;
-		FlushMeshQueue(6);
-		MaxMeshCreatesPerTick = OldCap;
-	}
 	if (HorizonClipmap)
 	{
-		HorizonClipmap->NotifyEdits();
+		HorizonClipmap->NotifyBrush(
+			L,
+			RadiusM,
+			[this](const FVector& P)
+			{
+				return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z));
+			});
 	}
 	GX_PERF(1, TEXT("GX-place volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d boxes=%d"),
 		L.X, L.Y, L.Z, RadiusM, Brush.DirtyChunks.Num(), EditedPageBoxesM.Num());

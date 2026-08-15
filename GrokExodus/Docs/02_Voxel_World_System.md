@@ -88,7 +88,7 @@ Unedited space is **not stored**. Mesh jobs sample the stamp + overlay.
 
 - The **clipmap is the unedited crust**. It cannot have a roof.
 - Every dig/place writes **sparse 8³ pages** (`Deformed` / `PlayerPlaced`). There is **no stroke cap**.
-- Visual caves: remesh **only edited chunks** (marching cubes). Clipmap **opens air quads** (9 samples + one shared-edge dilate) **only where a cave mesh is live**. The 8 m ring is never punched. Dig scrapes a radial lid column. Clipmap verts **never rise**. Banks do not cast VSM shadows (`r.Shadow.Virtual.NonNaniteVSM=0`). Brush sits along the aim ray.
+- Visual caves: remesh **only edited chunks** when the brush is under the stamp (true cave). Surface bowls are the **clipmap**: verts near the brush drop via `UpdateMeshSection`. Clipmap **never deletes quads** (that was the hill rectangle). Banks do not cast VSM shadows. Brush sits along the aim ray.
 - Tool ray: stamp height, or **authoritative** voxel density. Never the padded page AABB (that was a fake 3 m floor). Brush is sunk 0.45 R into the hit.
 - Dig/place is a **CSG sphere** (one click = the preview ball), not a 1 m SDF nibble. Cave lighting N faces air; edited chunks cast shadows.
 - Walk: nearest density floor under the capsule (bowl / cave), not the outer crust. Airborne snap is skipped when solid is within 12 m.
