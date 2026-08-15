@@ -93,28 +93,6 @@ namespace
 		return FMath::Max(SurfR - Sub + Add, SurfR * 0.5f);
 	}
 
-	/** GPU culls on winding, not the normal attribute. Steep bowls invert. */
-	void FixOutwardWinding(const TArray<FVector>& Positions, TArray<int32>& Indices)
-	{
-		for (int32 T0 = 0; T0 + 2 < Indices.Num(); T0 += 3)
-		{
-			const int32 IA = Indices[T0];
-			const int32 IB = Indices[T0 + 1];
-			const int32 IC = Indices[T0 + 2];
-			if (!Positions.IsValidIndex(IA) || !Positions.IsValidIndex(IB) || !Positions.IsValidIndex(IC))
-			{
-				continue;
-			}
-			const FVector FN = FVector::CrossProduct(Positions[IB] - Positions[IA], Positions[IC] - Positions[IA]);
-			const FVector Radial = (Positions[IA] + Positions[IB] + Positions[IC]).GetSafeNormal();
-			if (!Radial.IsNearlyZero() && FVector::DotProduct(FN, Radial) < 0.0f)
-			{
-				Indices[T0 + 1] = IC;
-				Indices[T0 + 2] = IB;
-			}
-		}
-	}
-
 	/** Subdivide one coarse quad so the crater welds to the landscape. */
 	void EmitRefinedQuad(
 		const FVector& PA, const FVector& PB, const FVector& PC, const FVector& PD,
@@ -133,6 +111,14 @@ namespace
 		const int32 Dim = Sub + 1;
 		const int32 Base = Positions.Num();
 		const int32 FirstTri = Indices.Num();
+		// One displace axis for the whole quad. Per-vert radial CSG folded
+		// triangles; FixOutwardWinding then flipped the entire crust
+		// (0.7.48 underside / teal void).
+		FVector QuadN = (PA + PB + PC + PD).GetSafeNormal();
+		if (QuadN.IsNearlyZero())
+		{
+			QuadN = FVector(1, 0, 0);
+		}
 		for (int32 J = 0; J < Dim; ++J)
 		{
 			const float V = static_cast<float>(J) / static_cast<float>(Sub);
@@ -145,11 +131,11 @@ namespace
 				FVector Dir = P.GetSafeNormal();
 				if (Dir.IsNearlyZero())
 				{
-					Dir = FVector(1, 0, 0);
+					Dir = QuadN;
 				}
-				float Surf = P.Size() * 0.01f;
-				Surf = ApplyEditSpheres(Surf, Dir * Surf, Edits);
-				P = Dir * Surf * 100.0f;
+				const float Surf = P.Size() * 0.01f;
+				const float NewSurf = ApplyEditSpheres(Surf, Dir * Surf, Edits);
+				P = P + QuadN * ((NewSurf - Surf) * 100.0f);
 				Positions.Add(P);
 				Normals.Add(Dir);
 				UV0.Add(FMath::Lerp(FMath::Lerp(UVA, UVB, U), FMath::Lerp(UVC, UVD, U), V));
@@ -640,7 +626,6 @@ void FGXHorizonClipmap::ApplyRingEdits(
 		return;
 	}
 
-	FixOutwardWinding(Positions, Indices);
 	{
 		TArray<FVector> AccN;
 		AccN.Init(FVector::ZeroVector, Positions.Num());
