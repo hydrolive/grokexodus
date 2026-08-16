@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.5**  
+Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.6**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.6** Shot GX-thrash-1: one crater soft, the next a **mineshaft**; texture/mesh thrash. Uncapped ray-sphere in a pit dropped verts tens of metres. Each stroke now **caps at 0.9 R**. Overlap cell removed (z-fight). UpdateMeshSection after the first FineCell cook. Clear leftover save.
 - **GX 0.10.5** Shot GX-dig-0104: dig **yanked 1 m verts toward the brush** — huge dirt pyramids. First stroke refines the tile to **0.5 m**. Verts move **only along the planet radial** to the brush-sphere hit (closed crater matching the ball). Dirt on the floor.
 - **GX 0.10.4** Shot GX-seam-0103: **dark crack down Y=0** (tile U=0/−1). Underfoot Nanite displaced 48 cm; the PMC neighbor did not. Tiles overlap one 1 m cell. Auto Nanite off (`gx.nanite.tiles 0`).
 - **GX 0.10.3** 0.10.2 punch deleted lid tris; voxel remesh never filled them — **teal L-holes through the planet**. Dig/Add project verts onto the brush sphere (closed lid, same shape as the ball). No punch, no surface remesh, no dirt rim. Cleared leftover `earth_default.gxsav` pages.

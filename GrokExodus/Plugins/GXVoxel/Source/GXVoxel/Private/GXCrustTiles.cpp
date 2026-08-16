@@ -73,7 +73,7 @@ void FGXCrustTiles::Initialize(AActor* Owner)
 	bReady = false;
 	LastNaniteCookSeconds = -1.0e9;
 	ReadyAtSeconds = -1.0e9;
-	UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles: tile=%.0f cell=%.2f fine=%.2f stream=%.0f (0.10.5 radial CSG)"),
+	UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles: tile=%.0f cell=%.2f fine=%.2f stream=%.0f (0.10.6 cap=R, no overlap)"),
 		TileM, CellM, FineCellM, StreamM);
 }
 
@@ -244,25 +244,38 @@ int32 FGXCrustTiles::NotifyBrush(
 				continue;
 			}
 			const float CurR = W.Size();
-			// Ray Origin + t*Dir vs brush sphere |X-C|^2 = R^2.
+			// Ray Origin + t*Dir vs brush sphere. Cap the stroke at one
+			// brush radius — uncapped THit in a pit yanked verts tens of
+			// metres down (0.10.5: one crater soft, the next a mineshaft).
 			const float Bcoe = FVector::DotProduct(Dir, LocalM);
 			const float Disc = Bcoe * Bcoe - (LocalM.SizeSquared() - R2);
+			const float MaxStep = RadiusM * 0.90f;
 			float NewR = CurR;
 			if (Disc >= 0.0f)
 			{
-				const float THit = Bcoe - FMath::Sqrt(Disc);
-				if (THit > 0.0f)
+				const float Root = FMath::Sqrt(Disc);
+				if (bRemove)
 				{
-					NewR = bRemove ? FMath::Min(CurR, THit) : FMath::Max(CurR, Bcoe + FMath::Sqrt(Disc));
+					const float THit = Bcoe - Root;
+					if (THit > 0.0f)
+					{
+						NewR = FMath::Max(THit, CurR - MaxStep);
+						NewR = FMath::Min(CurR, NewR);
+					}
+				}
+				else
+				{
+					const float THit = Bcoe + Root;
+					NewR = FMath::Min(THit, CurR + MaxStep * 0.55f);
+					NewR = FMath::Max(CurR, NewR);
 				}
 			}
 			else
 			{
-				// 0.5 m vert just outside the 1.2 m ball — sag the quad.
 				const float D3 = FVector::Dist(W, LocalM);
 				float Wgt = 1.0f - D3 / Cover;
 				Wgt = Wgt * Wgt * (3.0f - 2.0f * Wgt);
-				const float Nudge = RadiusM * 0.20f * Wgt;
+				const float Nudge = MaxStep * 0.25f * Wgt;
 				NewR = bRemove ? (CurR - Nudge) : (CurR + Nudge * 0.55f);
 			}
 			if (FMath::Abs(NewR - CurR) < 0.01f)
@@ -270,7 +283,7 @@ int32 FGXCrustTiles::NotifyBrush(
 				continue;
 			}
 			Tile.LivePos[I] = Dir * NewR * 100.0f - Tile.OriginCm;
-			if (bRemove && (CurR - NewR) > 0.12f && Tile.UV0.IsValidIndex(I))
+			if (bRemove && (CurR - NewR) > 0.20f && Tile.UV0.IsValidIndex(I))
 			{
 				Tile.UV0[I] = FVector2D(3.0f, 0.0f);
 				if (Tile.Colors.IsValidIndex(I))
@@ -285,8 +298,9 @@ int32 FGXCrustTiles::NotifyBrush(
 			continue;
 		}
 		RecomputeNormals(Tile);
-		Comp->CreateMeshSection_LinearColor(
-			0, Tile.LivePos, Tile.Indices, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents, true);
+		// Topology is unchanged after the first FineCell cook.
+		Comp->UpdateMeshSection_LinearColor(
+			0, Tile.LivePos, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents);
 		Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 		Comp->SetVisibility(true);
 		Comp->UpdateBounds();
@@ -563,9 +577,9 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 	const float Scale = TileM * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
 	const float BaseCell = (Tile.FineCell > 0.1f) ? Tile.FineCell : CellM;
 	const float Cell = BaseCell * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
-	// Extra cell so neighbors overlap 1 m. Shared-edge-only (0.10.3) left a
-	// dark crack down Y=0 — Nanite underfoot vs PMC neighbor, plus float.
-	const int32 Cells = FMath::Max(2, FMath::RoundToInt(Scale / Cell)) + 1;
+	// Shared edge only. The extra overlap cell z-fought after sculpt
+	// (texture/mesh thrash on 0.10.5). Nanite is off so the Y=0 crack is gone.
+	const int32 Cells = FMath::Max(2, FMath::RoundToInt(Scale / Cell));
 	const int32 Dim = Cells + 1;
 	FVector FaceN, T, B;
 	FaceAxes(Tile.Key.Face, FaceN, T, B);
