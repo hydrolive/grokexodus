@@ -114,6 +114,27 @@ bool FGXCrustTiles::HasTileAt(const FVector& LocalM) const
 	return Live.Contains(KeyAt(LocalM, 0));
 }
 
+bool FGXCrustTiles::CoversRadius(const FVector& LocalM, float RadiusM) const
+{
+	if (!HasTileAt(LocalM))
+	{
+		return false;
+	}
+	FVector N, T, B;
+	FaceAxes(FaceOf(LocalM.GetSafeNormal()), N, T, B);
+	const float R = FMath::Max(RadiusM, TileM);
+	for (int32 I = 0; I < 8; ++I)
+	{
+		const float A = static_cast<float>(I) * (PI * 0.25f);
+		const FVector P = LocalM + T * (R * FMath::Cos(A)) + B * (R * FMath::Sin(A));
+		if (!HasTileAt(P))
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMaterialInterface* Material)
 {
 	UProceduralMeshComponent* Comp = Tile.Comp.Get();
@@ -123,11 +144,8 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 	}
 	const float Scale = TileM * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
 	const float Cell = CellM * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
-	// One extra cell into the neighbor on the same U/V grid so Chaos
-	// cannot drop the capsule through the 64 m seam (0.9.4 watertight
-	// verts still left a crack). Heights match — not a second skin.
 	const int32 Cells = FMath::Max(2, FMath::RoundToInt(Scale / Cell));
-	const int32 Dim = Cells + 2;
+	const int32 Dim = Cells + 1;
 	FVector FaceN, T, B;
 	FaceAxes(Tile.Key.Face, FaceN, T, B);
 	const float R0 = Stamp.GetParams().Radius;
@@ -175,32 +193,18 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 		}
 	}
 
-	// Winding must face the sky. A,B,C on the cube-face grid is outward on
-	// +X but inward on some other faces — 0.9.2 seams drew the underside
-	// (dark fins across the hills).
-	auto AddOutward = [&](int32 I0, int32 I1, int32 I2)
+	// One winding for the whole tile. Per-triangle "face the sky" flipped
+	// skinny slope tris into dark fins (0.9.6 viewport).
+	for (int32 J = 0; J < Cells; ++J)
 	{
-		const FVector FN = FVector::CrossProduct(Positions[I1] - Positions[I0], Positions[I2] - Positions[I0]);
-		const FVector Rad = (Positions[I0] + Positions[I1] + Positions[I2]).GetSafeNormal();
-		if (!Rad.IsNearlyZero() && FVector::DotProduct(FN, Rad) < 0.0f)
-		{
-			Indices.Add(I0); Indices.Add(I2); Indices.Add(I1);
-		}
-		else
-		{
-			Indices.Add(I0); Indices.Add(I1); Indices.Add(I2);
-		}
-	};
-	for (int32 J = 0; J < Cells + 1; ++J)
-	{
-		for (int32 I = 0; I < Cells + 1; ++I)
+		for (int32 I = 0; I < Cells; ++I)
 		{
 			const int32 A = I + J * Dim;
 			const int32 Bv = (I + 1) + J * Dim;
 			const int32 C = I + (J + 1) * Dim;
 			const int32 D = (I + 1) + (J + 1) * Dim;
-			AddOutward(A, Bv, C);
-			AddOutward(Bv, D, C);
+			Indices.Add(A); Indices.Add(Bv); Indices.Add(C);
+			Indices.Add(Bv); Indices.Add(D); Indices.Add(C);
 		}
 	}
 	const float Relief = FMath::Max(Stamp.GetParams().MaxRelief, 1.0f);

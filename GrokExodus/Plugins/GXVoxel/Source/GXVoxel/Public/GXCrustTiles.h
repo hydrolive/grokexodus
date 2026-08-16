@@ -44,6 +44,8 @@ public:
 		int32 MaxBuildsThisTick);
 	void HideTile(const FGXCrustTileKey& Key);
 	bool HasTileAt(const FVector& LocalM) const;
+	/** True when the pawn tile plus a ring at RadiusM are all live. */
+	bool CoversRadius(const FVector& LocalM, float RadiusM) const;
 	bool IsReady() const { return bReady; }
 	int32 NumLive() const { return Live.Num(); }
 

@@ -384,10 +384,12 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	}
 	if (HorizonClipmap && Volume && bAtlasReady)
 	{
-		// Never punch a hole. 0.9.4–0.9.5 inner=192 was a window through
-		// the planet (shots 001529 / 004847 / 004907). Tiles sit on top;
-		// the 8 m disk is a sunk underlay.
-		const float ClipInnerM = 0.0f;
+		// Hole only when tiles actually cover it. 0.9.6 full-disk + extra
+		// tile cell stacked dark fins on the mid hills (live viewport).
+		const float ClipInnerM = (CrustTiles && CrustTiles->CoversRadius(
+			WorldToLocalMeters(CachedViewerWorld), 180.0f))
+			? 200.0f
+			: 0.0f;
 		HorizonClipmap->Update(
 			this,
 			Volume->GetStamp(),

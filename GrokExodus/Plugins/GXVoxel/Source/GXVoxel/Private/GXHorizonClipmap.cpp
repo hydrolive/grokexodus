@@ -210,9 +210,9 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// (shots 004847 / 004907). No inner hole — that was the window
 	// through the planet.
 	const FSpec Specs[] = {
-		{ 0.0f, 850.0f, 8.0f, 10.0f },
-		{ 800.0f, 2900.0f, 32.0f, 16.0f },
-		{ 2800.0f, 10000.0f, 96.0f, 24.0f },
+		{ 0.0f, 850.0f, 8.0f, 16.0f },
+		{ 800.0f, 2900.0f, 32.0f, 22.0f },
+		{ 2800.0f, 10000.0f, 96.0f, 30.0f },
 	};
 	for (const FSpec& S : Specs)
 	{
@@ -1094,11 +1094,9 @@ void FGXHorizonClipmap::Update(
 	FVector T, B;
 	CenterDir.FindBestAxisVectors(T, B);
 
-	// Ring 0 stays a full disk. A punched hole was the window to the core.
 	if (Rings.Num() > 0)
 	{
-		Rings[0].InnerM = 0.0f;
-		(void)InnerHoleM;
+		Rings[0].InnerM = FMath::Max(0.0f, InnerHoleM);
 	}
 	if (Rings.Num() > 2)
 	{
