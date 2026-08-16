@@ -6,6 +6,20 @@
 #include "ProceduralMeshComponent.h"
 #include "Materials/MaterialInterface.h"
 #include "GameFramework/Actor.h"
+#include "Engine/StaticMesh.h"
+#include "Components/StaticMeshComponent.h"
+#include "MeshDescription.h"
+#include "StaticMeshAttributes.h"
+#include "HAL/IConsoleManager.h"
+#include "HAL/PlatformTime.h"
+
+#if WITH_EDITOR
+static TAutoConsoleVariable<int32> CVarGXNaniteTiles(
+	TEXT("gx.nanite.tiles"),
+	1,
+	TEXT("Walk tiles: 0=PMC visual, 1=Nanite tessellation + world-space displacement."),
+	ECVF_Default);
+#endif
 
 namespace
 {
@@ -30,6 +44,26 @@ namespace
 		PMC->RegisterComponent();
 		return PMC;
 	}
+
+#if WITH_EDITOR
+	UStaticMeshComponent* MakeNaniteSMC(AActor* Owner)
+	{
+		UStaticMeshComponent* SMC = NewObject<UStaticMeshComponent>(Owner, NAME_None, RF_Transient);
+		if (!SMC)
+		{
+			return nullptr;
+		}
+		SMC->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		SMC->SetCastShadow(true);
+		SMC->SetVisibleInRayTracing(false);
+		SMC->bNeverDistanceCull = true;
+		SMC->SetCullDistance(0.0f);
+		SMC->SetBoundsScale(4.0f);
+		SMC->SetupAttachment(Owner->GetRootComponent());
+		SMC->RegisterComponent();
+		return SMC;
+	}
+#endif
 }
 
 void FGXCrustTiles::Initialize(AActor* Owner)
@@ -37,7 +71,7 @@ void FGXCrustTiles::Initialize(AActor* Owner)
 	Shutdown();
 	OwnerCached = Owner;
 	bReady = false;
-	UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles: tile=%.0f cell=%.2f fine=%.2f stream=%.0f (0.9.18 stamp-only)"),
+	UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles: tile=%.0f cell=%.2f fine=%.2f stream=%.0f (0.10 Nanite displace)"),
 		TileM, CellM, FineCellM, StreamM);
 }
 
@@ -45,10 +79,7 @@ void FGXCrustTiles::Shutdown()
 {
 	for (auto& Pair : Live)
 	{
-		if (UProceduralMeshComponent* C = Pair.Value.Comp.Get())
-		{
-			C->DestroyComponent();
-		}
+		DestroyTileVisuals(Pair.Value);
 	}
 	Live.Reset();
 	HiddenKeys.Reset();
@@ -102,10 +133,7 @@ void FGXCrustTiles::HideTile(const FGXCrustTileKey& Key)
 	HiddenKeys.Add(Key);
 	if (FTile* T = Live.Find(Key))
 	{
-		if (UProceduralMeshComponent* C = T->Comp.Get())
-		{
-			C->DestroyComponent();
-		}
+		DestroyTileVisuals(*T);
 		Live.Remove(Key);
 	}
 }
@@ -248,6 +276,7 @@ int32 FGXCrustTiles::NotifyBrush(
 			0, Tile.LivePos, Tile.Indices, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents, true);
 		Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 		Comp->UpdateBounds();
+		ApplyNaniteVisual(Tile, Material);
 		Changed += N;
 	}
 	if (Changed > 0)
@@ -317,6 +346,163 @@ void FGXCrustTiles::RecomputeNormals(FTile& Tile)
 		Tan.Normalize();
 		Tile.Tangents[I] = FProcMeshTangent(Tan, false);
 	}
+}
+
+void FGXCrustTiles::DestroyTileVisuals(FTile& Tile)
+{
+	if (UStaticMeshComponent* SMC = Tile.NaniteComp.Get())
+	{
+		SMC->DestroyComponent();
+	}
+	Tile.NaniteComp.Reset();
+	Tile.NaniteMesh.Reset();
+	if (UProceduralMeshComponent* C = Tile.Comp.Get())
+	{
+		C->DestroyComponent();
+	}
+	Tile.Comp.Reset();
+}
+
+void FGXCrustTiles::ApplyNaniteVisual(FTile& Tile, UMaterialInterface* Material)
+{
+#if WITH_EDITOR
+	if (CVarGXNaniteTiles.GetValueOnGameThread() <= 0)
+	{
+		if (UStaticMeshComponent* Old = Tile.NaniteComp.Get())
+		{
+			Old->DestroyComponent();
+		}
+		Tile.NaniteComp.Reset();
+		Tile.NaniteMesh.Reset();
+		if (UProceduralMeshComponent* PMC = Tile.Comp.Get())
+		{
+			PMC->SetVisibility(!Tile.bHidden);
+		}
+		return;
+	}
+	if (Tile.LivePos.Num() < 3 || Tile.Indices.Num() < 3 || !OwnerCached)
+	{
+		return;
+	}
+
+	const double T0 = FPlatformTime::Seconds();
+	if (!Tile.NaniteMesh.IsValid())
+	{
+		UStaticMesh* SM = NewObject<UStaticMesh>(OwnerCached, NAME_None, RF_Transient | RF_DuplicateTransient);
+		if (!SM)
+		{
+			return;
+		}
+		SM->bAllowCPUAccess = false;
+		SM->NeverStream = true;
+		Tile.NaniteMesh.Reset(SM);
+	}
+	UStaticMesh* SM = Tile.NaniteMesh.Get();
+
+	FMeshDescription MD;
+	FStaticMeshAttributes Attr(MD);
+	Attr.Register();
+	TVertexAttributesRef<FVector3f> Positions = Attr.GetVertexPositions();
+	TVertexInstanceAttributesRef<FVector3f> InstN = Attr.GetVertexInstanceNormals();
+	TVertexInstanceAttributesRef<FVector3f> InstT = Attr.GetVertexInstanceTangents();
+	TVertexInstanceAttributesRef<float> InstB = Attr.GetVertexInstanceBinormalSigns();
+	TVertexInstanceAttributesRef<FVector2f> InstUV = Attr.GetVertexInstanceUVs();
+	TVertexInstanceAttributesRef<FVector4f> InstC = Attr.GetVertexInstanceColors();
+	InstUV.SetNumChannels(1);
+
+	const int32 NV = Tile.LivePos.Num();
+	TArray<FVertexID> Verts;
+	Verts.SetNum(NV);
+	for (int32 I = 0; I < NV; ++I)
+	{
+		Verts[I] = MD.CreateVertex();
+		Positions[Verts[I]] = FVector3f(Tile.LivePos[I]);
+	}
+
+	const FPolygonGroupID PG = MD.CreatePolygonGroup();
+	Attr.GetPolygonGroupMaterialSlotNames()[PG] = FName(TEXT("Tile"));
+
+	for (int32 Tri = 0; Tri + 2 < Tile.Indices.Num(); Tri += 3)
+	{
+		const int32 Src[3] = { Tile.Indices[Tri], Tile.Indices[Tri + 1], Tile.Indices[Tri + 2] };
+		if (!Verts.IsValidIndex(Src[0]) || !Verts.IsValidIndex(Src[1]) || !Verts.IsValidIndex(Src[2]))
+		{
+			continue;
+		}
+		FVertexInstanceID II[3];
+		for (int32 K = 0; K < 3; ++K)
+		{
+			II[K] = MD.CreateVertexInstance(Verts[Src[K]]);
+			InstN[II[K]] = FVector3f(Tile.LiveN.IsValidIndex(Src[K]) ? Tile.LiveN[Src[K]] : FVector::UpVector);
+			const FVector Tan = Tile.Tangents.IsValidIndex(Src[K]) ? FVector(Tile.Tangents[Src[K]].TangentX) : FVector::ForwardVector;
+			InstT[II[K]] = FVector3f(Tan.GetSafeNormal());
+			InstB[II[K]] = 1.0f;
+			const FVector2D UV = Tile.UV0.IsValidIndex(Src[K]) ? Tile.UV0[Src[K]] : FVector2D(1.0f, 0.0f);
+			InstUV.Set(II[K], 0, FVector2f(static_cast<float>(UV.X), static_cast<float>(UV.Y)));
+			const FLinearColor Col = Tile.Colors.IsValidIndex(Src[K]) ? Tile.Colors[Src[K]] : FLinearColor::White;
+			InstC[II[K]] = FVector4f(Col);
+		}
+		const TArray<FVertexInstanceID> Loop = { II[0], II[1], II[2] };
+		MD.CreateTriangle(PG, Loop);
+	}
+
+	FMeshNaniteSettings Nanite = SM->GetNaniteSettings();
+	Nanite.bEnabled = true;
+	Nanite.bLerpUVs = false;
+	Nanite.KeepPercentTriangles = 1.0f;
+	SM->SetNaniteSettings(Nanite);
+
+	if (Material)
+	{
+		SM->SetStaticMaterials({ FStaticMaterial(Material) });
+	}
+
+	TArray<const FMeshDescription*> Descs;
+	Descs.Add(&MD);
+	UStaticMesh::FBuildMeshDescriptionsParams Params;
+	Params.bFastBuild = false;
+	Params.bBuildSimpleCollision = false;
+	Params.bMarkPackageDirty = false;
+	Params.bCommitMeshDescription = true;
+	if (!SM->BuildFromMeshDescriptions(Descs, Params))
+	{
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles Nanite build failed face=%d u=%d v=%d"),
+			Tile.Key.Face, Tile.Key.U, Tile.Key.V);
+		return;
+	}
+
+	UStaticMeshComponent* SMC = Tile.NaniteComp.Get();
+	if (!SMC)
+	{
+		SMC = MakeNaniteSMC(OwnerCached);
+		if (!SMC)
+		{
+			return;
+		}
+		Tile.NaniteComp = SMC;
+	}
+	SMC->SetStaticMesh(SM);
+	if (Material)
+	{
+		SMC->SetMaterial(0, Material);
+	}
+	SMC->SetRelativeLocation(Tile.OriginCm);
+	SMC->SetVisibility(!Tile.bHidden);
+	SMC->UpdateBounds();
+
+	if (UProceduralMeshComponent* PMC = Tile.Comp.Get())
+	{
+		// Collision stays on the PMC. Nanite is the visible crust.
+		PMC->SetVisibility(false);
+	}
+
+	const double Ms = (FPlatformTime::Seconds() - T0) * 1000.0;
+	GX_PERF(1, TEXT("GX-nanite face=%d u=%d v=%d verts=%d ms=%.1f"),
+		Tile.Key.Face, Tile.Key.U, Tile.Key.V, NV, Ms);
+#else
+	(void)Tile;
+	(void)Material;
+#endif
 }
 
 bool FGXCrustTiles::HasTileAt(const FVector& LocalM) const
@@ -475,6 +661,7 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 		Comp->SetHiddenInGame(false);
 		Comp->UpdateBounds();
 	}
+	ApplyNaniteVisual(Tile, Material);
 	GX_PERF(1, TEXT("GX-tile face=%d u=%d v=%d verts=%d tris=%d"),
 		Tile.Key.Face, Tile.Key.U, Tile.Key.V, Positions.Num(), Indices.Num() / 3);
 }
@@ -527,10 +714,7 @@ void FGXCrustTiles::Update(
 	}
 	for (const FGXCrustTileKey& K : Evict)
 	{
-		if (UProceduralMeshComponent* C = Live[K].Comp.Get())
-		{
-			C->DestroyComponent();
-		}
+		DestroyTileVisuals(Live[K]);
 		Live.Remove(K);
 	}
 

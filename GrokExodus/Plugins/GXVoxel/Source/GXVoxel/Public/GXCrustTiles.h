@@ -5,9 +5,12 @@
 #include "CoreMinimal.h"
 #include "GXVoxelStamps.h"
 #include "ProceduralMeshComponent.h"
+#include "UObject/StrongObjectPtr.h"
 
 class AActor;
 class UMaterialInterface;
+class UStaticMesh;
+class UStaticMeshComponent;
 
 struct FGXCrustTileKey
 {
@@ -70,6 +73,8 @@ private:
 	{
 		FGXCrustTileKey Key;
 		TWeakObjectPtr<UProceduralMeshComponent> Comp;
+		TWeakObjectPtr<UStaticMeshComponent> NaniteComp;
+		TStrongObjectPtr<UStaticMesh> NaniteMesh;
 		FVector OriginCm = FVector::ZeroVector;
 		TArray<FVector> LivePos;
 		TArray<FVector> StampDir;
@@ -94,4 +99,6 @@ private:
 	void BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMaterialInterface* Material,
 		const TFunction<float(const FVector&)>& DensityAt);
 	static void RecomputeNormals(FTile& Tile);
+	void ApplyNaniteVisual(FTile& Tile, UMaterialInterface* Material);
+	void DestroyTileVisuals(FTile& Tile);
 };

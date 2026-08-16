@@ -14,7 +14,9 @@ public class GXVoxel : ModuleRules
 			"GXCore",
 			"GXCelestial",
 			"ProceduralMeshComponent",
-			"ImageWrapper"
+			"ImageWrapper",
+			"MeshDescription",
+			"StaticMeshDescription"
 		});
 	}
 }

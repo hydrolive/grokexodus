@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-16** · On-disk build stamp: **GX 0.9.18**  
+Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.0**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.0** Nanite displacement on walk tiles (Toreler world-space scale). PMC is collision only; a Nanite SM is the visual. Material tessellates from grass/rock roughness + world noise, Magnitude 22 cm, divided by object scale. `r.Nanite.Tessellation=1`. Toggle `gx.nanite.tiles 0|1`.
 - **GX 0.9.18** Shots 032528 / 032549 / 032635: load was leftover **2 m density pyramids**; Add rebuilt those CSG spikes into a **stone canyon**; close-up stone was **radial N + RockTileMul 0.18** (35 m YZ grain). Tiles are **stamp-only** (1 m, first brush 0.25 m). Sculpt recomputes face normals. Dig paints dirt (id 3), Add stays grass. Near rock ~10 m (`RockTileMul` 0.60). Cleared `earth_default.gxsav` leftover pages.
 - **GX 0.9.17** Shots 031447 / 031606: **blocky 2 m spikes**, grass texture zoomed like a mountain, orange cannot cut distant clipmap. Sculpt uses a 0.5 m refine + cosine falloff (never raise on dig). Clipmap rings sculpt too. Grass TileScale 0.0016 (~6 m).
 - **GX 0.9.16** Shots 021139 / 021216 / 021258: **hide 64 m tile** = load seam, add impact crater, subtract square shaft. Never hide tiles. Edits only move tile verts (min drop / max raise). Cell 1 m. No reveal-hide on load.

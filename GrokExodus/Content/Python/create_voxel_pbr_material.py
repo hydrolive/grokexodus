@@ -232,11 +232,28 @@ def main():
         ("tangent_space_normal", True),
         ("b_used_with_procedural_mesh", True),
         ("used_with_procedural_mesh", True),
+        ("b_used_with_static_mesh", True),
+        ("used_with_static_mesh", True),
+        ("b_used_with_nanite", True),
+        ("used_with_nanite", True),
+        ("b_enable_tessellation", True),
+        ("enable_tessellation", True),
         ("b_used_with_static_lighting", True),
         ("used_with_static_lighting", True),
         ("automatically_set_usage_in_editor", True),
     ):
         _set(mat, prop, val)
+
+    # Toreler world-space Nanite displacement: Magnitude is centimetres on
+    # a scale-1 mesh. Center 0 = only raise (no pits). Material divides by
+    # object scale so a scaled tile keeps the same world height.
+    try:
+        ds = unreal.DisplacementScaling()
+        ds.set_editor_property("magnitude", 22.0)
+        ds.set_editor_property("center", 0.0)
+        _set(mat, "displacement_scaling", ds)
+    except Exception as err:
+        unreal.log_warning("[GXPBR] DisplacementScaling: %s" % err)
 
     x0 = -2000
 
@@ -557,6 +574,61 @@ def main():
         plug(spec, "", unreal.MaterialProperty.MP_SPECULAR)
     except Exception:
         pass
+
+    # Nanite displacement. Height from grass/rock roughness + world noise.
+    # Divide by object scale (Toreler) so Magnitude stays world centimetres.
+    one_x = node(unreal.MaterialExpressionConstant3Vector, x0 + 7480, 900, "axisX")
+    _set(one_x, "constant", unreal.LinearColor(1.0, 0.0, 0.0, 0.0))
+    xform = node(unreal.MaterialExpressionTransform, x0 + 7760, 900, "localToWorldX")
+    try:
+        _set(xform, "transform_source_type", unreal.MaterialVectorCoordTransformSource.TRANSFORMSOURCE_LOCAL)
+    except Exception:
+        pass
+    try:
+        _set(xform, "transform_type", unreal.MaterialVectorCoordTransform.TRANSFORM_WORLD)
+    except Exception:
+        pass
+    connect(one_x, "", xform, "")
+    zero3 = node(unreal.MaterialExpressionConstant3Vector, x0 + 7760, 1000, "zero3")
+    _set(zero3, "constant", unreal.LinearColor(0.0, 0.0, 0.0, 0.0))
+    obj_s = node(unreal.MaterialExpressionDistance, x0 + 8020, 900, "objectScale")
+    connect(xform, "", obj_s, "A")
+    connect(zero3, "", obj_s, "B")
+    scale_safe = node(unreal.MaterialExpressionMax, x0 + 8280, 900, "scaleSafe")
+    connect(obj_s, "", scale_safe, "A")
+    connect(const(0.001, x0 + 8020, 980, "eps"), "", scale_safe, "B")
+
+    h_grass = sub(const(1.0, x0 + 7480, 1100, "1h"), "", rgh_n, "", x0 + 7760, 1100, "hGrass")
+    h_blend = node(unreal.MaterialExpressionLinearInterpolate, x0 + 8020, 1100, "hBlend")
+    connect(h_grass, "", h_blend, "A")
+    connect(rgh_rn, "", h_blend, "B")
+    connect(w_rock, "", h_blend, "Alpha")
+    h_con = sat(div(sub(h_blend, "", const(0.28, x0 + 8280, 1100, "h0"), "", x0 + 8540, 1100),
+                    "", const(0.50, x0 + 8280, 1180, "hW"), "", x0 + 8800, 1100),
+                "", x0 + 9060, 1100, "hCon")
+
+    noise = node(unreal.MaterialExpressionNoise, x0 + 7760, 1300, "worldNoise")
+    for np, nv in (
+        ("scale", 0.006),
+        ("levels", 3),
+        ("output_min", 0.0),
+        ("output_max", 1.0),
+        ("level_scale", 2.0),
+        ("turbulence", True),
+    ):
+        _set(noise, np, nv)
+    connect(wp, "", noise, "Position")
+    h_mix = sat(add(mul(h_con, "", const(0.70, x0 + 9060, 1240, "hK"), "", x0 + 9320, 1180),
+                    "", mul(noise, "", const(0.40, x0 + 9060, 1320, "nK"), "", x0 + 9320, 1300),
+                    "", x0 + 9580, 1180),
+                "", x0 + 9840, 1180, "hMix")
+    disp = div(h_mix, "", scale_safe, "", x0 + 10100, 1180, "dispWS")
+    disp_prop = getattr(unreal.MaterialProperty, "MP_DISPLACEMENT", None)
+    if disp_prop is not None:
+        plug(disp, "", disp_prop)
+        unreal.log("[GXPBR] Nanite displacement plugged (world-space scale)")
+    else:
+        unreal.log_warning("[GXPBR] MP_DISPLACEMENT missing — tessellation enabled without pin")
 
     try:
         mel.layout_material_expressions(mat)
