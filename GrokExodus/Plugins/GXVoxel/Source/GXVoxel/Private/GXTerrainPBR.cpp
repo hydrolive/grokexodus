@@ -120,8 +120,8 @@ void FGXTerrainPBR::Initialize(UObject* Outer)
 		Mid = UMaterialInstanceDynamic::Create(Parent, Outer);
 		if (Mid)
 		{
-			Mid->SetScalarParameterValue(TEXT("TileScale"), 0.00038f);
-			Mid->SetScalarParameterValue(TEXT("MacroScale"), 0.040f);
+			Mid->SetScalarParameterValue(TEXT("TileScale"), 0.0016f);
+			Mid->SetScalarParameterValue(TEXT("MacroScale"), 0.028f);
 			Mid->SetScalarParameterValue(TEXT("RockTileMul"), 0.18f);
 			Mid->SetScalarParameterValue(TEXT("RockMacroMul"), 0.005f);
 			Mid->SetScalarParameterValue(TEXT("DistanceFadeStart"), 2500.0f);

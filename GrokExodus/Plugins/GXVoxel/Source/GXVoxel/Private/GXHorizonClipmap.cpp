@@ -266,19 +266,72 @@ void FGXHorizonClipmap::NotifyBrush(
 	const FVector& LocalM,
 	float RadiusM,
 	TFunction<float(const FVector&)> DensityAt,
-	TFunction<bool(const FVector&)> ShouldCut)
+	TFunction<bool(const FVector&)> ShouldCut,
+	bool bRemove)
 {
 	if (Rings.Num() == 0 || RadiusM <= 0.0f)
 	{
 		return;
 	}
+	(void)DensityAt;
+	(void)ShouldCut;
+	const FVector BrushDir = LocalM.GetSafeNormal();
+	if (BrushDir.IsNearlyZero())
+	{
+		return;
+	}
+	const float BrushSurf = LocalM.Size();
+	const float Cover = RadiusM * 2.6f + 8.0f;
+	const float Cover2 = Cover * Cover;
 	for (FRing& Ring : Rings)
 	{
-		if (Ring.CellM > 3.0f)
+		UProceduralMeshComponent* Comp = Ring.Comp.Get();
+		if (!Comp || Ring.LivePos.Num() == 0 || Ring.StampDir.Num() != Ring.LivePos.Num())
 		{
 			continue;
 		}
-		OpenWalkRing(Ring, LocalM, RadiusM, ShouldCut, DensityAt);
+		int32 N = 0;
+		const float CellPad = Ring.CellM * 1.2f;
+		const float UseCover2 = FMath::Square(Cover + CellPad);
+		for (int32 I = 0; I < Ring.LivePos.Num(); ++I)
+		{
+			const FVector Dir = Ring.StampDir[I];
+			const float Surf = Ring.StampSurfM.IsValidIndex(I) ? Ring.StampSurfM[I] : BrushSurf;
+			const float D2 = FVector::DistSquared(Dir * Surf, BrushDir * BrushSurf);
+			if (D2 > UseCover2)
+			{
+				continue;
+			}
+			const float Dist = FMath::Sqrt(D2);
+			const float C = Cover + CellPad;
+			float W = 1.0f - Dist / C;
+			W = W * W * (3.0f - 2.0f * W);
+			const float CurR = Ring.LivePos[I].Size() * 0.01f;
+			const float Delta = RadiusM * 0.90f * W;
+			float NewR = bRemove ? (CurR - Delta) : (CurR + Delta * 0.55f);
+			NewR = bRemove ? FMath::Min(CurR, NewR) : FMath::Max(CurR, NewR);
+			if (FMath::Abs(NewR - CurR) < 0.03f)
+			{
+				continue;
+			}
+			Ring.LivePos[I] = Dir * NewR * 100.0f;
+			if (bRemove && W > 0.25f && Ring.UV0.IsValidIndex(I))
+			{
+				Ring.UV0[I] = FVector2D(2.0f, 0.0f);
+			}
+			if (bRemove && W > 0.25f && Ring.Colors.IsValidIndex(I))
+			{
+				Ring.Colors[I] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f);
+			}
+			++N;
+		}
+		if (N == 0)
+		{
+			continue;
+		}
+		Comp->UpdateMeshSection_LinearColor(
+			0, Ring.LivePos, Ring.LiveN, Ring.UV0, Ring.Colors, Ring.Tangents);
+		Comp->UpdateBounds();
 	}
 	LastBrushSeconds = FPlatformTime::Seconds();
 }

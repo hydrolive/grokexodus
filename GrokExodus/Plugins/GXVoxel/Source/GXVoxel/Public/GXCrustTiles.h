@@ -45,8 +45,13 @@ public:
 		TFunction<float(const FVector&)> DensityAt = nullptr);
 	void HideTile(const FGXCrustTileKey& Key);
 	int32 HideTilesInSphere(const FVector& LocalM, float RadiusM);
-	/** Raise (place) or drop (dig) tile verts so the stamp skin is the edit. */
-	int32 NotifyBrush(const FVector& LocalM, float RadiusM, bool bRemove);
+	int32 NotifyBrush(
+		const FVector& LocalM,
+		float RadiusM,
+		bool bRemove,
+		const FGXSphereStamp& Stamp,
+		UMaterialInterface* Material,
+		const TFunction<float(const FVector&)>& DensityAt);
 	bool HasTileAt(const FVector& LocalM) const;
 	/** True when the (2*Half+1)^2 block around the pawn is live. */
 	bool HasNeighborhood(const FVector& LocalM, int32 Half) const;
@@ -54,7 +59,7 @@ public:
 	int32 NumLive() const { return Live.Num(); }
 
 	static constexpr float TileM = 64.0f;
-	static constexpr float CellM = 1.0f;
+	static constexpr float CellM = 2.0f;
 	static constexpr float StreamM = 256.0f;
 	static constexpr int32 ReadyMin = 9;
 
@@ -72,6 +77,7 @@ private:
 		TArray<FLinearColor> Colors;
 		TArray<FProcMeshTangent> Tangents;
 		TArray<int32> Indices;
+		float FineCell = 0.0f;
 		bool bHidden = false;
 	};
 

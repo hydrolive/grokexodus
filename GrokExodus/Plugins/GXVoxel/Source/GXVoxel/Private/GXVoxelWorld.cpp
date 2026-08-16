@@ -737,7 +737,9 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	if (Jobs) Jobs->BumpStamp();
 	if (CrustTiles)
 	{
-		CrustTiles->NotifyBrush(L, RadiusM * DigSpeedMul, true);
+		CrustTiles->NotifyBrush(
+			L, RadiusM * DigSpeedMul, true, Volume->GetStamp(), TerrainMaterial.Get(),
+			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); });
 	}
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
@@ -757,7 +759,8 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			[this](const FVector& P)
 			{
 				return ShouldPunchClipmap(P);
-			});
+			},
+			true);
 	}
 	GX_PERF(1, TEXT("GX-dig volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d boxes=%d"),
 		L.X, L.Y, L.Z, RadiusM * DigSpeedMul, Brush.DirtyChunks.Num(), EditedPageBoxesM.Num());
@@ -779,7 +782,9 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	if (Jobs) Jobs->BumpStamp();
 	if (CrustTiles)
 	{
-		CrustTiles->NotifyBrush(L, RadiusM, false);
+		CrustTiles->NotifyBrush(
+			L, RadiusM, false, Volume->GetStamp(), TerrainMaterial.Get(),
+			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); });
 	}
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
@@ -799,7 +804,8 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 			[this](const FVector& P)
 			{
 				return ShouldPunchClipmap(P);
-			});
+			},
+			false);
 	}
 	GX_PERF(1, TEXT("GX-place volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d boxes=%d"),
 		L.X, L.Y, L.Z, RadiusM, Brush.DirtyChunks.Num(), EditedPageBoxesM.Num());

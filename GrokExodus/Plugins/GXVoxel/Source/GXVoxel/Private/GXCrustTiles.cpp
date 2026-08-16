@@ -160,7 +160,13 @@ int32 FGXCrustTiles::HideTilesInSphere(const FVector& LocalM, float RadiusM)
 	return N;
 }
 
-int32 FGXCrustTiles::NotifyBrush(const FVector& LocalM, float RadiusM, bool bRemove)
+int32 FGXCrustTiles::NotifyBrush(
+	const FVector& LocalM,
+	float RadiusM,
+	bool bRemove,
+	const FGXSphereStamp& Stamp,
+	UMaterialInterface* Material,
+	const TFunction<float(const FVector&)>& DensityAt)
 {
 	if (RadiusM <= 0.0f || Live.Num() == 0)
 	{
@@ -172,19 +178,24 @@ int32 FGXCrustTiles::NotifyBrush(const FVector& LocalM, float RadiusM, bool bRem
 		return 0;
 	}
 	const float BrushSurf = LocalM.Size();
-	const float R = RadiusM + CellM;
-	const float R2 = R * R;
+	const float Cover = RadiusM * 2.6f + 2.0f;
+	const float Cover2 = Cover * Cover;
 	int32 Changed = 0;
 	for (auto& Pair : Live)
 	{
 		FTile& Tile = Pair.Value;
-		UProceduralMeshComponent* Comp = Tile.Comp.Get();
-		if (!Comp || Tile.LivePos.Num() == 0 || Tile.StampDir.Num() != Tile.LivePos.Num())
+		const FVector TileWorld = Tile.OriginCm * 0.01f;
+		if (FVector::DistSquared(TileWorld, LocalM) > FMath::Square(Cover + TileM + 4.0f))
 		{
 			continue;
 		}
-		const FVector TileWorld = Tile.OriginCm * 0.01f;
-		if (FVector::DistSquared(TileWorld, LocalM) > FMath::Square(R + TileM + 4.0f))
+		if (Tile.FineCell < 0.1f || Tile.FineCell > 0.51f)
+		{
+			Tile.FineCell = 0.5f;
+			BuildTile(Tile, Stamp, Material, DensityAt);
+		}
+		UProceduralMeshComponent* Comp = Tile.Comp.Get();
+		if (!Comp || Tile.LivePos.Num() == 0 || Tile.StampDir.Num() != Tile.LivePos.Num())
 		{
 			continue;
 		}
@@ -192,37 +203,25 @@ int32 FGXCrustTiles::NotifyBrush(const FVector& LocalM, float RadiusM, bool bRem
 		for (int32 I = 0; I < Tile.LivePos.Num(); ++I)
 		{
 			const FVector Dir = Tile.StampDir[I];
-			const float Surf = Tile.StampSurfM.IsValidIndex(I) ? Tile.StampSurfM[I] : (Tile.OriginCm + Tile.LivePos[I]).Size() * 0.01f;
-			const FVector P = Dir * Surf;
-			const float D2 = FVector::DistSquared(P, BrushDir * BrushSurf);
-			if (D2 > R2)
+			const float Surf = Tile.StampSurfM.IsValidIndex(I) ? Tile.StampSurfM[I] : BrushSurf;
+			const float D2 = FVector::DistSquared(Dir * Surf, BrushDir * BrushSurf);
+			if (D2 > Cover2)
 			{
 				continue;
 			}
-			const float Rise = FMath::Sqrt(FMath::Max(R2 - D2, 0.0f));
+			const float Dist = FMath::Sqrt(D2);
+			float W = 1.0f - Dist / Cover;
+			W = W * W * (3.0f - 2.0f * W);
 			const float CurR = (Tile.OriginCm + Tile.LivePos[I]).Size() * 0.01f;
-			float NewR = CurR;
-			if (bRemove)
-			{
-				// Only drop. Setting an absolute sphere raised last-click
-				// verts (shots 020228 → 020247 grew the pyramid).
-				NewR = FMath::Min(CurR, BrushSurf - Rise);
-			}
-			else
-			{
-				NewR = FMath::Max(CurR, BrushSurf + Rise);
-			}
-			NewR = FMath::Clamp(NewR, Surf - R - 1.0f, Surf + R + 1.0f);
-			if (NewR >= CurR - 0.01f && bRemove)
-			{
-				continue;
-			}
-			if (NewR <= CurR + 0.01f && !bRemove)
+			const float Delta = RadiusM * 0.90f * W;
+			float NewR = bRemove ? (CurR - Delta) : (CurR + Delta * 0.55f);
+			NewR = bRemove ? FMath::Min(CurR, NewR) : FMath::Max(CurR, NewR);
+			if (FMath::Abs(NewR - CurR) < 0.02f)
 			{
 				continue;
 			}
 			Tile.LivePos[I] = Dir * NewR * 100.0f - Tile.OriginCm;
-			if (bRemove)
+			if (bRemove && W > 0.25f)
 			{
 				if (Tile.UV0.IsValidIndex(I))
 				{
@@ -247,7 +246,7 @@ int32 FGXCrustTiles::NotifyBrush(const FVector& LocalM, float RadiusM, bool bRem
 	}
 	if (Changed > 0)
 	{
-		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles brush %s verts=%d r=%.2f"),
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles sculpt %s verts=%d r=%.2f"),
 			bRemove ? TEXT("dig") : TEXT("place"), Changed, RadiusM);
 	}
 	return Changed;
@@ -287,7 +286,8 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 		return;
 	}
 	const float Scale = TileM * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
-	const float Cell = CellM * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
+	const float BaseCell = (Tile.FineCell > 0.1f) ? Tile.FineCell : CellM;
+	const float Cell = BaseCell * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
 	const int32 Cells = FMath::Max(2, FMath::RoundToInt(Scale / Cell));
 	const int32 Dim = Cells + 1;
 	FVector FaceN, T, B;

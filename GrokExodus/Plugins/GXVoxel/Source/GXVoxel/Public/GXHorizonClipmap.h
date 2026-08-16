@@ -44,7 +44,8 @@ public:
 		const FVector& LocalM,
 		float RadiusM,
 		TFunction<float(const FVector&)> DensityAt,
-		TFunction<bool(const FVector&)> ShouldCut = nullptr);
+		TFunction<bool(const FVector&)> ShouldCut = nullptr,
+		bool bRemove = true);
 	bool IsReady() const { return bReady; }
 
 private:
