@@ -249,7 +249,7 @@ def main():
     # object scale so a scaled tile keeps the same world height.
     try:
         ds = unreal.DisplacementScaling()
-        ds.set_editor_property("magnitude", 22.0)
+        ds.set_editor_property("magnitude", 48.0)
         ds.set_editor_property("center", 0.0)
         _set(mat, "displacement_scaling", ds)
     except Exception as err:
@@ -548,6 +548,8 @@ def main():
         except Exception as err:
             unreal.log_warning("[GXPBR] property %s: %s" % (prop, err))
 
+    # Individual pins first; Substrate 5.8 hides MP_Displacement so we also
+    # pack through MakeMaterialAttributes below (that node still has the pin).
     plug(albedo, "", unreal.MaterialProperty.MP_BASE_COLOR)
     plug(lerp_r, "", unreal.MaterialProperty.MP_ROUGHNESS)
     # Opaque. VertexColor.A as a mask punched 2 m rectangles through the
@@ -609,7 +611,7 @@ def main():
 
     noise = node(unreal.MaterialExpressionNoise, x0 + 7760, 1300, "worldNoise")
     for np, nv in (
-        ("scale", 0.006),
+        ("scale", 0.0035),
         ("levels", 3),
         ("output_min", 0.0),
         ("output_max", 1.0),
@@ -618,17 +620,33 @@ def main():
     ):
         _set(noise, np, nv)
     connect(wp, "", noise, "Position")
-    h_mix = sat(add(mul(h_con, "", const(0.70, x0 + 9060, 1240, "hK"), "", x0 + 9320, 1180),
-                    "", mul(noise, "", const(0.40, x0 + 9060, 1320, "nK"), "", x0 + 9320, 1300),
+    h_mix = sat(add(mul(h_con, "", const(0.55, x0 + 9060, 1240, "hK"), "", x0 + 9320, 1180),
+                    "", mul(noise, "", const(0.55, x0 + 9060, 1320, "nK"), "", x0 + 9320, 1300),
                     "", x0 + 9580, 1180),
                 "", x0 + 9840, 1180, "hMix")
     disp = div(h_mix, "", scale_safe, "", x0 + 10100, 1180, "dispWS")
-    disp_prop = getattr(unreal.MaterialProperty, "MP_DISPLACEMENT", None)
-    if disp_prop is not None:
-        plug(disp, "", disp_prop)
-        unreal.log("[GXPBR] Nanite displacement plugged (world-space scale)")
-    else:
-        unreal.log_warning("[GXPBR] MP_DISPLACEMENT missing — tessellation enabled without pin")
+
+    # 5.8 Substrate hides MP_Displacement from Python. MakeMaterialAttributes
+    # still has the pin — UseMaterialAttributes is how Nanite tessellation
+    # reads it (Toreler world-space Magnitude on the material).
+    make = node(unreal.MaterialExpressionMakeMaterialAttributes, x0 + 10400, 200, "MakeMA")
+    wired = 0
+    for src, pin in (
+        (albedo, "BaseColor"),
+        (lerp_r, "Roughness"),
+        (metal, "Metallic"),
+        (spec, "Specular"),
+        (fill, "EmissiveColor"),
+        (disp, "Displacement"),
+    ):
+        if connect(src, "", make, pin):
+            wired += 1
+        elif connect(src, "", make, pin.lower()):
+            wired += 1
+    _set(mat, "b_use_material_attributes", True)
+    _set(mat, "use_material_attributes", True)
+    plug(make, "", unreal.MaterialProperty.MP_MATERIAL_ATTRIBUTES)
+    unreal.log("[GXPBR] Nanite displacement via MaterialAttributes pins=%d" % wired)
 
     try:
         mel.layout_material_expressions(mat)

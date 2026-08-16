@@ -10,6 +10,7 @@
 #include "IImageWrapperModule.h"
 #include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
+#include "Materials/MaterialInstance.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Modules/ModuleManager.h"
@@ -131,6 +132,14 @@ void FGXTerrainPBR::Initialize(UObject* Outer)
 			Mid->SetScalarParameterValue(TEXT("SlopeStart"), 0.09f);
 			Mid->SetScalarParameterValue(TEXT("SlopeMid"), 0.15f);
 			Mid->SetScalarParameterValue(TEXT("SlopeEnd"), 0.30f);
+			// Toreler world-space Nanite displacement lives on the parent
+			// graph. Force tessellation + 48 cm magnitude on the MID so PIE
+			// cannot inherit a stale 4 cm default.
+			Mid->BasePropertyOverrides.bOverride_bEnableTessellation = 1;
+			Mid->BasePropertyOverrides.bEnableTessellation = 1;
+			Mid->BasePropertyOverrides.bOverride_DisplacementScaling = 1;
+			Mid->BasePropertyOverrides.DisplacementScaling.Magnitude = 48.0f;
+			Mid->BasePropertyOverrides.DisplacementScaling.Center = 0.0f;
 			Roots.Add(Mid);
 			Applied = Mid;
 		}

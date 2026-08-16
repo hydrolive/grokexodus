@@ -661,7 +661,7 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 		Comp->SetHiddenInGame(false);
 		Comp->UpdateBounds();
 	}
-	ApplyNaniteVisual(Tile, Material);
+	// Nanite upgrade is 1/tick in Update — 25×320 ms on Ready froze spawn.
 	GX_PERF(1, TEXT("GX-tile face=%d u=%d v=%d verts=%d tris=%d"),
 		Tile.Key.Face, Tile.Key.U, Tile.Key.V, Positions.Num(), Indices.Num() / 3);
 }
@@ -761,9 +761,27 @@ void FGXCrustTiles::Update(
 	}
 	// Ready only when the pawn's own tile exists — count-only ready was a hole.
 	bReady = Live.Contains(Center) && Live.Num() >= ReadyMin;
-	if (Built > 0)
+
+	// PMC is walkable immediately. Nanite tessellation cooks one tile a tick
+	// so the first frame is not a 8 s hitch (0.10.0 live: 25×320 ms).
+	int32 Upgraded = 0;
+	for (auto& Pair : Live)
 	{
-		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles live=%d built=%d ready=%d face=%d u=%d v=%d"),
-			Live.Num(), Built, bReady ? 1 : 0, Center.Face, Center.U, Center.V);
+		if (Upgraded >= 1)
+		{
+			break;
+		}
+		if (Pair.Value.NaniteComp.IsValid())
+		{
+			continue;
+		}
+		ApplyNaniteVisual(Pair.Value, Material);
+		++Upgraded;
+	}
+
+	if (Built > 0 || Upgraded > 0)
+	{
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles live=%d built=%d nanite+%d ready=%d face=%d u=%d v=%d"),
+			Live.Num(), Built, Upgraded, bReady ? 1 : 0, Center.Face, Center.U, Center.V);
 	}
 }
