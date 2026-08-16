@@ -182,7 +182,7 @@ int32 FGXCrustTiles::NotifyBrush(const FVector& LocalM, float RadiusM, bool bRem
 		return 0;
 	}
 	const float BrushSurf = LocalM.Size();
-	const float R = RadiusM;
+	const float R = RadiusM + CellM;
 	const float R2 = R * R;
 	int32 Changed = 0;
 	for (auto& Pair : Live)
