@@ -211,6 +211,16 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 		}
 	}
 
+	// Verts live on the tile, not 60 km from the planet origin.
+	// Planet-sized PMC bounds made collision a no-op (0.9.1 still fell through).
+	const int32 Mid = (Dim / 2) + (Dim / 2) * Dim;
+	const FVector TileOrigin = Positions.IsValidIndex(Mid) ? Positions[Mid] : Positions[0];
+	for (FVector& P : Positions)
+	{
+		P -= TileOrigin;
+	}
+	Comp->SetRelativeLocation(TileOrigin);
+
 	Comp->ClearAllMeshSections();
 	if (Positions.Num() >= 3 && Indices.Num() >= 3)
 	{

@@ -1621,22 +1621,8 @@ bool AGXVoxelWorld::PlacePawnOnSurface(APawn* Pawn, FVector RadialHint)
 		return false;
 	}
 
-	if (ACharacter* Already = Cast<ACharacter>(Pawn))
-	{
-		if (UGXBodyMovement* Move = Cast<UGXBodyMovement>(Already->GetCharacterMovement()))
-		{
-			Move->TryFindField();
-			if (Move->IsNearFloor(120.0f))
-			{
-				Move->NotifyJustSpawned();
-				UE_LOG(LogGXVoxel, Warning,
-					TEXT("GX-%s PlacePawnOnSurface skip (already on floor)"),
-					GX_VERSION_STRING);
-				return true;
-			}
-		}
-	}
-
+	// Always sit on the stamp crust. "Already on floor" used density, which
+	// is a cave under saved air — you spawned under the 0.9 tiles (192046).
 	const FVector Surface = FindSurfaceWorldLocation(RadialHint);
 	const FVector Up = -GetGravityDirectionAt(Surface);
 	float Half = 88.0f;
