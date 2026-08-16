@@ -32,7 +32,8 @@ struct FGXCrustTileKey
 
 /**
  * Unedited crust as non-overlapping tiles.
- * Edits move tile verts (never hide a 64 m tile — that was a square hole).
+ * Dig punches lid triangles (never hide a 64 m tile — that was a square hole).
+ * Nanite is idle underfoot only — never on load or on a sculpted tile.
  */
 class GXVOXEL_API FGXCrustTiles
 {
@@ -63,8 +64,6 @@ public:
 
 	static constexpr float TileM = 64.0f;
 	static constexpr float CellM = 1.0f;
-	/** First brush rebuilds the tile at this cell so a 1–2 m stroke is a smooth cap, not 2 m pyramids. */
-	static constexpr float FineCellM = 0.25f;
 	static constexpr float StreamM = 256.0f;
 	static constexpr int32 ReadyMin = 9;
 
@@ -86,12 +85,15 @@ private:
 		TArray<int32> Indices;
 		float FineCell = 0.0f;
 		bool bHidden = false;
+		bool bSculpted = false;
 	};
 
 	TMap<FGXCrustTileKey, FTile> Live;
 	TSet<FGXCrustTileKey> HiddenKeys;
 	AActor* OwnerCached = nullptr;
 	bool bReady = false;
+	double LastNaniteCookSeconds = -1.0e9;
+	double ReadyAtSeconds = -1.0e9;
 
 	static int8 FaceOf(const FVector& Dir);
 	static FGXCrustTileKey KeyAt(const FVector& LocalM, int32 LOD);
@@ -100,5 +102,6 @@ private:
 		const TFunction<float(const FVector&)>& DensityAt);
 	static void RecomputeNormals(FTile& Tile);
 	void ApplyNaniteVisual(FTile& Tile, UMaterialInterface* Material);
+	void DropNanite(FTile& Tile);
 	void DestroyTileVisuals(FTile& Tile);
 };

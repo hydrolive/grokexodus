@@ -71,8 +71,10 @@ void FGXCrustTiles::Initialize(AActor* Owner)
 	Shutdown();
 	OwnerCached = Owner;
 	bReady = false;
-	UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles: tile=%.0f cell=%.2f fine=%.2f stream=%.0f (0.10 Nanite displace)"),
-		TileM, CellM, FineCellM, StreamM);
+	LastNaniteCookSeconds = -1.0e9;
+	ReadyAtSeconds = -1.0e9;
+	UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles: tile=%.0f cell=%.2f stream=%.0f (0.10.2 punch+idle Nanite)"),
+		TileM, CellM, StreamM);
 }
 
 void FGXCrustTiles::Shutdown()
@@ -201,90 +203,122 @@ int32 FGXCrustTiles::NotifyBrush(
 		return 0;
 	}
 	(void)DensityAt;
+	(void)Stamp;
 	const FVector BrushDir = LocalM.GetSafeNormal();
 	if (BrushDir.IsNearlyZero())
 	{
 		return 0;
 	}
-	const float BrushSurf = LocalM.Size();
-	const float Cover = RadiusM * 2.6f + 2.0f;
-	const float Cover2 = Cover * Cover;
+	// Dig: punch lid tris inside the CSG sphere (not a cosine bowl — that
+	// left a dirt rim). Add: raise a tight cap on the 1 m grid. Never
+	// FineCell-rebuild the 64 m tile (66 k verts) or recook Nanite (320 ms).
+	const float KillR = RadiusM + CellM * 0.55f;
+	const float KillR2 = KillR * KillR;
+	const float PlaceCover = RadiusM + CellM;
+	const float PlaceCover2 = PlaceCover * PlaceCover;
 	int32 Changed = 0;
 	for (auto& Pair : Live)
 	{
 		FTile& Tile = Pair.Value;
 		const FVector TileWorld = Tile.OriginCm * 0.01f;
-		if (FVector::DistSquared(TileWorld, LocalM) > FMath::Square(Cover + TileM + 4.0f))
+		if (FVector::DistSquared(TileWorld, LocalM) > FMath::Square(FMath::Max(KillR, PlaceCover) + TileM + 4.0f))
 		{
 			continue;
-		}
-		// Rebuild from the stamp only. Following leftover CSG density (±8 m)
-		// was the 0.9.17 pillar canyon — each 2 m vert climbed a saved sphere.
-		if (FMath::Abs(Tile.FineCell - FineCellM) > 0.01f)
-		{
-			Tile.FineCell = FineCellM;
-			BuildTile(Tile, Stamp, Material, nullptr);
 		}
 		UProceduralMeshComponent* Comp = Tile.Comp.Get();
-		if (!Comp || Tile.LivePos.Num() == 0 || Tile.StampDir.Num() != Tile.LivePos.Num())
+		if (!Comp || Tile.LivePos.Num() == 0)
 		{
 			continue;
 		}
+		DropNanite(Tile);
+		Tile.bSculpted = true;
 		int32 N = 0;
-		for (int32 I = 0; I < Tile.LivePos.Num(); ++I)
+		if (bRemove)
 		{
-			const FVector Dir = Tile.StampDir[I];
-			const float Surf = Tile.StampSurfM.IsValidIndex(I) ? Tile.StampSurfM[I] : BrushSurf;
-			const float D2 = FVector::DistSquared(Dir * Surf, BrushDir * BrushSurf);
-			if (D2 > Cover2)
+			TArray<int32> Kept;
+			Kept.Reserve(Tile.Indices.Num());
+			for (int32 T = 0; T + 2 < Tile.Indices.Num(); T += 3)
+			{
+				const int32 IA = Tile.Indices[T];
+				const int32 IB = Tile.Indices[T + 1];
+				const int32 IC = Tile.Indices[T + 2];
+				bool bHit = false;
+				const int32 Src[3] = { IA, IB, IC };
+				for (int32 K = 0; K < 3; ++K)
+				{
+					if (!Tile.LivePos.IsValidIndex(Src[K]))
+					{
+						continue;
+					}
+					const FVector W = (Tile.OriginCm + Tile.LivePos[Src[K]]) * 0.01f;
+					if (FVector::DistSquared(W, LocalM) <= KillR2)
+					{
+						bHit = true;
+						break;
+					}
+				}
+				if (bHit)
+				{
+					++N;
+					continue;
+				}
+				Kept.Add(IA);
+				Kept.Add(IB);
+				Kept.Add(IC);
+			}
+			if (N == 0)
 			{
 				continue;
 			}
-			const float Dist = FMath::Sqrt(D2);
-			float W = 1.0f - Dist / Cover;
-			W = W * W * (3.0f - 2.0f * W);
-			const float CurR = (Tile.OriginCm + Tile.LivePos[I]).Size() * 0.01f;
-			const float Delta = RadiusM * 0.90f * W;
-			float NewR = bRemove ? (CurR - Delta) : (CurR + Delta * 0.55f);
-			NewR = bRemove ? FMath::Min(CurR, NewR) : FMath::Max(CurR, NewR);
-			if (FMath::Abs(NewR - CurR) < 0.01f)
+			Tile.Indices = MoveTemp(Kept);
+			Comp->CreateMeshSection_LinearColor(
+				0, Tile.LivePos, Tile.Indices, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents, true);
+		}
+		else
+		{
+			if (Tile.StampDir.Num() != Tile.LivePos.Num())
 			{
 				continue;
 			}
-			Tile.LivePos[I] = Dir * NewR * 100.0f - Tile.OriginCm;
-			if (bRemove && W > 0.20f)
+			for (int32 I = 0; I < Tile.LivePos.Num(); ++I)
 			{
-				// Dirt (atlas 3), not forced rock (2). Rock on every sculpted
-				// vert + radial N made cliffs one 35 m YZ grain (0.9.17 #3).
-				if (Tile.UV0.IsValidIndex(I))
+				const FVector Dir = Tile.StampDir[I];
+				const float Surf = Tile.StampSurfM.IsValidIndex(I) ? Tile.StampSurfM[I] : LocalM.Size();
+				const float D2 = FVector::DistSquared(Dir * Surf, BrushDir * LocalM.Size());
+				if (D2 > PlaceCover2)
 				{
-					Tile.UV0[I] = FVector2D(3.0f, 0.0f);
+					continue;
 				}
-				if (Tile.Colors.IsValidIndex(I))
+				const float Dist = FMath::Sqrt(D2);
+				float W = 1.0f - Dist / PlaceCover;
+				W = W * W * (3.0f - 2.0f * W);
+				const float CurR = (Tile.OriginCm + Tile.LivePos[I]).Size() * 0.01f;
+				const float NewR = FMath::Max(CurR, CurR + RadiusM * 0.50f * W);
+				if (NewR - CurR < 0.01f)
 				{
-					Tile.Colors[I] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f);
+					continue;
 				}
+				Tile.LivePos[I] = Dir * NewR * 100.0f - Tile.OriginCm;
+				++N;
 			}
-			++N;
+			if (N == 0)
+			{
+				continue;
+			}
+			Comp->UpdateMeshSection_LinearColor(
+				0, Tile.LivePos, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents);
 		}
-		if (N == 0)
-		{
-			continue;
-		}
-		RecomputeNormals(Tile);
-		Comp->CreateMeshSection_LinearColor(
-			0, Tile.LivePos, Tile.Indices, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents, true);
 		Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		Comp->SetVisibility(true);
 		Comp->UpdateBounds();
-		ApplyNaniteVisual(Tile, Material);
 		Changed += N;
 	}
 	if (Changed > 0)
 	{
-		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles sculpt %s verts=%d r=%.2f cell=%.2f"),
-			bRemove ? TEXT("dig") : TEXT("place"), Changed, RadiusM, FineCellM);
-		GX_PERF(1, TEXT("GX-tile sculpt %s verts=%d r=%.2f"),
-			bRemove ? TEXT("dig") : TEXT("place"), Changed, RadiusM);
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles sculpt %s n=%d r=%.2f"),
+			bRemove ? TEXT("punch") : TEXT("place"), Changed, RadiusM);
+		GX_PERF(1, TEXT("GX-tile sculpt %s n=%d r=%.2f"),
+			bRemove ? TEXT("punch") : TEXT("place"), Changed, RadiusM);
 	}
 	return Changed;
 }
@@ -348,7 +382,7 @@ void FGXCrustTiles::RecomputeNormals(FTile& Tile)
 	}
 }
 
-void FGXCrustTiles::DestroyTileVisuals(FTile& Tile)
+void FGXCrustTiles::DropNanite(FTile& Tile)
 {
 	if (UStaticMeshComponent* SMC = Tile.NaniteComp.Get())
 	{
@@ -356,6 +390,15 @@ void FGXCrustTiles::DestroyTileVisuals(FTile& Tile)
 	}
 	Tile.NaniteComp.Reset();
 	Tile.NaniteMesh.Reset();
+	if (UProceduralMeshComponent* PMC = Tile.Comp.Get())
+	{
+		PMC->SetVisibility(!Tile.bHidden);
+	}
+}
+
+void FGXCrustTiles::DestroyTileVisuals(FTile& Tile)
+{
+	DropNanite(Tile);
 	if (UProceduralMeshComponent* C = Tile.Comp.Get())
 	{
 		C->DestroyComponent();
@@ -760,24 +803,35 @@ void FGXCrustTiles::Update(
 		++Built;
 	}
 	// Ready only when the pawn's own tile exists — count-only ready was a hole.
+	const bool bWasReady = bReady;
 	bReady = Live.Contains(Center) && Live.Num() >= ReadyMin;
-
-	// PMC is walkable immediately. Nanite tessellation cooks one tile a tick
-	// so the first frame is not a 8 s hitch (0.10.0 live: 25×320 ms).
-	int32 Upgraded = 0;
-	for (auto& Pair : Live)
+	if (bReady && !bWasReady)
 	{
-		if (Upgraded >= 1)
-		{
-			break;
-		}
-		if (Pair.Value.NaniteComp.IsValid())
-		{
-			continue;
-		}
-		ApplyNaniteVisual(Pair.Value, Material);
-		++Upgraded;
+		ReadyAtSeconds = FPlatformTime::Seconds();
 	}
+
+	// One underfoot Nanite tile, and only after Ready has been up 2 s.
+	// Cooking all 68 on load was 22 s at 3 FPS (0.10.0 / 0.10.1).
+	int32 Upgraded = 0;
+#if WITH_EDITOR
+	const double Now = FPlatformTime::Seconds();
+	if (CVarGXNaniteTiles.GetValueOnGameThread() > 0
+		&& bReady
+		&& ReadyAtSeconds > 0.0
+		&& (Now - ReadyAtSeconds) > 2.0
+		&& (Now - LastNaniteCookSeconds) > 2.0)
+	{
+		if (FTile* Under = Live.Find(Center))
+		{
+			if (!Under->bSculpted && !Under->NaniteComp.IsValid())
+			{
+				ApplyNaniteVisual(*Under, Material);
+				LastNaniteCookSeconds = Now;
+				Upgraded = 1;
+			}
+		}
+	}
+#endif
 
 	if (Built > 0 || Upgraded > 0)
 	{

@@ -381,7 +381,7 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			Volume->GetStamp(),
 			WorldToLocalMeters(CachedViewerWorld),
 			TerrainMaterial.Get(),
-			(WarmupTimeRemaining > 0.0f) ? 25 : 2,
+			(WarmupTimeRemaining > 0.0f) ? 9 : 2,
 			[this](const FVector& P)
 			{
 				return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z));
@@ -747,7 +747,10 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	}
 	RebuildEditedPageBoxes();
 	MarkPersistDirty();
-	if (HorizonClipmap)
+	// Voxel remesh fills the punched lid. Do not skip these chunks because
+	// a tile is live — that skip left only the heightfield bowl (0.10.1).
+	RemeshAroundLocal(L, RadiusM * DigSpeedMul);
+	if (HorizonClipmap && !(CrustTiles && CrustTiles->HasTileAt(L)))
 	{
 		HorizonClipmap->NotifyBrush(
 			L,
@@ -792,7 +795,7 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	}
 	RebuildEditedPageBoxes();
 	MarkPersistDirty();
-	if (HorizonClipmap)
+	if (HorizonClipmap && !(CrustTiles && CrustTiles->HasTileAt(L)))
 	{
 		HorizonClipmap->NotifyBrush(
 			L,
@@ -1157,15 +1160,9 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 					++SkippedAir;
 					continue;
 				}
-				// Unedited crust is tiles. Surface edits stay on the tile
-				// mesh — remeshing them was the teal gumdrop / extra faces
-				// (0.9.12 shot). Caves (edited, not on a live tile) still mesh.
+				// Unedited crust is tiles. Edited surface chunks remesh so a
+				// punched lid has a dirt CSG bowl (0.10.2). Unedited stay tiles.
 				if (ChunkOverlapsSurface(CC, ChunkM) && !bDrawVoxelVisuals && !bEdited)
-				{
-					continue;
-				}
-				if (bEdited && ChunkOverlapsSurface(CC, ChunkM) && CrustTiles
-					&& CrustTiles->HasTileAt(ChunkCenter))
 				{
 					continue;
 				}
@@ -2142,7 +2139,7 @@ void AGXVoxelWorld::RemeshAroundLocal(const FVector& LocalM, float RadiusM)
 		return;
 	}
 	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
-	const float Cover = FMath::Max(RadiusM, 1.0f) + FGXCrustTiles::TileM * 0.75f;
+	const float Cover = FMath::Max(RadiusM, 1.0f) + VoxelSize * 2.0f;
 	const int32 Reach = FMath::CeilToInt(Cover / ChunkM) + 1;
 	const FGXChunkKey Center = FGXVoxelVolume::VoxelToChunk(
 		FGXVoxelVolume::WorldToVoxel(FVector3d(LocalM.X, LocalM.Y, LocalM.Z), VoxelSize));

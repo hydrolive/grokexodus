@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.1**  
+Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.2**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.2** Load was 68×320 ms Nanite (3 FPS for 22 s). Dig FineCell-rebuilt the 64 m tile + recooked Nanite and sagged a **cosine bowl with a dirt rim**. Dig now **punches lid tris** in the CSG sphere and remeshes 1 m voxels into the hole. No FineCell, no Nanite on dig, no clipmap brush when a tile is live. Nanite cooks **only the tile underfoot**, 2 s after Ready. Warmup 9 tiles (not 25).
 - **GX 0.10.1** 0.10.0 live: Nanite cooked 25 tiles × 320 ms on Ready (8 s hitch) and 22 cm displace was invisible at landscape range. PMC first (Ready), Nanite +1/tick. MID forces tessellation + **48 cm** world-space Magnitude. Larger world noise.
 - **GX 0.10.0** Nanite displacement on walk tiles (Toreler world-space scale). PMC is collision only; a Nanite SM is the visual. Material tessellates from grass/rock roughness + world noise, Magnitude 22 cm, divided by object scale. `r.Nanite.Tessellation=1`. Toggle `gx.nanite.tiles 0|1`.
 - **GX 0.9.18** Shots 032528 / 032549 / 032635: load was leftover **2 m density pyramids**; Add rebuilt those CSG spikes into a **stone canyon**; close-up stone was **radial N + RockTileMul 0.18** (35 m YZ grain). Tiles are **stamp-only** (1 m, first brush 0.25 m). Sculpt recomputes face normals. Dig paints dirt (id 3), Add stays grass. Near rock ~10 m (`RockTileMul` 0.60). Cleared `earth_default.gxsav` leftover pages.
