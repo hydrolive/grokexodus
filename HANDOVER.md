@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-16** · On-disk build stamp: **GX 0.9.5**  
+Last updated: **2026-08-16** · On-disk build stamp: **GX 0.9.6**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.9.6** 0.9.5 shots 004847 / 004907: still **under the crust** (teal void + mirrored hills) and **layered far terrain** popping in. Clipmap hole at 192 m was a window to the core; rings 640–700 overlapped with the farther ring *higher* (sink 3.2 over 5). Clipmap is a full disk again (no hole). Rings abut and sink grows with distance (10 / 16 / 24 m). Tiles overlap one shared cell for collision. Pawn >2.5 m under the stamp snaps back up.
 - **GX 0.9.5** 0.9.4 shot 001529: **see through the ground** — mirrored underside + teal void. Clipmap opened a 192 m hole on the first tick while tiles built the far corners (`u=-3,v=-3`). Ready fired at 8 tiles with nothing under the pawn. Tiles now build nearest-first; Ready needs the pawn's tile. Clipmap stays a full disk until then, then punches 192 m.
 - **GX 0.9.4** 0.9.3 shot 235243: dark brown **underside sheets** still sat above the grass. Clipmap `Update` was passed `InnerHoleM=0`, so the 8 m ring was a full disk under the 2 m tiles; coarse valleys + a 2 m tile overlap drew the backfaces. Clipmap hole is the tile stream (192 m). Tiles share the 64 m edge (no extra cell).
 - **GX 0.9.3** Standing on the crust, but tile seams were **dark fins** (underside / flipped winding, shot 192443). Each triangle is wound so Cross faces the planet radial. Vertex N is radial so shared edges light the same.

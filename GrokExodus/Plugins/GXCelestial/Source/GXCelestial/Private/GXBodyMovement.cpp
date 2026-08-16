@@ -462,6 +462,23 @@ void UGXBodyMovement::TickComponent(float DeltaTime, ELevelTick TickType, FActor
 		StickToStampFloor();
 	}
 
+	// Under the walk tiles (shots 004847 / 004907). The underside is solid
+	// within 12 m so the cave check would leave you inside the planet.
+	if (!IsJumpingUp() && UpdatedComponent)
+	{
+		FVector StampSurf, StampCap;
+		if (FindStampSurface(UpdatedComponent->GetComponentLocation(), StampSurf, StampCap))
+		{
+			const float BelowCm = FVector::DotProduct(
+				StampSurf - UpdatedComponent->GetComponentLocation(), GetUpDir());
+			if (BelowCm > 250.0f)
+			{
+				SnapToSurface(false);
+				AirborneSeconds = 0.0f;
+			}
+		}
+	}
+
 	if (JumpIgnoreSnapSeconds > 0.0f)
 	{
 		AirborneSeconds = 0.0f;

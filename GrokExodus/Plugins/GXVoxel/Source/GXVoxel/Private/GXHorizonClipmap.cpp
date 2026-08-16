@@ -51,7 +51,9 @@ namespace
 		const float SkirtM = FMath::Max(SinkM, CellM * 0.4f) + 3.0f;
 		const float SkirtCm = SkirtM * 100.0f;
 		const float OuterRim0 = FMath::Square(FMath::Max(OuterM - CellM * 1.6f, 0.0f));
-		const float InnerRim = (InnerM > 1.0f) ? FMath::Square(InnerM + CellM * 1.2f) : -1.0f;
+		// Inner skirts hung into the tile hole as dark fins. Outer only.
+		const float InnerRim = -1.0f;
+		(void)InnerM;
 		TSet<int32> RimSet;
 		for (int32 J = 0; J < Dim; ++J)
 		{
@@ -203,10 +205,14 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// sit deeper so they cannot lid a crater.
 	// 0.9: walk surface is crust tiles (64 m, no punch/skirts).
 	// Clipmap only fills past the tile stream so the limb is not a void.
+	// Abutting rings, sink grows with distance. 0.9.5 stacked 640–700
+	// (sink 5 over sink 3.2) so far hills popped in as a second skin
+	// (shots 004847 / 004907). No inner hole — that was the window
+	// through the planet.
 	const FSpec Specs[] = {
-		{ 192.0f, 700.0f, 8.0f, 5.0f },
-		{ 640.0f, 2800.0f, 32.0f, 3.2f },
-		{ 2500.0f, 10000.0f, 96.0f, 6.0f },
+		{ 0.0f, 850.0f, 8.0f, 10.0f },
+		{ 800.0f, 2900.0f, 32.0f, 16.0f },
+		{ 2800.0f, 10000.0f, 96.0f, 24.0f },
 	};
 	for (const FSpec& S : Specs)
 	{
@@ -519,9 +525,9 @@ void FGXHorizonClipmap::BuildRing(
 	// Only the 2 m walk ring sits on the stamp. Ring 1 is a full disk
 	// (InnerM=0) so look-back has no hole — if we also force sink 0 it
 	// becomes an uncut lid over every dig (0.7.54).
-	// Full disk (InnerM=0) is the spawn floor until tiles cover it.
-	// Sink would put the pawn 5 m above a hole you can see through.
-	const float Sink = (InnerM < 1.0f || CellM <= 3.0f) ? 0.0f : FMath::Max(SinkM, 0.5f);
+	// Far rings stay under nearer ones. Ring 0 is a full disk under the
+	// 2 m tiles (sink ≥ 10 m) so a hole cannot open to the core.
+	const float Sink = FMath::Max(SinkM, 0.5f);
 
 	TArray<FVector> Positions;
 	TArray<FVector> Normals;
@@ -1088,10 +1094,11 @@ void FGXHorizonClipmap::Update(
 	FVector T, B;
 	CenterDir.FindBestAxisVectors(T, B);
 
-	// Full disk. A hole was the teal river / island cliff.
+	// Ring 0 stays a full disk. A punched hole was the window to the core.
 	if (Rings.Num() > 0)
 	{
-		Rings[0].InnerM = FMath::Max(0.0f, InnerHoleM);
+		Rings[0].InnerM = 0.0f;
+		(void)InnerHoleM;
 	}
 	if (Rings.Num() > 2)
 	{

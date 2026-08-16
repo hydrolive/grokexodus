@@ -384,12 +384,10 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	}
 	if (HorizonClipmap && Volume && bAtlasReady)
 	{
-		// Keep the 8 m ring a full disk until the pawn's tile exists.
-		// 0.9.4 opened inner=192 on the first tick (4 corner tiles) —
-		// shot 001529 is the hole, looking at the underside.
-		const float ClipInnerM = (CrustTiles && CrustTiles->IsReady())
-			? FGXCrustTiles::StreamM
-			: 0.0f;
+		// Never punch a hole. 0.9.4–0.9.5 inner=192 was a window through
+		// the planet (shots 001529 / 004847 / 004907). Tiles sit on top;
+		// the 8 m disk is a sunk underlay.
+		const float ClipInnerM = 0.0f;
 		HorizonClipmap->Update(
 			this,
 			Volume->GetStamp(),

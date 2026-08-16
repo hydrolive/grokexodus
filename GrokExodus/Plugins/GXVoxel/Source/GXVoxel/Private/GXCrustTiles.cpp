@@ -123,10 +123,11 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 	}
 	const float Scale = TileM * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
 	const float Cell = CellM * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
-	// Shared boundary verts. The extra cell + half-cell inset stacked two
-	// skins on every 64 m edge — the dark fin was the neighbor's underside.
+	// One extra cell into the neighbor on the same U/V grid so Chaos
+	// cannot drop the capsule through the 64 m seam (0.9.4 watertight
+	// verts still left a crack). Heights match — not a second skin.
 	const int32 Cells = FMath::Max(2, FMath::RoundToInt(Scale / Cell));
-	const int32 Dim = Cells + 1;
+	const int32 Dim = Cells + 2;
 	FVector FaceN, T, B;
 	FaceAxes(Tile.Key.Face, FaceN, T, B);
 	const float R0 = Stamp.GetParams().Radius;
@@ -190,9 +191,9 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 			Indices.Add(I0); Indices.Add(I1); Indices.Add(I2);
 		}
 	};
-	for (int32 J = 0; J < Cells; ++J)
+	for (int32 J = 0; J < Cells + 1; ++J)
 	{
-		for (int32 I = 0; I < Cells; ++I)
+		for (int32 I = 0; I < Cells + 1; ++I)
 		{
 			const int32 A = I + J * Dim;
 			const int32 Bv = (I + 1) + J * Dim;
