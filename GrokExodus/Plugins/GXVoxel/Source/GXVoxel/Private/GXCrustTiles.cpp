@@ -37,8 +37,8 @@ void FGXCrustTiles::Initialize(AActor* Owner)
 	Shutdown();
 	OwnerCached = Owner;
 	bReady = false;
-	UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles: tile=%.0f cell=%.0f stream=%.0f (0.9 crust)"),
-		TileM, CellM, StreamM);
+	UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles: tile=%.0f cell=%.2f fine=%.2f stream=%.0f (0.9.18 stamp-only)"),
+		TileM, CellM, FineCellM, StreamM);
 }
 
 void FGXCrustTiles::Shutdown()
@@ -172,6 +172,7 @@ int32 FGXCrustTiles::NotifyBrush(
 	{
 		return 0;
 	}
+	(void)DensityAt;
 	const FVector BrushDir = LocalM.GetSafeNormal();
 	if (BrushDir.IsNearlyZero())
 	{
@@ -189,10 +190,12 @@ int32 FGXCrustTiles::NotifyBrush(
 		{
 			continue;
 		}
-		if (Tile.FineCell < 0.1f || Tile.FineCell > 0.51f)
+		// Rebuild from the stamp only. Following leftover CSG density (±8 m)
+		// was the 0.9.17 pillar canyon — each 2 m vert climbed a saved sphere.
+		if (FMath::Abs(Tile.FineCell - FineCellM) > 0.01f)
 		{
-			Tile.FineCell = 0.5f;
-			BuildTile(Tile, Stamp, Material, DensityAt);
+			Tile.FineCell = FineCellM;
+			BuildTile(Tile, Stamp, Material, nullptr);
 		}
 		UProceduralMeshComponent* Comp = Tile.Comp.Get();
 		if (!Comp || Tile.LivePos.Num() == 0 || Tile.StampDir.Num() != Tile.LivePos.Num())
@@ -216,16 +219,18 @@ int32 FGXCrustTiles::NotifyBrush(
 			const float Delta = RadiusM * 0.90f * W;
 			float NewR = bRemove ? (CurR - Delta) : (CurR + Delta * 0.55f);
 			NewR = bRemove ? FMath::Min(CurR, NewR) : FMath::Max(CurR, NewR);
-			if (FMath::Abs(NewR - CurR) < 0.02f)
+			if (FMath::Abs(NewR - CurR) < 0.01f)
 			{
 				continue;
 			}
 			Tile.LivePos[I] = Dir * NewR * 100.0f - Tile.OriginCm;
-			if (bRemove && W > 0.25f)
+			if (bRemove && W > 0.20f)
 			{
+				// Dirt (atlas 3), not forced rock (2). Rock on every sculpted
+				// vert + radial N made cliffs one 35 m YZ grain (0.9.17 #3).
 				if (Tile.UV0.IsValidIndex(I))
 				{
-					Tile.UV0[I] = FVector2D(2.0f, 0.0f);
+					Tile.UV0[I] = FVector2D(3.0f, 0.0f);
 				}
 				if (Tile.Colors.IsValidIndex(I))
 				{
@@ -238,6 +243,7 @@ int32 FGXCrustTiles::NotifyBrush(
 		{
 			continue;
 		}
+		RecomputeNormals(Tile);
 		Comp->CreateMeshSection_LinearColor(
 			0, Tile.LivePos, Tile.Indices, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents, true);
 		Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
@@ -246,10 +252,71 @@ int32 FGXCrustTiles::NotifyBrush(
 	}
 	if (Changed > 0)
 	{
-		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles sculpt %s verts=%d r=%.2f"),
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles sculpt %s verts=%d r=%.2f cell=%.2f"),
+			bRemove ? TEXT("dig") : TEXT("place"), Changed, RadiusM, FineCellM);
+		GX_PERF(1, TEXT("GX-tile sculpt %s verts=%d r=%.2f"),
 			bRemove ? TEXT("dig") : TEXT("place"), Changed, RadiusM);
 	}
 	return Changed;
+}
+
+void FGXCrustTiles::RecomputeNormals(FTile& Tile)
+{
+	const int32 VertN = Tile.LivePos.Num();
+	if (VertN == 0 || Tile.Indices.Num() < 3)
+	{
+		return;
+	}
+	Tile.LiveN.SetNum(VertN);
+	for (int32 I = 0; I < VertN; ++I)
+	{
+		Tile.LiveN[I] = FVector::ZeroVector;
+	}
+	for (int32 T = 0; T + 2 < Tile.Indices.Num(); T += 3)
+	{
+		const int32 IA = Tile.Indices[T];
+		const int32 IB = Tile.Indices[T + 1];
+		const int32 IC = Tile.Indices[T + 2];
+		if (!Tile.LivePos.IsValidIndex(IA) || !Tile.LivePos.IsValidIndex(IB) || !Tile.LivePos.IsValidIndex(IC))
+		{
+			continue;
+		}
+		const FVector& PA = Tile.LivePos[IA];
+		const FVector& PB = Tile.LivePos[IB];
+		const FVector& PC = Tile.LivePos[IC];
+		FVector FaceN = FVector::CrossProduct(PB - PA, PC - PA);
+		if (FaceN.IsNearlyZero())
+		{
+			continue;
+		}
+		const FVector Mid = (PA + PB + PC) * (1.0f / 3.0f) + Tile.OriginCm;
+		if (FVector::DotProduct(FaceN, Mid) < 0.0f)
+		{
+			FaceN = -FaceN;
+		}
+		FaceN.Normalize();
+		Tile.LiveN[IA] += FaceN;
+		Tile.LiveN[IB] += FaceN;
+		Tile.LiveN[IC] += FaceN;
+	}
+	if (Tile.Tangents.Num() != VertN)
+	{
+		Tile.Tangents.SetNum(VertN);
+	}
+	for (int32 I = 0; I < VertN; ++I)
+	{
+		if (!Tile.LiveN[I].Normalize())
+		{
+			Tile.LiveN[I] = Tile.StampDir.IsValidIndex(I) ? Tile.StampDir[I] : FVector::UpVector;
+		}
+		FVector Tan = FVector::CrossProduct(Tile.LiveN[I], FVector::ZAxisVector);
+		if (Tan.SizeSquared() < 1e-6f)
+		{
+			Tan = FVector::CrossProduct(Tile.LiveN[I], FVector::YAxisVector);
+		}
+		Tan.Normalize();
+		Tile.Tangents[I] = FProcMeshTangent(Tan, false);
+	}
 }
 
 bool FGXCrustTiles::HasTileAt(const FVector& LocalM) const
@@ -324,33 +391,10 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 				Dir = FaceN;
 			}
 			const FGXEarthField Field = Stamp.SampleEarthField(FVector3f(Dir.X, Dir.Y, Dir.Z), false);
-			float SurfR = Stamp.GetParams().Radius + Field.HeightM;
-			if (DensityAt)
-			{
-				const float D0 = DensityAt(Dir * SurfR);
-				if (D0 > 0.05f)
-				{
-					for (float D = 0.25f; D <= 8.0f; D += 0.25f)
-					{
-						if (DensityAt(Dir * (SurfR + D)) <= 0.0f)
-						{
-							SurfR += D;
-							break;
-						}
-					}
-				}
-				else if (D0 < -0.05f)
-				{
-					for (float D = 0.25f; D <= 8.0f; D += 0.25f)
-					{
-						if (DensityAt(Dir * (SurfR - D)) > 0.0f)
-						{
-							SurfR -= D;
-							break;
-						}
-					}
-				}
-			}
+			// Stamp only. Density CSG is the cave volume — following it here
+			// pulled leftover PlaceSphere pages into 8 m dirt pyramids (0.9.17 #1).
+			(void)DensityAt;
+			const float SurfR = Stamp.GetParams().Radius + Field.HeightM;
 			Positions.Add(Dir * SurfR * 100.0f);
 			StampDir.Add(Dir);
 			StampSurfM.Add(SurfR);

@@ -346,9 +346,9 @@ def main():
 
     # Landscape-grade dual scale (cm). Near grass ~11 m. Macro ~400 m.
     # 3 m tiles + a 30 m macro (old 0.0028 / 0.12) read as a grid of edges.
-    tile = scalar("TileScale", 0.00038, x0, 600)
-    macro = scalar("MacroScale", 0.040, x0, 720)
-    rock_mul = scalar("RockTileMul", 0.18, x0, 840)
+    tile = scalar("TileScale", 0.0016, x0, 600)
+    macro = scalar("MacroScale", 0.028, x0, 720)
+    rock_mul = scalar("RockTileMul", 0.60, x0, 840)
     # ~5 km rock tiles at distance so a range is geology, not wallpaper.
     rock_mac = scalar("RockMacroMul", 0.005, x0, 960)
     fade_a = scalar("DistanceFadeStart", 2500.0, x0, 1080)
@@ -497,7 +497,9 @@ def main():
     w_id_rock = id_gate(2.0, x0 + 2100, 1320, "idRock")
     w_id_snow = id_gate(5.0, x0 + 2100, 1480, "idSnow")
     w_id_volc = id_gate(7.0, x0 + 2100, 1640, "idVolc")
+    w_id_dirt = id_gate(3.0, x0 + 2100, 1800, "idDirt")
     w_hard = add(add(w_id_rock, "", w_id_volc, "", x0 + 3100, 1400), "", w_id_snow, "", x0 + 3340, 1400, "wHard")
+    w_dirt = sat(add(w_dirt, "", w_id_dirt, "", x0 + 3580, 1240), "", x0 + 3820, 1240, "wDirtId")
     w_dirt = mul(w_dirt, "", sub(one, "", sat(w_hard, "", x0 + 3580, 1320), "", x0 + 3820, 1320), "", x0 + 4060, 1320, "wDirtGated")
     w_rock = sat(add(add(w_rock, "", w_id_rock, "", x0 + 3580, 1480), "", w_id_volc, "", x0 + 3820, 1480), "", x0 + 4060, 1480, "wRockForced")
 

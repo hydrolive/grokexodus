@@ -317,7 +317,7 @@ void FGXHorizonClipmap::NotifyBrush(
 			Ring.LivePos[I] = Dir * NewR * 100.0f;
 			if (bRemove && W > 0.25f && Ring.UV0.IsValidIndex(I))
 			{
-				Ring.UV0[I] = FVector2D(2.0f, 0.0f);
+				Ring.UV0[I] = FVector2D(3.0f, 0.0f);
 			}
 			if (bRemove && W > 0.25f && Ring.Colors.IsValidIndex(I))
 			{

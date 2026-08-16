@@ -59,7 +59,9 @@ public:
 	int32 NumLive() const { return Live.Num(); }
 
 	static constexpr float TileM = 64.0f;
-	static constexpr float CellM = 2.0f;
+	static constexpr float CellM = 1.0f;
+	/** First brush rebuilds the tile at this cell so a 1–2 m stroke is a smooth cap, not 2 m pyramids. */
+	static constexpr float FineCellM = 0.25f;
 	static constexpr float StreamM = 256.0f;
 	static constexpr int32 ReadyMin = 9;
 
@@ -91,4 +93,5 @@ private:
 	static void FaceAxes(int8 Face, FVector& OutN, FVector& OutT, FVector& OutB);
 	void BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMaterialInterface* Material,
 		const TFunction<float(const FVector&)>& DensityAt);
+	static void RecomputeNormals(FTile& Tile);
 };

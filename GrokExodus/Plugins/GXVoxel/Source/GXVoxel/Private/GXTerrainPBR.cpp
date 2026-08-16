@@ -122,7 +122,9 @@ void FGXTerrainPBR::Initialize(UObject* Outer)
 		{
 			Mid->SetScalarParameterValue(TEXT("TileScale"), 0.0016f);
 			Mid->SetScalarParameterValue(TEXT("MacroScale"), 0.028f);
-			Mid->SetScalarParameterValue(TEXT("RockTileMul"), 0.18f);
+			// 0.18 × 0.0016 ≈ 35 m rock tiles — cliffs read as one stretched grain.
+			// Near rock stays coarser than grass (~6 m) but walkable (~10 m).
+			Mid->SetScalarParameterValue(TEXT("RockTileMul"), 0.60f);
 			Mid->SetScalarParameterValue(TEXT("RockMacroMul"), 0.005f);
 			Mid->SetScalarParameterValue(TEXT("DistanceFadeStart"), 2500.0f);
 			Mid->SetScalarParameterValue(TEXT("DistanceFadeEnd"), 18000.0f);
