@@ -109,6 +109,11 @@ void FGXCrustTiles::HideTile(const FGXCrustTileKey& Key)
 	}
 }
 
+bool FGXCrustTiles::HasTileAt(const FVector& LocalM) const
+{
+	return Live.Contains(KeyAt(LocalM, 0));
+}
+
 void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMaterialInterface* Material)
 {
 	UProceduralMeshComponent* Comp = Tile.Comp.Get();
@@ -289,13 +294,31 @@ void FGXCrustTiles::Update(
 		Live.Remove(K);
 	}
 
-	int32 Built = 0;
+	// Nearest first. TSet order built the far corners (u=-3,v=-3) and
+	// Ready fired with no tile under the pawn — 0.9.4 shot 001529 looked
+	// through the clipmap hole at the underside of the crust.
+	TArray<TPair<float, FGXCrustTileKey>> Queue;
 	for (const FGXCrustTileKey& K : Desired)
 	{
 		if (Live.Contains(K))
 		{
 			continue;
 		}
+		const float CU = (static_cast<float>(K.U) + 0.5f) * TileM;
+		const float CV = (static_cast<float>(K.V) + 0.5f) * TileM;
+		FVector N, T, B;
+		FaceAxes(K.Face, N, T, B);
+		const FVector Approx = N * Stamp.GetParams().Radius + T * CU + B * CV;
+		Queue.Emplace(FVector::DistSquared(Approx, ViewerLocalM), K);
+	}
+	Queue.Sort([](const TPair<float, FGXCrustTileKey>& A, const TPair<float, FGXCrustTileKey>& B)
+	{
+		return A.Key < B.Key;
+	});
+
+	int32 Built = 0;
+	for (const TPair<float, FGXCrustTileKey>& Item : Queue)
+	{
 		if (Built >= MaxBuildsThisTick)
 		{
 			break;
@@ -306,19 +329,17 @@ void FGXCrustTiles::Update(
 			continue;
 		}
 		FTile Tile;
-		Tile.Key = K;
+		Tile.Key = Item.Value;
 		Tile.Comp = PMC;
 		BuildTile(Tile, Stamp, Material);
-		Live.Add(K, Tile);
+		Live.Add(Item.Value, Tile);
 		++Built;
 	}
-	if (Live.Num() >= ReadyMin)
-	{
-		bReady = true;
-	}
+	// Ready only when the pawn's own tile exists — count-only ready was a hole.
+	bReady = Live.Contains(Center) && Live.Num() >= ReadyMin;
 	if (Built > 0)
 	{
-		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles live=%d built=%d face=%d u=%d v=%d"),
-			Live.Num(), Built, Center.Face, Center.U, Center.V);
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles live=%d built=%d ready=%d face=%d u=%d v=%d"),
+			Live.Num(), Built, bReady ? 1 : 0, Center.Face, Center.U, Center.V);
 	}
 }

@@ -43,7 +43,8 @@ public:
 		UMaterialInterface* Material,
 		int32 MaxBuildsThisTick);
 	void HideTile(const FGXCrustTileKey& Key);
-	bool IsReady() const { return bReady && Live.Num() >= ReadyMin; }
+	bool HasTileAt(const FVector& LocalM) const;
+	bool IsReady() const { return bReady; }
 	int32 NumLive() const { return Live.Num(); }
 
 	static constexpr float TileM = 64.0f;

@@ -519,7 +519,9 @@ void FGXHorizonClipmap::BuildRing(
 	// Only the 2 m walk ring sits on the stamp. Ring 1 is a full disk
 	// (InnerM=0) so look-back has no hole — if we also force sink 0 it
 	// becomes an uncut lid over every dig (0.7.54).
-	const float Sink = (CellM <= 3.0f) ? 0.0f : FMath::Max(SinkM, 0.5f);
+	// Full disk (InnerM=0) is the spawn floor until tiles cover it.
+	// Sink would put the pawn 5 m above a hole you can see through.
+	const float Sink = (InnerM < 1.0f || CellM <= 3.0f) ? 0.0f : FMath::Max(SinkM, 0.5f);
 
 	TArray<FVector> Positions;
 	TArray<FVector> Normals;
@@ -1069,9 +1071,11 @@ void FGXHorizonClipmap::Update(
 		bEditsDirty = false;
 	}
 
-	// Follow the player. 60 m left the 80 m disk behind and the 8 m ring
-	// became the walk surface (second skin).
-	if (FVector::DistSquared(ViewerLocalM, LastViewerLocal) < FMath::Square(16.0f) && bReady)
+	// Follow the player. Also rebuild when the tile hole opens (0 → 192)
+	// or the early-out would keep the full disk forever.
+	const float NewInner = FMath::Max(0.0f, InnerHoleM);
+	const bool bHoleChanged = Rings.Num() > 0 && FMath::Abs(Rings[0].InnerM - NewInner) > 1.0f;
+	if (!bHoleChanged && FVector::DistSquared(ViewerLocalM, LastViewerLocal) < FMath::Square(16.0f) && bReady)
 	{
 		return;
 	}
@@ -1111,7 +1115,7 @@ void FGXHorizonClipmap::Update(
 		{
 			continue;
 		}
-		if (bReady && FVector::DistSquared(ViewerLocalM, Ring.LastBuild) < FMath::Square(RebuildM))
+		if (!bHoleChanged && bReady && FVector::DistSquared(ViewerLocalM, Ring.LastBuild) < FMath::Square(RebuildM))
 		{
 			continue;
 		}

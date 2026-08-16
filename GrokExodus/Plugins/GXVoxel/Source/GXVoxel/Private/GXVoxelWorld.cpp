@@ -380,16 +380,16 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			Volume->GetStamp(),
 			WorldToLocalMeters(CachedViewerWorld),
 			TerrainMaterial.Get(),
-			(WarmupTimeRemaining > 0.0f) ? 4 : 2);
+			(WarmupTimeRemaining > 0.0f) ? 16 : 2);
 	}
 	if (HorizonClipmap && Volume && bAtlasReady)
 	{
-		// Tiles own the walk disk. InnerHoleM=0 rebuilt the 8 m ring as a
-		// full disk (0.9.3 shots 192443 / 235243): coarse chords sat above
-		// the 2 m tiles and showed the underside as dark fins.
-		const float ClipInnerM = CrustTiles
+		// Keep the 8 m ring a full disk until the pawn's tile exists.
+		// 0.9.4 opened inner=192 on the first tick (4 corner tiles) —
+		// shot 001529 is the hole, looking at the underside.
+		const float ClipInnerM = (CrustTiles && CrustTiles->IsReady())
 			? FGXCrustTiles::StreamM
-			: 180.0f;
+			: 0.0f;
 		HorizonClipmap->Update(
 			this,
 			Volume->GetStamp(),
