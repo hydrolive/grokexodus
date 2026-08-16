@@ -192,8 +192,9 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 		}
 	}
 
-	// One winding for the whole tile. Per-triangle "face the sky" flipped
-	// skinny slope tris into dark fins (0.9.6 viewport).
+	// UE/D3D front faces are clockwise from the sky (Cross toward the core).
+	// A,B,C faces outward on +X and was culled — the 0.9.10 hole showed
+	// the planet interior because the walk tiles were invisible.
 	for (int32 J = 0; J < Cells; ++J)
 	{
 		for (int32 I = 0; I < Cells; ++I)
@@ -202,8 +203,8 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 			const int32 Bv = (I + 1) + J * Dim;
 			const int32 C = I + (J + 1) * Dim;
 			const int32 D = (I + 1) + (J + 1) * Dim;
-			Indices.Add(A); Indices.Add(Bv); Indices.Add(C);
-			Indices.Add(Bv); Indices.Add(D); Indices.Add(C);
+			Indices.Add(A); Indices.Add(C); Indices.Add(Bv);
+			Indices.Add(Bv); Indices.Add(C); Indices.Add(D);
 		}
 	}
 	const float Relief = FMath::Max(Stamp.GetParams().MaxRelief, 1.0f);
