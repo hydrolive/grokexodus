@@ -16,7 +16,10 @@ namespace
 		{
 			return nullptr;
 		}
-		PMC->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+		PMC->bUseComplexAsSimpleCollision = true;
+		PMC->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		PMC->SetCollisionObjectType(ECC_WorldStatic);
+		PMC->SetCollisionResponseToAllChannels(ECR_Block);
 		PMC->SetCastShadow(false);
 		PMC->SetVisibleInRayTracing(false);
 		PMC->bUseAsyncCooking = false;
@@ -101,6 +104,7 @@ void FGXCrustTiles::HideTile(const FGXCrustTileKey& Key)
 		if (UProceduralMeshComponent* C = T->Comp.Get())
 		{
 			C->SetVisibility(false);
+			C->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 		}
 	}
 }
@@ -210,11 +214,12 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 	Comp->ClearAllMeshSections();
 	if (Positions.Num() >= 3 && Indices.Num() >= 3)
 	{
-		Comp->CreateMeshSection_LinearColor(0, Positions, Indices, Normals, UV0, Colors, Tangents, false);
+		Comp->CreateMeshSection_LinearColor(0, Positions, Indices, Normals, UV0, Colors, Tangents, true);
 		if (Material)
 		{
 			Comp->SetMaterial(0, Material);
 		}
+		Comp->SetCollisionEnabled(Tile.bHidden ? ECollisionEnabled::NoCollision : ECollisionEnabled::QueryAndPhysics);
 		Comp->SetVisibility(!Tile.bHidden);
 		Comp->SetHiddenInGame(false);
 		Comp->UpdateBounds();

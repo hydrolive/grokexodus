@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-15** · On-disk build stamp: **GX 0.9.0**  
+Last updated: **2026-08-15** · On-disk build stamp: **GX 0.9.1**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.9.1** 0.9.0 shot: fell **through** the tiles (looking up at the underside). Tiles had no collision; density snap dropped into saved caves under the stamp. Walk tiles now cook **QueryAndPhysics** collision. HideTile turns collision off.
 - **GX 0.9.0** 0.8.23 shot 183840: half a planet, hanging clipmap spikes, voxel slab. Dual-mesh is done as a strategy. Walk crust is **64 m tiles** (no punch/skirts). Clipmap starts at 180 m for the limb only. Ready waits for tiles. Dig still hits the old clipmap path until PR2 (hide tile + voxel). Nanite displacement is PR0 spike next.
 - **GX 0.8.23** Digs work, but each remove hitch'd FPS. 0.8.22 scanned the whole 80 m disk (`FindEditFloorM` × 5 k verts, ~400 ms) and remeshed chunks sync on the click, then again on every first visual. Clicks are **local** (no disk rescan). Rebuilds only sample columns that look edited. Remesh is async, debounced 0.4 s. `UpdateMeshSection` when no punch. Apply at most 2 meshes/frame.
 - **GX 0.8.22** Still could not dig through the **top layer** (0.8.21 log: drops 5–50 cm, many `MISS`). A 2 m grass quad does not open from a 30 cm sag. Walk disk now **punches** lid triangles over the brush / excavated columns; edited crust chunks remesh and stay streamed so the dirt bowl fills the hole. Column walk skips the stamp crust.
