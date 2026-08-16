@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-15** · On-disk build stamp: **GX 0.9.3**  
+Last updated: **2026-08-15** · On-disk build stamp: **GX 0.9.4**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.9.4** 0.9.3 shot 235243: dark brown **underside sheets** still sat above the grass. Clipmap `Update` was passed `InnerHoleM=0`, so the 8 m ring was a full disk under the 2 m tiles; coarse valleys + a 2 m tile overlap drew the backfaces. Clipmap hole is the tile stream (192 m). Tiles share the 64 m edge (no extra cell).
 - **GX 0.9.3** Standing on the crust, but tile seams were **dark fins** (underside / flipped winding, shot 192443). Each triangle is wound so Cross faces the planet radial. Vertex N is radial so shared edges light the same.
 - **GX 0.9.2** Still under the lid (192046). `earth_default.gxsav` had **100 dirty pages** of old caves; density spawn sat in them. Save cleared (bak_pre_09). Tile verts are **tile-local** so collision bounds are 64 m, not 60 km. Spawn always uses the stamp crust, not "already on a cave floor".
 - **GX 0.9.1** 0.9.0 shot: fell **through** the tiles (looking up at the underside). Tiles had no collision; density snap dropped into saved caves under the stamp. Walk tiles now cook **QueryAndPhysics** collision. HideTile turns collision off.

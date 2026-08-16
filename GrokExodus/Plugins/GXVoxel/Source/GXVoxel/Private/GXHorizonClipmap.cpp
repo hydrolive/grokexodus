@@ -204,7 +204,7 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// 0.9: walk surface is crust tiles (64 m, no punch/skirts).
 	// Clipmap only fills past the tile stream so the limb is not a void.
 	const FSpec Specs[] = {
-		{ 180.0f, 700.0f, 8.0f, 2.4f },
+		{ 192.0f, 700.0f, 8.0f, 5.0f },
 		{ 640.0f, 2800.0f, 32.0f, 3.2f },
 		{ 2500.0f, 10000.0f, 96.0f, 6.0f },
 	};
@@ -623,7 +623,9 @@ void FGXHorizonClipmap::BuildRing(
 			const float CU = (static_cast<float>(I - Half) + 0.5f) * CellM;
 			const float CV = (static_cast<float>(J - Half) + 0.5f) * CellM;
 			const float CD2 = CU * CU + CV * CV;
-			if (CD2 < InnerPad * 0.82f || CD2 > OuterPad * 1.10f)
+			// Hard inner hole. 0.82× pulled the 8 m ring back under the
+			// tiles so coarse valleys sat above the 2 m walk surface.
+			if ((InnerM > 1.0f && CD2 < InnerPad) || CD2 > OuterPad * 1.10f)
 			{
 				continue;
 			}

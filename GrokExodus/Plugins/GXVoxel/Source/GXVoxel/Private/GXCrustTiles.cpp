@@ -118,14 +118,15 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 	}
 	const float Scale = TileM * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
 	const float Cell = CellM * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
-	const int32 N = FMath::Max(2, FMath::RoundToInt(Scale / Cell)) + 1;
-	const int32 Dim = N + 1;
+	// Shared boundary verts. The extra cell + half-cell inset stacked two
+	// skins on every 64 m edge — the dark fin was the neighbor's underside.
+	const int32 Cells = FMath::Max(2, FMath::RoundToInt(Scale / Cell));
+	const int32 Dim = Cells + 1;
 	FVector FaceN, T, B;
 	FaceAxes(Tile.Key.Face, FaceN, T, B);
 	const float R0 = Stamp.GetParams().Radius;
-	// Half-cell inset so neighbors overlap and a gap cannot show the underside.
-	const float OriginU = static_cast<float>(Tile.Key.U) * Scale - 0.5f * Cell;
-	const float OriginV = static_cast<float>(Tile.Key.V) * Scale - 0.5f * Cell;
+	const float OriginU = static_cast<float>(Tile.Key.U) * Scale;
+	const float OriginV = static_cast<float>(Tile.Key.V) * Scale;
 
 	TArray<FVector> Positions;
 	TArray<FVector> Normals;
@@ -184,9 +185,9 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 			Indices.Add(I0); Indices.Add(I1); Indices.Add(I2);
 		}
 	};
-	for (int32 J = 0; J < N; ++J)
+	for (int32 J = 0; J < Cells; ++J)
 	{
-		for (int32 I = 0; I < N; ++I)
+		for (int32 I = 0; I < Cells; ++I)
 		{
 			const int32 A = I + J * Dim;
 			const int32 Bv = (I + 1) + J * Dim;

@@ -384,11 +384,17 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	}
 	if (HorizonClipmap && Volume && bAtlasReady)
 	{
+		// Tiles own the walk disk. InnerHoleM=0 rebuilt the 8 m ring as a
+		// full disk (0.9.3 shots 192443 / 235243): coarse chords sat above
+		// the 2 m tiles and showed the underside as dark fins.
+		const float ClipInnerM = CrustTiles
+			? FGXCrustTiles::StreamM
+			: 180.0f;
 		HorizonClipmap->Update(
 			this,
 			Volume->GetStamp(),
 			WorldToLocalMeters(CachedViewerWorld),
-			0.0f,
+			ClipInnerM,
 			HorizonOuterM,
 			TerrainMaterial.Get(),
 			TerrainMaterial.Get(),
