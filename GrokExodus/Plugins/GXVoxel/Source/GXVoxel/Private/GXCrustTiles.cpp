@@ -170,6 +170,94 @@ int32 FGXCrustTiles::HideTilesInSphere(const FVector& LocalM, float RadiusM)
 	return N;
 }
 
+int32 FGXCrustTiles::NotifyBrush(const FVector& LocalM, float RadiusM, bool bRemove)
+{
+	if (RadiusM <= 0.0f || Live.Num() == 0)
+	{
+		return 0;
+	}
+	const FVector BrushDir = LocalM.GetSafeNormal();
+	if (BrushDir.IsNearlyZero())
+	{
+		return 0;
+	}
+	const float BrushSurf = LocalM.Size();
+	const float R = RadiusM;
+	const float R2 = R * R;
+	int32 Changed = 0;
+	for (auto& Pair : Live)
+	{
+		FTile& Tile = Pair.Value;
+		UProceduralMeshComponent* Comp = Tile.Comp.Get();
+		if (!Comp || Tile.LivePos.Num() == 0 || Tile.StampDir.Num() != Tile.LivePos.Num())
+		{
+			continue;
+		}
+		const FVector TileWorld = Tile.OriginCm * 0.01f;
+		if (FVector::DistSquared(TileWorld, LocalM) > FMath::Square(R + TileM + 4.0f))
+		{
+			continue;
+		}
+		int32 N = 0;
+		for (int32 I = 0; I < Tile.LivePos.Num(); ++I)
+		{
+			const FVector Dir = Tile.StampDir[I];
+			const float Surf = Tile.StampSurfM.IsValidIndex(I) ? Tile.StampSurfM[I] : (Tile.OriginCm + Tile.LivePos[I]).Size() * 0.01f;
+			const FVector P = Dir * Surf;
+			const float D2 = FVector::DistSquared(P, BrushDir * BrushSurf);
+			if (D2 > R2)
+			{
+				continue;
+			}
+			const float D = FMath::Sqrt(D2);
+			const float Rise = FMath::Sqrt(FMath::Max(R2 - D2, 0.0f));
+			float NewR = Surf;
+			if (bRemove)
+			{
+				NewR = BrushSurf - Rise;
+			}
+			else
+			{
+				NewR = BrushSurf + Rise;
+			}
+			NewR = FMath::Clamp(NewR, Surf - R - 1.0f, Surf + R + 1.0f);
+			const FVector NewP = Dir * NewR * 100.0f - Tile.OriginCm;
+			if ((NewP - Tile.LivePos[I]).SizeSquared() < 1.0f)
+			{
+				continue;
+			}
+			Tile.LivePos[I] = NewP;
+			if (bRemove)
+			{
+				if (Tile.UV0.IsValidIndex(I))
+				{
+					Tile.UV0[I] = FVector2D(2.0f, 0.0f);
+				}
+				if (Tile.Colors.IsValidIndex(I))
+				{
+					Tile.Colors[I] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f);
+				}
+			}
+			++N;
+		}
+		if (N == 0)
+		{
+			continue;
+		}
+		Comp->CreateMeshSection_LinearColor(
+			0, Tile.LivePos, Tile.Indices, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents, true);
+		Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		Comp->UpdateBounds();
+		Changed += N;
+	}
+	if (Changed > 0)
+	{
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles brush %s verts=%d r=%.2f"),
+			bRemove ? TEXT("dig") : TEXT("place"), Changed, RadiusM);
+	}
+	return Changed;
+}
+
 bool FGXCrustTiles::HasTileAt(const FVector& LocalM) const
 {
 	return Live.Contains(KeyAt(LocalM, 0));
@@ -195,7 +283,8 @@ bool FGXCrustTiles::HasNeighborhood(const FVector& LocalM, int32 Half) const
 	return true;
 }
 
-void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMaterialInterface* Material)
+void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMaterialInterface* Material,
+	const TFunction<float(const FVector&)>& DensityAt)
 {
 	UProceduralMeshComponent* Comp = Tile.Comp.Get();
 	if (!Comp)
@@ -218,11 +307,15 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 	TArray<FLinearColor> Colors;
 	TArray<FProcMeshTangent> Tangents;
 	TArray<int32> Indices;
+	TArray<FVector> StampDir;
+	TArray<float> StampSurfM;
 	Positions.Reserve(Dim * Dim);
 	Normals.Reserve(Dim * Dim);
 	UV0.Reserve(Dim * Dim);
 	Colors.Reserve(Dim * Dim);
 	Tangents.Reserve(Dim * Dim);
+	StampDir.Reserve(Dim * Dim);
+	StampSurfM.Reserve(Dim * Dim);
 
 	for (int32 J = 0; J < Dim; ++J)
 	{
@@ -236,8 +329,36 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 				Dir = FaceN;
 			}
 			const FGXEarthField Field = Stamp.SampleEarthField(FVector3f(Dir.X, Dir.Y, Dir.Z), false);
-			const float SurfR = Stamp.GetParams().Radius + Field.HeightM;
+			float SurfR = Stamp.GetParams().Radius + Field.HeightM;
+			if (DensityAt)
+			{
+				const float D0 = DensityAt(Dir * SurfR);
+				if (D0 > 0.05f)
+				{
+					for (float D = 0.25f; D <= 8.0f; D += 0.25f)
+					{
+						if (DensityAt(Dir * (SurfR + D)) <= 0.0f)
+						{
+							SurfR += D;
+							break;
+						}
+					}
+				}
+				else if (D0 < -0.05f)
+				{
+					for (float D = 0.25f; D <= 8.0f; D += 0.25f)
+					{
+						if (DensityAt(Dir * (SurfR - D)) > 0.0f)
+						{
+							SurfR -= D;
+							break;
+						}
+					}
+				}
+			}
 			Positions.Add(Dir * SurfR * 100.0f);
+			StampDir.Add(Dir);
+			StampSurfM.Add(SurfR);
 			Normals.Add(Dir);
 			UV0.Add(FVector2D(1.0f, 0.0f));
 			const float Slope = 0.0f;
@@ -292,6 +413,15 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 		P -= TileOrigin;
 	}
 	Comp->SetRelativeLocation(TileOrigin);
+	Tile.OriginCm = TileOrigin;
+	Tile.LivePos = Positions;
+	Tile.StampDir = StampDir;
+	Tile.StampSurfM = StampSurfM;
+	Tile.LiveN = Normals;
+	Tile.UV0 = UV0;
+	Tile.Colors = Colors;
+	Tile.Tangents = Tangents;
+	Tile.Indices = Indices;
 
 	Comp->ClearAllMeshSections();
 	if (Positions.Num() >= 3 && Indices.Num() >= 3)
@@ -315,7 +445,8 @@ void FGXCrustTiles::Update(
 	const FGXSphereStamp& Stamp,
 	const FVector& ViewerLocalM,
 	UMaterialInterface* Material,
-	int32 MaxBuildsThisTick)
+	int32 MaxBuildsThisTick,
+	TFunction<float(const FVector&)> DensityAt)
 {
 	if (!Owner)
 	{
@@ -401,7 +532,7 @@ void FGXCrustTiles::Update(
 		FTile Tile;
 		Tile.Key = Item.Value;
 		Tile.Comp = PMC;
-		BuildTile(Tile, Stamp, Material);
+		BuildTile(Tile, Stamp, Material, DensityAt);
 		Live.Add(Item.Value, Tile);
 		++Built;
 	}

@@ -41,10 +41,12 @@ public:
 		const FGXSphereStamp& Stamp,
 		const FVector& ViewerLocalM,
 		UMaterialInterface* Material,
-		int32 MaxBuildsThisTick);
+		int32 MaxBuildsThisTick,
+		TFunction<float(const FVector&)> DensityAt = nullptr);
 	void HideTile(const FGXCrustTileKey& Key);
-	/** Hide every live tile that overlaps this sphere. They do not come back. */
 	int32 HideTilesInSphere(const FVector& LocalM, float RadiusM);
+	/** Raise (place) or drop (dig) tile verts so the stamp skin is the edit. */
+	int32 NotifyBrush(const FVector& LocalM, float RadiusM, bool bRemove);
 	bool HasTileAt(const FVector& LocalM) const;
 	/** True when the (2*Half+1)^2 block around the pawn is live. */
 	bool HasNeighborhood(const FVector& LocalM, int32 Half) const;
@@ -61,6 +63,15 @@ private:
 	{
 		FGXCrustTileKey Key;
 		TWeakObjectPtr<UProceduralMeshComponent> Comp;
+		FVector OriginCm = FVector::ZeroVector;
+		TArray<FVector> LivePos;
+		TArray<FVector> StampDir;
+		TArray<float> StampSurfM;
+		TArray<FVector> LiveN;
+		TArray<FVector2D> UV0;
+		TArray<FLinearColor> Colors;
+		TArray<FProcMeshTangent> Tangents;
+		TArray<int32> Indices;
 		bool bHidden = false;
 	};
 
@@ -72,5 +83,6 @@ private:
 	static int8 FaceOf(const FVector& Dir);
 	static FGXCrustTileKey KeyAt(const FVector& LocalM, int32 LOD);
 	static void FaceAxes(int8 Face, FVector& OutN, FVector& OutT, FVector& OutB);
-	void BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMaterialInterface* Material);
+	void BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMaterialInterface* Material,
+		const TFunction<float(const FVector&)>& DensityAt);
 };

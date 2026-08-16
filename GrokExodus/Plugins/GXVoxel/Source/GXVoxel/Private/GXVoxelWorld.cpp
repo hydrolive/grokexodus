@@ -380,7 +380,11 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			Volume->GetStamp(),
 			WorldToLocalMeters(CachedViewerWorld),
 			TerrainMaterial.Get(),
-			(WarmupTimeRemaining > 0.0f) ? 25 : 2);
+			(WarmupTimeRemaining > 0.0f) ? 25 : 2,
+			[this](const FVector& P)
+			{
+				return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z));
+			});
 	}
 	if (HorizonClipmap && Volume && bAtlasReady)
 	{
@@ -732,19 +736,12 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	if (Jobs) Jobs->BumpStamp();
 	if (CrustTiles)
 	{
-		CrustTiles->HideTilesInSphere(L, RadiusM * DigSpeedMul);
+		CrustTiles->NotifyBrush(L, RadiusM * DigSpeedMul, true);
 	}
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
-		BrushForceLOD0.Add(C);
-		if (Volume->ChunkHasEdits(C))
-		{
-			EnqueueRemesh(C, true);
-		}
 	}
-	RemeshAroundLocal(L, RadiusM * DigSpeedMul);
-	FlushMeshQueue(8);
 	RebuildEditedPageBoxes();
 	MarkPersistDirty();
 	if (HorizonClipmap)
@@ -781,19 +778,12 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	if (Jobs) Jobs->BumpStamp();
 	if (CrustTiles)
 	{
-		CrustTiles->HideTilesInSphere(L, RadiusM);
+		CrustTiles->NotifyBrush(L, RadiusM, false);
 	}
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
-		BrushForceLOD0.Add(C);
-		if (Volume->ChunkHasEdits(C))
-		{
-			EnqueueRemesh(C, true);
-		}
 	}
-	RemeshAroundLocal(L, RadiusM);
-	FlushMeshQueue(8);
 	RebuildEditedPageBoxes();
 	MarkPersistDirty();
 	if (HorizonClipmap)
@@ -1160,9 +1150,15 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 					++SkippedAir;
 					continue;
 				}
-				// Unedited crust is clipmap-only. Edited crust is punched
-				// open and must keep its voxel bowl (0.8.22).
+				// Unedited crust is tiles. Surface edits stay on the tile
+				// mesh — remeshing them was the teal gumdrop / extra faces
+				// (0.9.12 shot). Caves (edited, not on a live tile) still mesh.
 				if (ChunkOverlapsSurface(CC, ChunkM) && !bDrawVoxelVisuals && !bEdited)
+				{
+					continue;
+				}
+				if (bEdited && ChunkOverlapsSurface(CC, ChunkM) && CrustTiles
+					&& CrustTiles->HasTileAt(ChunkCenter))
 				{
 					continue;
 				}
@@ -1216,6 +1212,24 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 				}
 			}
 		}
+	}
+
+	TArray<FGXChunkKey> DropOnTile;
+	for (const auto& Pair : ChunkVisuals)
+	{
+		const FVector CC(
+			(Pair.Key.X + 0.5f) * ChunkM,
+			(Pair.Key.Y + 0.5f) * ChunkM,
+			(Pair.Key.Z + 0.5f) * ChunkM);
+		if (Volume && Volume->ChunkHasEdits(Pair.Key) && ChunkOverlapsSurface(Pair.Key, ChunkM)
+			&& CrustTiles && CrustTiles->HasTileAt(CC))
+		{
+			DropOnTile.Add(Pair.Key);
+		}
+	}
+	for (const FGXChunkKey& K : DropOnTile)
+	{
+		ReleaseVisual(K);
 	}
 
 	TArray<FGXChunkKey> ToRemove;
