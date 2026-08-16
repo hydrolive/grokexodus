@@ -51,6 +51,7 @@ void FGXCrustTiles::Shutdown()
 		}
 	}
 	Live.Reset();
+	HiddenKeys.Reset();
 	OwnerCached = nullptr;
 	bReady = false;
 }
@@ -98,15 +99,75 @@ FGXCrustTileKey FGXCrustTiles::KeyAt(const FVector& LocalM, int32 LOD)
 
 void FGXCrustTiles::HideTile(const FGXCrustTileKey& Key)
 {
+	HiddenKeys.Add(Key);
 	if (FTile* T = Live.Find(Key))
 	{
-		T->bHidden = true;
 		if (UProceduralMeshComponent* C = T->Comp.Get())
 		{
-			C->SetVisibility(false);
-			C->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			C->DestroyComponent();
+		}
+		Live.Remove(Key);
+	}
+}
+
+int32 FGXCrustTiles::HideTilesInSphere(const FVector& LocalM, float RadiusM)
+{
+	const float Cover = FMath::Max(RadiusM, 0.5f) + TileM * 0.65f;
+	const float Cover2 = Cover * Cover;
+	TArray<FGXCrustTileKey> Hit;
+	for (const auto& Pair : Live)
+	{
+		if (HiddenKeys.Contains(Pair.Key))
+		{
+			continue;
+		}
+		FVector N, T, B;
+		FaceAxes(Pair.Key.Face, N, T, B);
+		const float Scale = TileM * static_cast<float>(1 << FMath::Max(0, Pair.Key.LOD));
+		const float CU = (static_cast<float>(Pair.Key.U) + 0.5f) * Scale;
+		const float CV = (static_cast<float>(Pair.Key.V) + 0.5f) * Scale;
+		const FVector Approx = N * LocalM.Size() + T * CU + B * CV;
+		if (FVector::DistSquared(Approx, LocalM) <= Cover2)
+		{
+			Hit.Add(Pair.Key);
 		}
 	}
+	const FGXCrustTileKey Center = KeyAt(LocalM, 0);
+	for (int32 DV = -1; DV <= 1; ++DV)
+	{
+		for (int32 DU = -1; DU <= 1; ++DU)
+		{
+			FGXCrustTileKey K = Center;
+			K.U += DU;
+			K.V += DV;
+			if (!HiddenKeys.Contains(K))
+			{
+				Hit.AddUnique(K);
+			}
+		}
+	}
+	int32 N = 0;
+	for (const FGXCrustTileKey& K : Hit)
+	{
+		FVector Nrm, T, B;
+		FaceAxes(K.Face, Nrm, T, B);
+		const float Scale = TileM * static_cast<float>(1 << FMath::Max(0, K.LOD));
+		const float CU = (static_cast<float>(K.U) + 0.5f) * Scale;
+		const float CV = (static_cast<float>(K.V) + 0.5f) * Scale;
+		const FVector Approx = Nrm * LocalM.Size() + T * CU + B * CV;
+		if (FVector::DistSquared(Approx, LocalM) > Cover2)
+		{
+			continue;
+		}
+		HideTile(K);
+		++N;
+	}
+	if (N > 0)
+	{
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles hide=%d at (%.0f,%.0f,%.0f) r=%.1f"),
+			N, LocalM.X, LocalM.Y, LocalM.Z, RadiusM);
+	}
+	return N;
 }
 
 bool FGXCrustTiles::HasTileAt(const FVector& LocalM) const
@@ -275,6 +336,10 @@ void FGXCrustTiles::Update(
 			FVector N, T, B;
 			FaceAxes(K.Face, N, T, B);
 			const FVector Approx = N * Stamp.GetParams().Radius + T * CU + B * CV;
+			if (HiddenKeys.Contains(K))
+			{
+				continue;
+			}
 			if (FVector::DistSquared(Approx, ViewerLocalM) <= FMath::Square(StreamM + TileM))
 			{
 				Desired.Add(K);

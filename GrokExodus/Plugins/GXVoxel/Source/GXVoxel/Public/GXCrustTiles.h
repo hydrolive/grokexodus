@@ -43,6 +43,8 @@ public:
 		UMaterialInterface* Material,
 		int32 MaxBuildsThisTick);
 	void HideTile(const FGXCrustTileKey& Key);
+	/** Hide every live tile that overlaps this sphere. They do not come back. */
+	int32 HideTilesInSphere(const FVector& LocalM, float RadiusM);
 	bool HasTileAt(const FVector& LocalM) const;
 	/** True when the (2*Half+1)^2 block around the pawn is live. */
 	bool HasNeighborhood(const FVector& LocalM, int32 Half) const;
@@ -63,6 +65,7 @@ private:
 	};
 
 	TMap<FGXCrustTileKey, FTile> Live;
+	TSet<FGXCrustTileKey> HiddenKeys;
 	AActor* OwnerCached = nullptr;
 	bool bReady = false;
 

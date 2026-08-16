@@ -338,5 +338,6 @@ protected:
 	void RebuildEditedPageBoxes();
 	bool LocalInEditedPage(const FVector& LocalM) const;
 	bool ShouldPunchClipmap(const FVector& LocalM) const;
+	void RemeshAroundLocal(const FVector& LocalM, float RadiusM);
 	void MarkPersistDirty();
 };

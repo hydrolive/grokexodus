@@ -730,17 +730,21 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	Out.YieldAmount = Brush.VolumeChanged * 0.7f * RecoveryMul;
 	Out.ToolWear = Brush.VolumeChanged * WearMul;
 	if (Jobs) Jobs->BumpStamp();
+	if (CrustTiles)
+	{
+		CrustTiles->HideTilesInSphere(L, RadiusM * DigSpeedMul);
+	}
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
 		BrushForceLOD0.Add(C);
-		// Clipmap lid is punched. Edited crust must remesh or the hole
-		// is a sky window (0.8.9). Surface + cave both fill with MC.
 		if (Volume->ChunkHasEdits(C))
 		{
 			EnqueueRemesh(C, true);
 		}
 	}
+	RemeshAroundLocal(L, RadiusM * DigSpeedMul);
+	FlushMeshQueue(8);
 	RebuildEditedPageBoxes();
 	MarkPersistDirty();
 	if (HorizonClipmap)
@@ -775,10 +779,21 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	Out.bSuccess = Brush.VolumeChanged > 0.0f;
 	Out.MaterialId = MaterialId;
 	if (Jobs) Jobs->BumpStamp();
+	if (CrustTiles)
+	{
+		CrustTiles->HideTilesInSphere(L, RadiusM);
+	}
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
+		BrushForceLOD0.Add(C);
+		if (Volume->ChunkHasEdits(C))
+		{
+			EnqueueRemesh(C, true);
+		}
 	}
+	RemeshAroundLocal(L, RadiusM);
+	FlushMeshQueue(8);
 	RebuildEditedPageBoxes();
 	MarkPersistDirty();
 	if (HorizonClipmap)
@@ -2097,6 +2112,43 @@ bool AGXVoxelWorld::LocalInEditedPage(const FVector& LocalM) const
 		}
 	}
 	return false;
+}
+
+void AGXVoxelWorld::RemeshAroundLocal(const FVector& LocalM, float RadiusM)
+{
+	if (!Volume)
+	{
+		return;
+	}
+	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
+	const float Cover = FMath::Max(RadiusM, 1.0f) + FGXCrustTiles::TileM * 0.75f;
+	const int32 Reach = FMath::CeilToInt(Cover / ChunkM) + 1;
+	const FGXChunkKey Center = FGXVoxelVolume::VoxelToChunk(
+		FGXVoxelVolume::WorldToVoxel(FVector3d(LocalM.X, LocalM.Y, LocalM.Z), VoxelSize));
+	int32 N = 0;
+	for (int32 Z = -Reach; Z <= Reach; ++Z)
+	{
+		for (int32 Y = -Reach; Y <= Reach; ++Y)
+		{
+			for (int32 X = -Reach; X <= Reach; ++X)
+			{
+				const FGXChunkKey CC(Center.X + X, Center.Y + Y, Center.Z + Z);
+				const FVector C((CC.X + 0.5f) * ChunkM, (CC.Y + 0.5f) * ChunkM, (CC.Z + 0.5f) * ChunkM);
+				if (FVector::DistSquared(C, LocalM) > FMath::Square(Cover + ChunkM))
+				{
+					continue;
+				}
+				if (!Volume->ChunkHasEdits(CC) && !ChunkOverlapsSurface(CC, ChunkM))
+				{
+					continue;
+				}
+				BrushForceLOD0.Add(CC);
+				EnqueueRemesh(CC, true);
+				++N;
+			}
+		}
+	}
+	GX_PERF(1, TEXT("GX-remesh-footprint n=%d cover=%.0f"), N, Cover);
 }
 
 bool AGXVoxelWorld::ShouldPunchClipmap(const FVector& LocalM) const
