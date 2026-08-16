@@ -209,10 +209,13 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// (sink 5 over sink 3.2) so far hills popped in as a second skin
 	// (shots 004847 / 004907). No inner hole — that was the window
 	// through the planet.
+	// Visible annulus starts inside the tile disk (140 m) at a small sink
+	// so the 8 m ring is not a second skin on the 2 m tiles (0.9.6–0.9.8
+	// fins). Farther rings sit deeper and barely overlap.
 	const FSpec Specs[] = {
-		{ 0.0f, 850.0f, 8.0f, 16.0f },
-		{ 800.0f, 2900.0f, 32.0f, 22.0f },
-		{ 2800.0f, 10000.0f, 96.0f, 30.0f },
+		{ 140.0f, 800.0f, 8.0f, 2.5f },
+		{ 780.0f, 2800.0f, 32.0f, 8.0f },
+		{ 2700.0f, 10000.0f, 96.0f, 16.0f },
 	};
 	for (const FSpec& S : Specs)
 	{
@@ -525,9 +528,9 @@ void FGXHorizonClipmap::BuildRing(
 	// Only the 2 m walk ring sits on the stamp. Ring 1 is a full disk
 	// (InnerM=0) so look-back has no hole — if we also force sink 0 it
 	// becomes an uncut lid over every dig (0.7.54).
-	// Far rings stay under nearer ones. Ring 0 is a full disk under the
-	// 2 m tiles (sink ≥ 10 m) so a hole cannot open to the core.
-	const float Sink = FMath::Max(SinkM, 0.5f);
+	// Full disk (InnerM=0) is a hidden safety floor under the tiles.
+	// The visible annulus uses the ring SinkM (a few metres).
+	const float Sink = (InnerM < 1.0f) ? 16.0f : FMath::Max(SinkM, 0.5f);
 
 	TArray<FVector> Positions;
 	TArray<FVector> Normals;
@@ -1096,8 +1099,7 @@ void FGXHorizonClipmap::Update(
 
 	if (Rings.Num() > 0)
 	{
-		Rings[0].InnerM = 0.0f;
-		(void)InnerHoleM;
+		Rings[0].InnerM = FMath::Max(0.0f, InnerHoleM);
 	}
 	if (Rings.Num() > 2)
 	{

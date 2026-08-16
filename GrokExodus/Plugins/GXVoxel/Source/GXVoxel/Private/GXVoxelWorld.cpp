@@ -384,10 +384,13 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	}
 	if (HorizonClipmap && Volume && bAtlasReady)
 	{
-		// No hole. 0.9.7 inner=200 was past the 192 m tiles — live 097
-		// looked through the planet again. Tiles are the walk skin;
-		// the 8 m disk stays under them (sink 16 m).
-		const float ClipInnerM = 0.0f;
+		// Hole must stay inside the tile disk (192 m). 0.9.7 used 200 and
+		// opened a sky ring. 0.9.8 full-disk still drew 8 m fins on the
+		// tiles. 140 m hole after tiles cover 140 m.
+		const float ClipInnerM = (CrustTiles && CrustTiles->CoversRadius(
+			WorldToLocalMeters(CachedViewerWorld), 140.0f))
+			? 140.0f
+			: 0.0f;
 		HorizonClipmap->Update(
 			this,
 			Volume->GetStamp(),
