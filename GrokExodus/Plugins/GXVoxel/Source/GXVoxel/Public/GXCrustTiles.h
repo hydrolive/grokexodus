@@ -29,7 +29,7 @@ struct FGXCrustTileKey
 
 /**
  * Unedited crust as non-overlapping tiles.
- * Digs hide a tile (PR2). This wave only streams the stamp surface.
+ * Edits move tile verts (never hide a 64 m tile — that was a square hole).
  */
 class GXVOXEL_API FGXCrustTiles
 {
@@ -54,7 +54,7 @@ public:
 	int32 NumLive() const { return Live.Num(); }
 
 	static constexpr float TileM = 64.0f;
-	static constexpr float CellM = 2.0f;
+	static constexpr float CellM = 1.0f;
 	static constexpr float StreamM = 256.0f;
 	static constexpr int32 ReadyMin = 9;
 
