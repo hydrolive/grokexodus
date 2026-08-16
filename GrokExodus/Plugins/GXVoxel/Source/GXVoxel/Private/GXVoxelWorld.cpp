@@ -380,16 +380,15 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			Volume->GetStamp(),
 			WorldToLocalMeters(CachedViewerWorld),
 			TerrainMaterial.Get(),
-			(WarmupTimeRemaining > 0.0f) ? 16 : 2);
+			(WarmupTimeRemaining > 0.0f) ? 25 : 2);
 	}
 	if (HorizonClipmap && Volume && bAtlasReady)
 	{
-		// Hole must stay inside the tile disk (192 m). 0.9.7 used 200 and
-		// opened a sky ring. 0.9.8 full-disk still drew 8 m fins on the
-		// tiles. 140 m hole after tiles cover 140 m.
-		const float ClipInnerM = (CrustTiles && CrustTiles->CoversRadius(
-			WorldToLocalMeters(CachedViewerWorld), 140.0f))
-			? 140.0f
+		// 5×5 tiles = 320 m square. A 140 m circle stuck out past a 4×4
+		// (0.9.9 live: hole through the planet). Hole 100 m only after 5×5.
+		const float ClipInnerM = (CrustTiles && CrustTiles->HasNeighborhood(
+			WorldToLocalMeters(CachedViewerWorld), 2))
+			? 100.0f
 			: 0.0f;
 		HorizonClipmap->Update(
 			this,

@@ -114,22 +114,21 @@ bool FGXCrustTiles::HasTileAt(const FVector& LocalM) const
 	return Live.Contains(KeyAt(LocalM, 0));
 }
 
-bool FGXCrustTiles::CoversRadius(const FVector& LocalM, float RadiusM) const
+bool FGXCrustTiles::HasNeighborhood(const FVector& LocalM, int32 Half) const
 {
-	if (!HasTileAt(LocalM))
+	const FGXCrustTileKey C = KeyAt(LocalM, 0);
+	const int32 H = FMath::Max(0, Half);
+	for (int32 DV = -H; DV <= H; ++DV)
 	{
-		return false;
-	}
-	FVector N, T, B;
-	FaceAxes(FaceOf(LocalM.GetSafeNormal()), N, T, B);
-	const float R = FMath::Max(RadiusM, TileM);
-	for (int32 I = 0; I < 8; ++I)
-	{
-		const float A = static_cast<float>(I) * (PI * 0.25f);
-		const FVector P = LocalM + T * (R * FMath::Cos(A)) + B * (R * FMath::Sin(A));
-		if (!HasTileAt(P))
+		for (int32 DU = -H; DU <= H; ++DU)
 		{
-			return false;
+			FGXCrustTileKey K = C;
+			K.U += DU;
+			K.V += DV;
+			if (!Live.Contains(K))
+			{
+				return false;
+			}
 		}
 	}
 	return true;

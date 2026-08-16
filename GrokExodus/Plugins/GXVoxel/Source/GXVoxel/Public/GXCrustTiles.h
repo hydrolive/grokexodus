@@ -44,15 +44,15 @@ public:
 		int32 MaxBuildsThisTick);
 	void HideTile(const FGXCrustTileKey& Key);
 	bool HasTileAt(const FVector& LocalM) const;
-	/** True when the pawn tile plus a ring at RadiusM are all live. */
-	bool CoversRadius(const FVector& LocalM, float RadiusM) const;
+	/** True when the (2*Half+1)^2 block around the pawn is live. */
+	bool HasNeighborhood(const FVector& LocalM, int32 Half) const;
 	bool IsReady() const { return bReady; }
 	int32 NumLive() const { return Live.Num(); }
 
 	static constexpr float TileM = 64.0f;
 	static constexpr float CellM = 2.0f;
-	static constexpr float StreamM = 192.0f;
-	static constexpr int32 ReadyMin = 8;
+	static constexpr float StreamM = 256.0f;
+	static constexpr int32 ReadyMin = 9;
 
 private:
 	struct FTile

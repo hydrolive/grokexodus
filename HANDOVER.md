@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-16** · On-disk build stamp: **GX 0.9.9**  
+Last updated: **2026-08-16** · On-disk build stamp: **GX 0.9.10**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.9.10** 0.9.9 live: 140 m circular hole past the 16-tile square (~128 m) — **through the planet** along the axes. Need a 5×5 (320 m) before opening a 100 m hole. Tile stream 256 m. First tick builds 25 tiles.
 - **GX 0.9.9** 0.9.8 live: on the grass, **dark fins still on mid hills** — 8 m clipmap full disk through the tiles even at 16 m sink. Clipmap hole is 140 m (inside the 192 m tile stream) only after tiles cover 140 m. Visible annulus sink 2.5 m. Safety full disk (no cover) sink 16 m.
 - **GX 0.9.8** 0.9.7 live 097: hole 200 m > tile stream 192 m — **through the planet again**. No clipmap hole. Keep 0.9.7 tile winding (no extra cell, no per-tri flip) and 16 m sunk full disk.
 - **GX 0.9.7** 0.9.6 live viewport: standing on grass, but **dark fins** still on mid hills. Extra tile overlap + per-triangle winding flip stacked undersides. Tiles are a single 64 m grid, one winding. Clipmap hole (200 m) opens only when tiles cover 180 m; sink 16/22/30 so coarse rings stay under.
