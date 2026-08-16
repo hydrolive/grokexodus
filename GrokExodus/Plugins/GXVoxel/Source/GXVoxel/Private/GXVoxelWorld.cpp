@@ -384,12 +384,10 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	}
 	if (HorizonClipmap && Volume && bAtlasReady)
 	{
-		// Hole only when tiles actually cover it. 0.9.6 full-disk + extra
-		// tile cell stacked dark fins on the mid hills (live viewport).
-		const float ClipInnerM = (CrustTiles && CrustTiles->CoversRadius(
-			WorldToLocalMeters(CachedViewerWorld), 180.0f))
-			? 200.0f
-			: 0.0f;
+		// No hole. 0.9.7 inner=200 was past the 192 m tiles — live 097
+		// looked through the planet again. Tiles are the walk skin;
+		// the 8 m disk stays under them (sink 16 m).
+		const float ClipInnerM = 0.0f;
 		HorizonClipmap->Update(
 			this,
 			Volume->GetStamp(),

@@ -1096,7 +1096,8 @@ void FGXHorizonClipmap::Update(
 
 	if (Rings.Num() > 0)
 	{
-		Rings[0].InnerM = FMath::Max(0.0f, InnerHoleM);
+		Rings[0].InnerM = 0.0f;
+		(void)InnerHoleM;
 	}
 	if (Rings.Num() > 2)
 	{
