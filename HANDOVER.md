@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-16** · On-disk build stamp: **GX 0.9.14**  
+Last updated: **2026-08-16** · On-disk build stamp: **GX 0.9.15**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.9.15** Shots 020228 / 020247: 2 m tile yank onto a new sphere — **harsh pyramids**, and the next orange **raised** the spike. Dig only subtracts density. Hide the lid (UV-rect test, always the tile under the brush). Remesh 1 m voxels. Tile verts never rise on remove.
 - **GX 0.9.14** 0.9.13 live: add is a **dirt bump in the grass** (no extra mesh). Dig still easy to miss — 1.2 m brush vs 2 m verts. Influence is R+cell so every click moves a quad.
 - **GX 0.9.13** 0.9.12 live: teal add is a **dirt blob on the grass**; orange dig did not open the lid. Hide-tile missed (tile-center test). Remesh stacked an MC sphere on the tiles. Dig/place now move tile verts (bowl / cap). Surface edited chunks do not remesh while the tile is live.
 - **GX 0.9.12** Dig (orange) did not cut the grass lid; add (teal) stacked extra faces. Tiles were never hidden — density + voxel remesh sat under/on the stamp tiles. Hide overlapping tiles (they do not respawn). Remesh the tile footprint and flush 8 meshes on the click. Place remeshes too.

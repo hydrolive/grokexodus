@@ -129,6 +129,7 @@ void AGXVoxelWorld::ResetStreamingState()
 	LastStreamViewerWorld = FVector(1e12f, 0, 0);
 	WarmupTimeRemaining = WarmupSeconds;
 	bWorldReady = false;
+	bRevealedTileEdits = false;
 	LoadProgress = 0.0f;
 	LoadStatus = TEXT("Rebuilding planet…");
 }
@@ -385,6 +386,20 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			{
 				return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z));
 			});
+		if (!bRevealedTileEdits && CrustTiles->IsReady() && EditedPageBoxesM.Num() > 0)
+		{
+			bRevealedTileEdits = true;
+			for (const FBox& B : EditedPageBoxesM)
+			{
+				const FVector C = B.GetCenter();
+				const float R = B.GetExtent().Size();
+				CrustTiles->HideTilesInSphere(C, FMath::Max(R, 2.0f));
+				RemeshAroundLocal(C, FMath::Max(R, 2.0f));
+			}
+			FlushMeshQueue(16);
+			UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s reveal edits boxes=%d"),
+				GX_VERSION_STRING, EditedPageBoxesM.Num());
+		}
 	}
 	if (HorizonClipmap && Volume && bAtlasReady)
 	{
@@ -736,12 +751,19 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	if (Jobs) Jobs->BumpStamp();
 	if (CrustTiles)
 	{
-		CrustTiles->NotifyBrush(L, RadiusM * DigSpeedMul, true);
+		CrustTiles->HideTilesInSphere(L, RadiusM * DigSpeedMul);
 	}
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
+		BrushForceLOD0.Add(C);
+		if (Volume->ChunkHasEdits(C))
+		{
+			EnqueueRemesh(C, true);
+		}
 	}
+	RemeshAroundLocal(L, RadiusM * DigSpeedMul);
+	FlushMeshQueue(8);
 	RebuildEditedPageBoxes();
 	MarkPersistDirty();
 	if (HorizonClipmap)
@@ -778,12 +800,19 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	if (Jobs) Jobs->BumpStamp();
 	if (CrustTiles)
 	{
-		CrustTiles->NotifyBrush(L, RadiusM, false);
+		CrustTiles->HideTilesInSphere(L, RadiusM);
 	}
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
+		BrushForceLOD0.Add(C);
+		if (Volume->ChunkHasEdits(C))
+		{
+			EnqueueRemesh(C, true);
+		}
 	}
+	RemeshAroundLocal(L, RadiusM);
+	FlushMeshQueue(8);
 	RebuildEditedPageBoxes();
 	MarkPersistDirty();
 	if (HorizonClipmap)

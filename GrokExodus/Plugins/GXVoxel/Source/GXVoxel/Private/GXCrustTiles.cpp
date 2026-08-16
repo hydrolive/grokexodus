@@ -112,55 +112,45 @@ void FGXCrustTiles::HideTile(const FGXCrustTileKey& Key)
 
 int32 FGXCrustTiles::HideTilesInSphere(const FVector& LocalM, float RadiusM)
 {
-	const float Cover = FMath::Max(RadiusM, 0.5f) + TileM * 0.65f;
-	const float Cover2 = Cover * Cover;
-	TArray<FGXCrustTileKey> Hit;
-	for (const auto& Pair : Live)
-	{
-		if (HiddenKeys.Contains(Pair.Key))
-		{
-			continue;
-		}
-		FVector N, T, B;
-		FaceAxes(Pair.Key.Face, N, T, B);
-		const float Scale = TileM * static_cast<float>(1 << FMath::Max(0, Pair.Key.LOD));
-		const float CU = (static_cast<float>(Pair.Key.U) + 0.5f) * Scale;
-		const float CV = (static_cast<float>(Pair.Key.V) + 0.5f) * Scale;
-		const FVector Approx = N * LocalM.Size() + T * CU + B * CV;
-		if (FVector::DistSquared(Approx, LocalM) <= Cover2)
-		{
-			Hit.Add(Pair.Key);
-		}
-	}
+	const float Pad = FMath::Max(RadiusM, 0.5f) + 2.0f;
 	const FGXCrustTileKey Center = KeyAt(LocalM, 0);
+	int32 N = 0;
+	auto HideIfNear = [&](const FGXCrustTileKey& K)
+	{
+		if (HiddenKeys.Contains(K) && !Live.Contains(K))
+		{
+			return;
+		}
+		FVector Nrm, T, B;
+		FaceAxes(K.Face, Nrm, T, B);
+		const float Scale = TileM * static_cast<float>(1 << FMath::Max(0, K.LOD));
+		const float U0 = static_cast<float>(K.U) * Scale;
+		const float V0 = static_cast<float>(K.V) * Scale;
+		const float U = FVector::DotProduct(LocalM, T);
+		const float V = FVector::DotProduct(LocalM, B);
+		const float Du = FMath::Max(0.0f, FMath::Max(U0 - U, U - (U0 + Scale)));
+		const float Dv = FMath::Max(0.0f, FMath::Max(V0 - V, V - (V0 + Scale)));
+		if ((Du * Du + Dv * Dv) > (Pad * Pad))
+		{
+			return;
+		}
+		HideTile(K);
+		++N;
+	};
+	HideIfNear(Center);
 	for (int32 DV = -1; DV <= 1; ++DV)
 	{
 		for (int32 DU = -1; DU <= 1; ++DU)
 		{
+			if (DU == 0 && DV == 0)
+			{
+				continue;
+			}
 			FGXCrustTileKey K = Center;
 			K.U += DU;
 			K.V += DV;
-			if (!HiddenKeys.Contains(K))
-			{
-				Hit.AddUnique(K);
-			}
+			HideIfNear(K);
 		}
-	}
-	int32 N = 0;
-	for (const FGXCrustTileKey& K : Hit)
-	{
-		FVector Nrm, T, B;
-		FaceAxes(K.Face, Nrm, T, B);
-		const float Scale = TileM * static_cast<float>(1 << FMath::Max(0, K.LOD));
-		const float CU = (static_cast<float>(K.U) + 0.5f) * Scale;
-		const float CV = (static_cast<float>(K.V) + 0.5f) * Scale;
-		const FVector Approx = Nrm * LocalM.Size() + T * CU + B * CV;
-		if (FVector::DistSquared(Approx, LocalM) > Cover2)
-		{
-			continue;
-		}
-		HideTile(K);
-		++N;
 	}
 	if (N > 0)
 	{
@@ -209,24 +199,29 @@ int32 FGXCrustTiles::NotifyBrush(const FVector& LocalM, float RadiusM, bool bRem
 			{
 				continue;
 			}
-			const float D = FMath::Sqrt(D2);
 			const float Rise = FMath::Sqrt(FMath::Max(R2 - D2, 0.0f));
-			float NewR = Surf;
+			const float CurR = (Tile.OriginCm + Tile.LivePos[I]).Size() * 0.01f;
+			float NewR = CurR;
 			if (bRemove)
 			{
-				NewR = BrushSurf - Rise;
+				// Only drop. Setting an absolute sphere raised last-click
+				// verts (shots 020228 → 020247 grew the pyramid).
+				NewR = FMath::Min(CurR, BrushSurf - Rise);
 			}
 			else
 			{
-				NewR = BrushSurf + Rise;
+				NewR = FMath::Max(CurR, BrushSurf + Rise);
 			}
 			NewR = FMath::Clamp(NewR, Surf - R - 1.0f, Surf + R + 1.0f);
-			const FVector NewP = Dir * NewR * 100.0f - Tile.OriginCm;
-			if ((NewP - Tile.LivePos[I]).SizeSquared() < 1.0f)
+			if (NewR >= CurR - 0.01f && bRemove)
 			{
 				continue;
 			}
-			Tile.LivePos[I] = NewP;
+			if (NewR <= CurR + 0.01f && !bRemove)
+			{
+				continue;
+			}
+			Tile.LivePos[I] = Dir * NewR * 100.0f - Tile.OriginCm;
 			if (bRemove)
 			{
 				if (Tile.UV0.IsValidIndex(I))
