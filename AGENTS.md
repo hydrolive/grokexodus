@@ -136,24 +136,22 @@ Every completed change set ends with **Unreal Editor open** on `Lvl_VoxelPlanet`
 
 Never wait on `127.0.0.1:12029` unless `UnrealEditor.exe` is already a live process.
 
-### Launch recipe (PowerShell)
+### Launch recipe
 
-Quote the map. Bare `/Game/...` is a PowerShell switch and the process exits immediately. Do **not** redirect stdout/stderr (that kills Unreal when the pipe fills). Use `Start-Process` so the editor is **not** a child of a timeout job.
+**Always** run `LaunchEditor.cmd` (repo root). It uses `Win32_Process.Create` so Unreal **breaks away** from the agent Job Object. `Start-Process`, `& UnrealEditor.exe`, and `cmd start` stay in the job and die when the tool command ends — that is why the user has had to start the editor by hand.
 
-```powershell
-$exe  = "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe"
-$proj = "E:\Github\grokexodus\GrokExodus\GrokExodus.uproject"
-Start-Process -FilePath $exe `
-  -WorkingDirectory "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64" `
-  -ArgumentList @("`"$proj`"", "`"/Game/Voxel/Maps/Lvl_VoxelPlanet`"", "-skipcompile")
+```
+cmd /c E:\Github\grokexodus\LaunchEditor.cmd
 ```
 
-1. Run that as its **own** command, not chained after `git commit`.
-2. Sleep 3–4 s. `Get-Process UnrealEditor`. If there is no PID, launch again. Do **not** poll `:12029` on an empty process list.
+Do **not** redirect stdout/stderr. Do **not** pass a bare `/Game/...` through PowerShell (it is a switch). Do **not** chain this after `git commit`.
+
+1. Run that as its **own** command.
+2. Sleep 4 s. `Get-Process UnrealEditor` must show a PID **and** a `MainWindowTitle` (or one appears within ~30 s). If there is no PID, run the cmd again.
 3. Poll `127.0.0.1:12029` (up to ~90 s). Log line: `TCP server started at 127.0.0.1:12029`.
 4. If the port never opens, check `Get-Process UnrealEditor` again. If the process is gone, it **crashed** — do not keep polling. Relaunch once; if it dies again, read `Saved/Logs/GrokExodus.log`.
 5. If the process is alive but `:12029` is closed, `UnrealMCPython` did not start. That is a plugin/load bug, not a “user should click the editor” problem.
-6. After a rebuild (fresh editor, user needs to test): MCP `unreal-mcpython__util` action `start_pie`. If the editor was already in a session you did not close, leave that session alone.
+6. After a rebuild (fresh editor): MCP `unreal-mcpython__util` action `start_pie`. Confirm a window title containing `GrokExodus` before ending the turn. If the editor was already in a session you did not close, leave that session alone.
 
 ---
 
