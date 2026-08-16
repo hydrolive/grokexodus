@@ -16,8 +16,8 @@
 #if WITH_EDITOR
 static TAutoConsoleVariable<int32> CVarGXNaniteTiles(
 	TEXT("gx.nanite.tiles"),
-	1,
-	TEXT("Walk tiles: 0=PMC visual, 1=Nanite tessellation + world-space displacement."),
+	0,
+	TEXT("Walk tiles: 0=PMC (default). 1=Nanite underfoot only — that cracked the Y=0 tile edge."),
 	ECVF_Default);
 #endif
 
@@ -54,7 +54,7 @@ namespace
 			return nullptr;
 		}
 		SMC->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		SMC->SetCastShadow(true);
+		SMC->SetCastShadow(false);
 		SMC->SetVisibleInRayTracing(false);
 		SMC->bNeverDistanceCull = true;
 		SMC->SetCullDistance(0.0f);
@@ -73,7 +73,7 @@ void FGXCrustTiles::Initialize(AActor* Owner)
 	bReady = false;
 	LastNaniteCookSeconds = -1.0e9;
 	ReadyAtSeconds = -1.0e9;
-	UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles: tile=%.0f cell=%.2f stream=%.0f (0.10.3 sphere, closed lid)"),
+	UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles: tile=%.0f cell=%.2f stream=%.0f (0.10.4 overlap, no auto Nanite)"),
 		TileM, CellM, StreamM);
 }
 
@@ -541,7 +541,9 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 	const float Scale = TileM * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
 	const float BaseCell = (Tile.FineCell > 0.1f) ? Tile.FineCell : CellM;
 	const float Cell = BaseCell * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
-	const int32 Cells = FMath::Max(2, FMath::RoundToInt(Scale / Cell));
+	// Extra cell so neighbors overlap 1 m. Shared-edge-only (0.10.3) left a
+	// dark crack down Y=0 — Nanite underfoot vs PMC neighbor, plus float.
+	const int32 Cells = FMath::Max(2, FMath::RoundToInt(Scale / Cell)) + 1;
 	const int32 Dim = Cells + 1;
 	FVector FaceN, T, B;
 	FaceAxes(Tile.Key.Face, FaceN, T, B);
