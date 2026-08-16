@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.4**  
+Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.5**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.5** Shot GX-dig-0104: dig **yanked 1 m verts toward the brush** — huge dirt pyramids. First stroke refines the tile to **0.5 m**. Verts move **only along the planet radial** to the brush-sphere hit (closed crater matching the ball). Dirt on the floor.
 - **GX 0.10.4** Shot GX-seam-0103: **dark crack down Y=0** (tile U=0/−1). Underfoot Nanite displaced 48 cm; the PMC neighbor did not. Tiles overlap one 1 m cell. Auto Nanite off (`gx.nanite.tiles 0`).
 - **GX 0.10.3** 0.10.2 punch deleted lid tris; voxel remesh never filled them — **teal L-holes through the planet**. Dig/Add project verts onto the brush sphere (closed lid, same shape as the ball). No punch, no surface remesh, no dirt rim. Cleared leftover `earth_default.gxsav` pages.
 - **GX 0.10.2** Load was 68×320 ms Nanite (3 FPS for 22 s). Dig FineCell-rebuilt the 64 m tile + recooked Nanite and sagged a **cosine bowl with a dirt rim**. Dig now **punches lid tris** in the CSG sphere and remeshes 1 m voxels into the hole. No FineCell, no Nanite on dig, no clipmap brush when a tile is live. Nanite cooks **only the tile underfoot**, 2 s after Ready. Warmup 9 tiles (not 25).

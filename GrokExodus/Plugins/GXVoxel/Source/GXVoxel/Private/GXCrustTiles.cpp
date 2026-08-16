@@ -73,8 +73,8 @@ void FGXCrustTiles::Initialize(AActor* Owner)
 	bReady = false;
 	LastNaniteCookSeconds = -1.0e9;
 	ReadyAtSeconds = -1.0e9;
-	UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles: tile=%.0f cell=%.2f stream=%.0f (0.10.4 overlap, no auto Nanite)"),
-		TileM, CellM, StreamM);
+	UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles: tile=%.0f cell=%.2f fine=%.2f stream=%.0f (0.10.5 radial CSG)"),
+		TileM, CellM, FineCellM, StreamM);
 }
 
 void FGXCrustTiles::Shutdown()
@@ -203,28 +203,32 @@ int32 FGXCrustTiles::NotifyBrush(
 		return 0;
 	}
 	(void)DensityAt;
-	(void)Stamp;
 	const FVector BrushDir = LocalM.GetSafeNormal();
 	if (BrushDir.IsNearlyZero())
 	{
 		return 0;
 	}
-	// Keep the lid closed. Punching tris (0.10.2) opened a teal window
-	// because the 1 m voxel remesh never filled it. Project verts onto
-	// the brush sphere — same shape as the preview ball, no rim, no hole.
-	const float Influence = RadiusM + CellM;
-	const float Influence2 = Influence * Influence;
+	// Radial CSG only. Yanking verts toward the brush center (0.10.3) made
+	// 1 m pyramids (GX-dig-0104). First stroke refines this tile to 0.5 m.
+	const float Cover = RadiusM + FineCellM;
+	const float Cover2 = Cover * Cover;
+	const float R2 = RadiusM * RadiusM;
 	int32 Changed = 0;
 	for (auto& Pair : Live)
 	{
 		FTile& Tile = Pair.Value;
 		const FVector TileWorld = Tile.OriginCm * 0.01f;
-		if (FVector::DistSquared(TileWorld, LocalM) > FMath::Square(Influence + TileM + 4.0f))
+		if (FVector::DistSquared(TileWorld, LocalM) > FMath::Square(Cover + TileM + 4.0f))
 		{
 			continue;
 		}
+		if (FMath::Abs(Tile.FineCell - FineCellM) > 0.01f)
+		{
+			Tile.FineCell = FineCellM;
+			BuildTile(Tile, Stamp, Material, nullptr);
+		}
 		UProceduralMeshComponent* Comp = Tile.Comp.Get();
-		if (!Comp || Tile.LivePos.Num() == 0)
+		if (!Comp || Tile.LivePos.Num() == 0 || Tile.StampDir.Num() != Tile.LivePos.Num())
 		{
 			continue;
 		}
@@ -233,29 +237,47 @@ int32 FGXCrustTiles::NotifyBrush(
 		int32 N = 0;
 		for (int32 I = 0; I < Tile.LivePos.Num(); ++I)
 		{
+			const FVector Dir = Tile.StampDir[I];
 			const FVector W = (Tile.OriginCm + Tile.LivePos[I]) * 0.01f;
-			const FVector Delta = W - LocalM;
-			const float Dist2 = Delta.SizeSquared();
-			if (Dist2 > Influence2)
+			if (FVector::DistSquared(W, LocalM) > Cover2)
 			{
 				continue;
 			}
-			const float Dist = FMath::Sqrt(FMath::Max(Dist2, 1.0e-8f));
-			const FVector OnSphere = LocalM + (Delta / Dist) * RadiusM;
 			const float CurR = W.Size();
-			const float NewR = OnSphere.Size();
-			if (bRemove)
+			// Ray Origin + t*Dir vs brush sphere |X-C|^2 = R^2.
+			const float Bcoe = FVector::DotProduct(Dir, LocalM);
+			const float Disc = Bcoe * Bcoe - (LocalM.SizeSquared() - R2);
+			float NewR = CurR;
+			if (Disc >= 0.0f)
 			{
-				if (NewR >= CurR - 0.01f)
+				const float THit = Bcoe - FMath::Sqrt(Disc);
+				if (THit > 0.0f)
 				{
-					continue;
+					NewR = bRemove ? FMath::Min(CurR, THit) : FMath::Max(CurR, Bcoe + FMath::Sqrt(Disc));
 				}
 			}
-			else if (NewR <= CurR + 0.01f)
+			else
+			{
+				// 0.5 m vert just outside the 1.2 m ball — sag the quad.
+				const float D3 = FVector::Dist(W, LocalM);
+				float Wgt = 1.0f - D3 / Cover;
+				Wgt = Wgt * Wgt * (3.0f - 2.0f * Wgt);
+				const float Nudge = RadiusM * 0.20f * Wgt;
+				NewR = bRemove ? (CurR - Nudge) : (CurR + Nudge * 0.55f);
+			}
+			if (FMath::Abs(NewR - CurR) < 0.01f)
 			{
 				continue;
 			}
-			Tile.LivePos[I] = OnSphere * 100.0f - Tile.OriginCm;
+			Tile.LivePos[I] = Dir * NewR * 100.0f - Tile.OriginCm;
+			if (bRemove && (CurR - NewR) > 0.12f && Tile.UV0.IsValidIndex(I))
+			{
+				Tile.UV0[I] = FVector2D(3.0f, 0.0f);
+				if (Tile.Colors.IsValidIndex(I))
+				{
+					Tile.Colors[I] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f);
+				}
+			}
 			++N;
 		}
 		if (N == 0)
@@ -263,8 +285,8 @@ int32 FGXCrustTiles::NotifyBrush(
 			continue;
 		}
 		RecomputeNormals(Tile);
-		Comp->UpdateMeshSection_LinearColor(
-			0, Tile.LivePos, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents);
+		Comp->CreateMeshSection_LinearColor(
+			0, Tile.LivePos, Tile.Indices, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents, true);
 		Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 		Comp->SetVisibility(true);
 		Comp->UpdateBounds();
@@ -272,8 +294,8 @@ int32 FGXCrustTiles::NotifyBrush(
 	}
 	if (Changed > 0)
 	{
-		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles sculpt %s verts=%d r=%.2f"),
-			bRemove ? TEXT("dig") : TEXT("place"), Changed, RadiusM);
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles sculpt %s verts=%d r=%.2f cell=%.2f"),
+			bRemove ? TEXT("dig") : TEXT("place"), Changed, RadiusM, FineCellM);
 		GX_PERF(1, TEXT("GX-tile sculpt %s verts=%d r=%.2f"),
 			bRemove ? TEXT("dig") : TEXT("place"), Changed, RadiusM);
 	}
