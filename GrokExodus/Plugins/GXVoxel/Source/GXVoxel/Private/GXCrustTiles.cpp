@@ -118,13 +118,14 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 	}
 	const float Scale = TileM * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
 	const float Cell = CellM * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
-	const int32 N = FMath::Max(2, FMath::RoundToInt(Scale / Cell));
+	const int32 N = FMath::Max(2, FMath::RoundToInt(Scale / Cell)) + 1;
 	const int32 Dim = N + 1;
 	FVector FaceN, T, B;
 	FaceAxes(Tile.Key.Face, FaceN, T, B);
 	const float R0 = Stamp.GetParams().Radius;
-	const float OriginU = static_cast<float>(Tile.Key.U) * Scale;
-	const float OriginV = static_cast<float>(Tile.Key.V) * Scale;
+	// Half-cell inset so neighbors overlap and a gap cannot show the underside.
+	const float OriginU = static_cast<float>(Tile.Key.U) * Scale - 0.5f * Cell;
+	const float OriginV = static_cast<float>(Tile.Key.V) * Scale - 0.5f * Cell;
 
 	TArray<FVector> Positions;
 	TArray<FVector> Normals;
@@ -167,8 +168,22 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 		}
 	}
 
-	TArray<FVector> AccN;
-	AccN.Init(FVector::ZeroVector, Positions.Num());
+	// Winding must face the sky. A,B,C on the cube-face grid is outward on
+	// +X but inward on some other faces — 0.9.2 seams drew the underside
+	// (dark fins across the hills).
+	auto AddOutward = [&](int32 I0, int32 I1, int32 I2)
+	{
+		const FVector FN = FVector::CrossProduct(Positions[I1] - Positions[I0], Positions[I2] - Positions[I0]);
+		const FVector Rad = (Positions[I0] + Positions[I1] + Positions[I2]).GetSafeNormal();
+		if (!Rad.IsNearlyZero() && FVector::DotProduct(FN, Rad) < 0.0f)
+		{
+			Indices.Add(I0); Indices.Add(I2); Indices.Add(I1);
+		}
+		else
+		{
+			Indices.Add(I0); Indices.Add(I1); Indices.Add(I2);
+		}
+	};
 	for (int32 J = 0; J < N; ++J)
 	{
 		for (int32 I = 0; I < N; ++I)
@@ -177,37 +192,22 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 			const int32 Bv = (I + 1) + J * Dim;
 			const int32 C = I + (J + 1) * Dim;
 			const int32 D = (I + 1) + (J + 1) * Dim;
-			Indices.Add(A); Indices.Add(Bv); Indices.Add(C);
-			Indices.Add(Bv); Indices.Add(D); Indices.Add(C);
-			const FVector FN = FVector::CrossProduct(Positions[Bv] - Positions[A], Positions[C] - Positions[A]);
-			AccN[A] += FN; AccN[Bv] += FN; AccN[C] += FN; AccN[D] += FN;
+			AddOutward(A, Bv, C);
+			AddOutward(Bv, D, C);
 		}
 	}
 	const float Relief = FMath::Max(Stamp.GetParams().MaxRelief, 1.0f);
 	for (int32 VI = 0; VI < Positions.Num(); ++VI)
 	{
-		FVector Nrm = AccN[VI].GetSafeNormal();
-		if (Nrm.IsNearlyZero())
-		{
-			Nrm = Normals[VI];
-		}
+		// Radial N so shared tile edges light the same (face AccN was a crease).
 		const FVector Radial = Positions[VI].GetSafeNormal();
-		if (FVector::DotProduct(Nrm, Radial) < 0.0f)
-		{
-			Nrm = -Nrm;
-		}
-		Normals[VI] = Nrm;
-		const float Slope = 1.0f - FMath::Abs(FVector::DotProduct(Nrm, Radial));
+		Normals[VI] = Radial.IsNearlyZero() ? FaceN : Radial;
 		const float HeightM = Positions[VI].Size() * 0.01f - R0;
 		const float Alt = HeightM / Relief;
-		if (Alt > 0.16f || Slope > 0.14f)
+		if (Alt > 0.16f)
 		{
 			Colors[VI] = FLinearColor(0.58f, 0.50f, 0.44f);
 			UV0[VI] = FVector2D(2.0f, 0.0f);
-		}
-		else if (Slope > 0.09f)
-		{
-			Colors[VI] = FLinearColor(0.54f, 0.42f, 0.28f);
 		}
 	}
 

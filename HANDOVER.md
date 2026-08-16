@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-15** · On-disk build stamp: **GX 0.9.2**  
+Last updated: **2026-08-15** · On-disk build stamp: **GX 0.9.3**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.9.3** Standing on the crust, but tile seams were **dark fins** (underside / flipped winding, shot 192443). Each triangle is wound so Cross faces the planet radial. Vertex N is radial so shared edges light the same.
 - **GX 0.9.2** Still under the lid (192046). `earth_default.gxsav` had **100 dirty pages** of old caves; density spawn sat in them. Save cleared (bak_pre_09). Tile verts are **tile-local** so collision bounds are 64 m, not 60 km. Spawn always uses the stamp crust, not "already on a cave floor".
 - **GX 0.9.1** 0.9.0 shot: fell **through** the tiles (looking up at the underside). Tiles had no collision; density snap dropped into saved caves under the stamp. Walk tiles now cook **QueryAndPhysics** collision. HideTile turns collision off.
 - **GX 0.9.0** 0.8.23 shot 183840: half a planet, hanging clipmap spikes, voxel slab. Dual-mesh is done as a strategy. Walk crust is **64 m tiles** (no punch/skirts). Clipmap starts at 180 m for the limb only. Ready waits for tiles. Dig still hits the old clipmap path until PR2 (hide tile + voxel). Nanite displacement is PR0 spike next.
