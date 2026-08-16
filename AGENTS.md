@@ -118,31 +118,42 @@ GrokExodus/Binaries/Win64/UnrealEditor-GrokExodus.dll
 
 Then run the same `Build.bat … Development … -NoUBA`. Do not launch the editor until that link finishes.
 
-### 4. Relaunch so the user can PIE
+### 4. Relaunch so the user can test
 
-After a successful link, **actually launch** the editor (see **Launch the editor** below). Do not only poll port 12029.
+After a successful link, **actually launch** the editor (see **Launch the editor** below) and start PIE. Do not only poll port 12029. Do not end the turn with Unreal closed.
 
-Skip this close/rebuild/relaunch loop for docs-only or Python-only changes that do not touch C++.
+Skip the **close/rebuild** for docs-only or Python-only changes that do not touch C++. Still leave the editor running (launch it if it is not).
 
 ---
 
-## Mandatory: launch the editor yourself
+## Mandatory: leave the editor running so the user can test
 
-Never wait on `127.0.0.1:12029` unless `UnrealEditor.exe` is already a live process. The user must not start the editor for you.
+Every completed change set ends with **Unreal Editor open** on `Lvl_VoxelPlanet`. The user hits Play (or is already in PIE). Ending a turn with no `UnrealEditor.exe` is a failed handoff — do not say “you can launch the editor.”
 
-Editor binary and map:
+- **C++ / plugin / `GXVersion.h`:** close → rebuild `-NoUBA` → launch → wait for `:12029` → start PIE.
+- **Python / content:** editor must already be up for MCP; if it is not, launch it first.
+- **Docs / AGENTS only:** do not close a live session. If nothing is running, launch so the last binary is one click from Play.
 
+Never wait on `127.0.0.1:12029` unless `UnrealEditor.exe` is already a live process.
+
+### Launch recipe (PowerShell)
+
+Quote the map. Bare `/Game/...` is a PowerShell switch and the process exits immediately. Do **not** redirect stdout/stderr (that kills Unreal when the pipe fills). Use `Start-Process` so the editor is **not** a child of a timeout job.
+
+```powershell
+$exe  = "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe"
+$proj = "E:\Github\grokexodus\GrokExodus\GrokExodus.uproject"
+Start-Process -FilePath $exe `
+  -WorkingDirectory "C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64" `
+  -ArgumentList @("`"$proj`"", "`"/Game/Voxel/Maps/Lvl_VoxelPlanet`"", "-skipcompile")
 ```
-"C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe"
-"E:\Github\grokexodus\GrokExodus\GrokExodus.uproject"
-/Game/Voxel/Maps/Lvl_VoxelPlanet -skipcompile
-```
 
-1. `Get-Process UnrealEditor -ErrorAction SilentlyContinue`. If there is no process, launch with `Start-Process` (or `&` in background). Do this as its **own** command, not chained after `git commit` where a failure can skip the launch.
-2. Sleep 2–3 s. Confirm a PID exists. If not, launch again and print the error. Do **not** start a 12029 wait loop on an empty process list.
-3. Only then poll `127.0.0.1:12029` (up to ~90 s). Log line: `TCP server started at 127.0.0.1:12029`.
-4. If the port never opens, check `Get-Process UnrealEditor` again. If the process is gone, the editor **crashed** — do not keep polling. Relaunch once; if it dies again, read `Saved/Logs/GrokExodus.log`.
-5. If the process is alive but `:12029` is closed, the `UnrealMCPython` plugin did not start. That is a plugin/load bug, not a “user should click the editor” problem.
+1. Run that as its **own** command, not chained after `git commit`.
+2. Sleep 3–4 s. `Get-Process UnrealEditor`. If there is no PID, launch again. Do **not** poll `:12029` on an empty process list.
+3. Poll `127.0.0.1:12029` (up to ~90 s). Log line: `TCP server started at 127.0.0.1:12029`.
+4. If the port never opens, check `Get-Process UnrealEditor` again. If the process is gone, it **crashed** — do not keep polling. Relaunch once; if it dies again, read `Saved/Logs/GrokExodus.log`.
+5. If the process is alive but `:12029` is closed, `UnrealMCPython` did not start. That is a plugin/load bug, not a “user should click the editor” problem.
+6. After a rebuild (fresh editor, user needs to test): MCP `unreal-mcpython__util` action `start_pie`. If the editor was already in a session you did not close, leave that session alone.
 
 ---
 
@@ -191,7 +202,8 @@ Required bar:
 - **Plugins own simulation:** `GXCore`, `GXVoxel`, `GXCelestial`, `GXConstruct`, `GXPresentation`.
 - Hardware ray tracing is **on** (`r.RayTracing=True`, Lumen HW RT). Only **near-field collision** voxel chunks are visible to RT. Do not enable `RayTracingProxies` on every PMC chunk (that was ~2 FPS).
 - The agent closes the editor and rebuilds Development `-NoUBA` (see above). Do not leave those steps to the user.
-- The agent launches the editor and runs Unreal Python over MCP. Never ask the user to execute `py` in the Output Log. Unity MCP is off.
+- The agent launches the editor and starts PIE after every playable change so the user can test. Never ask them to start Unreal.
+- The agent runs Unreal Python over MCP. Never ask the user to execute `py` in the Output Log. Unity MCP is off.
 
 ---
 
@@ -209,7 +221,7 @@ Required bar:
 
 ## Play / verify
 
-1. Agent already closed Unreal, rebuilt Development `-NoUBA`, and relaunched `Lvl_VoxelPlanet`.
+1. Agent already closed Unreal (if a new binary was needed), rebuilt Development `-NoUBA`, relaunched `Lvl_VoxelPlanet`, and started PIE. The editor is still running.
 2. PIE: top-left gold `GX X.Y.Z` from the Slate overlay (not the Canvas HUD).
 3. Loading overlay ≥ 2.5 s, then fade. Version stamp stays.
 4. Log: `********** GX BUILD X.Y.Z` and `overlay attached`.

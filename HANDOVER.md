@@ -456,6 +456,7 @@ See `AGENTS.md`:
 
 1. Bump `GXVersion.h` on every user-facing revision.
 2. Auto-commit that revision with a detailed message. Do not push unless asked.
+3. Leave Unreal running on `Lvl_VoxelPlanet` when the change is done (launch + PIE after a rebuild) so the user can test. Do not end a turn with the editor closed.
 
 ## Recent commits
 
