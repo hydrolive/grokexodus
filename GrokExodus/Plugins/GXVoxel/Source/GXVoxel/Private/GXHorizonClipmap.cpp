@@ -201,11 +201,12 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// ring at sink 0 — that second ring is the uncut grass lid you can
 	// walk under (shot 044722). Far rings start past the walk disk and
 	// sit deeper so they cannot lid a crater.
+	// 0.9: walk surface is crust tiles (64 m, no punch/skirts).
+	// Clipmap only fills past the tile stream so the limb is not a void.
 	const FSpec Specs[] = {
-		{ 0.0f, 80.0f, 2.0f, 0.0f },
-		{ 70.0f, 360.0f, 8.0f, 2.4f },
-		{ 330.0f, 1600.0f, 32.0f, 3.2f },
-		{ 1400.0f, 10000.0f, 96.0f, 6.0f },
+		{ 180.0f, 700.0f, 8.0f, 2.4f },
+		{ 640.0f, 2800.0f, 32.0f, 3.2f },
+		{ 2500.0f, 10000.0f, 96.0f, 6.0f },
 	};
 	for (const FSpec& S : Specs)
 	{
@@ -234,7 +235,7 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 			}
 		}
 	}
-	UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap: %d rings (0.8.20 one walk disk)"), Rings.Num());
+	UE_LOG(LogGXVoxel, Warning, TEXT("GXHorizonClipmap: %d rings (0.9 far limb only)"), Rings.Num());
 }
 
 void FGXHorizonClipmap::Invalidate()

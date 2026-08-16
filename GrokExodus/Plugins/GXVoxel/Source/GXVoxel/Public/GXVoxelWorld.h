@@ -14,6 +14,7 @@
 #include "GXCrustAtlas.h"
 #include "GXCrustCache.h"
 #include "GXHorizonClipmap.h"
+#include "GXCrustTiles.h"
 #include "GXVoxelWorld.generated.h"
 
 class AGXVoxelChunkProxy;
@@ -234,6 +235,7 @@ protected:
 	TUniquePtr<FGXTerrainPBR> TerrainPBR;
 	TUniquePtr<FGXFoliageScatter> Foliage;
 	TUniquePtr<FGXHorizonClipmap> HorizonClipmap;
+	TUniquePtr<FGXCrustTiles> CrustTiles;
 
 	TMap<FGXChunkKey, TWeakObjectPtr<AGXVoxelChunkProxy>> ChunkActors;
 

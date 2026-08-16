@@ -252,6 +252,8 @@ void AGXVoxelWorld::BeginPlay()
 	Foliage->Initialize(this);
 	HorizonClipmap = MakeUnique<FGXHorizonClipmap>();
 	HorizonClipmap->Initialize(this);
+	CrustTiles = MakeUnique<FGXCrustTiles>();
+	CrustTiles->Initialize(this);
 	EnsureMeshBanks();
 	if (UMaterialInterface* PBR = TerrainPBR->GetMaterial())
 	{
@@ -304,6 +306,11 @@ void AGXVoxelWorld::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	{
 		HorizonClipmap->Shutdown();
 		HorizonClipmap.Reset();
+		if (CrustTiles)
+		{
+			CrustTiles->Shutdown();
+			CrustTiles.Reset();
+		}
 	}
 	if (Foliage)
 	{
@@ -366,6 +373,15 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	const int32 Budget = (WarmupTimeRemaining > 0.0f) ? WarmupMeshBuildsPerFrame : MaxMeshBuildsPerFrame;
 	ProcessMeshQueue(Budget);
 	const double MeshMs = (FPlatformTime::Seconds() - M0) * 1000.0;
+	if (CrustTiles && Volume && bAtlasReady)
+	{
+		CrustTiles->Update(
+			this,
+			Volume->GetStamp(),
+			WorldToLocalMeters(CachedViewerWorld),
+			TerrainMaterial.Get(),
+			(WarmupTimeRemaining > 0.0f) ? 4 : 2);
+	}
 	if (HorizonClipmap && Volume && bAtlasReady)
 	{
 		HorizonClipmap->Update(
@@ -881,14 +897,19 @@ void AGXVoxelWorld::RefreshLoadState()
 	// 0.8.16 skipped surface meshes, so LastMeshedNear stayed 0 and the
 	// overlay never left "Generating crust".
 	const bool bClipReady = HorizonClipmap && HorizonClipmap->IsReady();
-	const bool bHaveGround = bDrawVoxelVisuals ? (LastMeshedNear >= 2) : bClipReady;
-	if (bAtlasReady && (bHaveGround || bClipReady))
+	const bool bTilesReady = CrustTiles && CrustTiles->IsReady();
+	const bool bHaveGround = bDrawVoxelVisuals
+		? (LastMeshedNear >= 2)
+		: (bTilesReady || bClipReady);
+	if (bAtlasReady && bHaveGround && (bTilesReady || !CrustTiles.IsValid()))
 	{
 		if (!bWorldReady)
 		{
 			UE_LOG(LogGXVoxel, Warning,
-				TEXT("GX-%s Ready clip=%d near=%d drawVox=%d"),
-				GX_VERSION_STRING, bClipReady ? 1 : 0, LastMeshedNear, bDrawVoxelVisuals ? 1 : 0);
+				TEXT("GX-%s Ready clip=%d tiles=%d near=%d drawVox=%d"),
+				GX_VERSION_STRING, bClipReady ? 1 : 0,
+				CrustTiles ? CrustTiles->NumLive() : 0,
+				LastMeshedNear, bDrawVoxelVisuals ? 1 : 0);
 		}
 		LoadStatus = TEXT("Ready");
 		LoadProgress = 1.0f;
