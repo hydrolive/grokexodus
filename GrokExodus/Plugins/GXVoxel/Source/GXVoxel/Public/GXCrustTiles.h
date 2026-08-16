@@ -32,8 +32,8 @@ struct FGXCrustTileKey
 
 /**
  * Unedited crust as non-overlapping tiles.
- * Dig punches lid triangles (never hide a 64 m tile — that was a square hole).
- * Nanite is idle underfoot only — never on load or on a sculpted tile.
+ * Dig projects verts onto the brush sphere (never hide or punch a tile —
+ * that was a square / teal hole). Nanite is idle underfoot only.
  */
 class GXVOXEL_API FGXCrustTiles
 {

@@ -747,9 +747,6 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	}
 	RebuildEditedPageBoxes();
 	MarkPersistDirty();
-	// Voxel remesh fills the punched lid. Do not skip these chunks because
-	// a tile is live — that skip left only the heightfield bowl (0.10.1).
-	RemeshAroundLocal(L, RadiusM * DigSpeedMul);
 	if (HorizonClipmap && !(CrustTiles && CrustTiles->HasTileAt(L)))
 	{
 		HorizonClipmap->NotifyBrush(
@@ -1160,9 +1157,14 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 					++SkippedAir;
 					continue;
 				}
-				// Unedited crust is tiles. Edited surface chunks remesh so a
-				// punched lid has a dirt CSG bowl (0.10.2). Unedited stay tiles.
+				// Unedited crust is tiles. Surface edits stay on the tile
+				// (0.10.2 punch + remesh was a teal window through the planet).
 				if (ChunkOverlapsSurface(CC, ChunkM) && !bDrawVoxelVisuals && !bEdited)
+				{
+					continue;
+				}
+				if (bEdited && ChunkOverlapsSurface(CC, ChunkM) && CrustTiles
+					&& CrustTiles->HasTileAt(ChunkCenter))
 				{
 					continue;
 				}
