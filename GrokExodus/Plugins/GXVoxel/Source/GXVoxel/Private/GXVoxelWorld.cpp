@@ -749,7 +749,15 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
 	}
-	RebuildEditedPageBoxes();
+	{
+		static double LastBoxesAt = -1.0e9;
+		const double Now = FPlatformTime::Seconds();
+		if (Now - LastBoxesAt > 0.75)
+		{
+			RebuildEditedPageBoxes();
+			LastBoxesAt = Now;
+		}
+	}
 	MarkPersistDirty();
 	if (HorizonClipmap && !(CrustTiles && CrustTiles->HasTileAt(L)))
 	{
@@ -794,7 +802,15 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
 	}
-	RebuildEditedPageBoxes();
+	{
+		static double LastBoxesAt = -1.0e9;
+		const double Now = FPlatformTime::Seconds();
+		if (Now - LastBoxesAt > 0.75)
+		{
+			RebuildEditedPageBoxes();
+			LastBoxesAt = Now;
+		}
+	}
 	MarkPersistDirty();
 	if (HorizonClipmap && !(CrustTiles && CrustTiles->HasTileAt(L)))
 	{

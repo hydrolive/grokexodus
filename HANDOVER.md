@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.14**  
+Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.15**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.15** Hold-dig hitch: FineCell cooked every nearby **34 k** vert tile and each stroke walked/uploaded the whole mesh + welded neighbors (later clicks never applied). FineCell is **0.5 m**, **one tile per stroke**. Drop walks only the brush window. No full RecomputeNormals. Weld uploads only edges that actually moved.
 - **GX 0.10.14** Shot GX-seam-0113: sharp tris overlapping the orange ball + a **ripped dark seam** in the crater wall. Wall-push along −N is gone (radial only). Nearby tiles FineCell **before** any drop. Shared U/V edges are **welded to min R** after each stroke.
 - **GX 0.10.13** Shot GX-leftover-0112: leftover **dirt fins** across the pit — verts inside R dropped a metre, neighbours at R+ε did not. Cover is **1.75 R + 2.5 cell** with a smoothstep falloff so the rim blends. Still no deleted tris, no remesh on the click.
 - **GX 0.10.12** Shot GX-holes-0111: wall punch deleted large tris — **black windows**, remesh did not fill. Dig **never deletes tris**. Floor: radial bowl. Wall: push verts into the dirt along −N, capped 1.35×cell per tick. No remesh on the click.

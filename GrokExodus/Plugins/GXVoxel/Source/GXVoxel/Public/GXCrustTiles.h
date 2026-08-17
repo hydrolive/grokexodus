@@ -67,8 +67,8 @@ public:
 
 	static constexpr float TileM = 64.0f;
 	static constexpr float CellM = 1.0f;
-	/** First sculpt rebuilds this tile at 0.35 m so a crater wall is not 1 m pyramids. */
-	static constexpr float FineCellM = 0.35f;
+	/** First sculpt rebuilds this tile at 0.5 m. 0.35 m was 34 k verts and missed strokes. */
+	static constexpr float FineCellM = 0.50f;
 	static constexpr float StreamM = 256.0f;
 	static constexpr int32 ReadyMin = 9;
 
@@ -107,8 +107,8 @@ private:
 		const TFunction<float(const FVector&)>& DensityAt);
 	static int32 GridDim(const FTile& Tile);
 	void WeldSeamsNear(const FVector& LocalM, float CoverM, UMaterialInterface* Material, int32& InOutChanged);
-	static void WeldSharedU(FTile& Left, FTile& Right);
-	static void WeldSharedV(FTile& Lo, FTile& Hi);
+	static int32 WeldSharedU(FTile& Left, FTile& Right);
+	static int32 WeldSharedV(FTile& Lo, FTile& Hi);
 	static void PushTileMesh(FTile& Tile);
 	static void RecomputeNormals(FTile& Tile);
 	void ApplyNaniteVisual(FTile& Tile, UMaterialInterface* Material);
