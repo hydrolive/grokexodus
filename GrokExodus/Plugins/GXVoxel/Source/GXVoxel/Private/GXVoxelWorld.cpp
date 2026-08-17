@@ -912,10 +912,10 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	{
 		if (CaveTris >= 12)
 		{
-			// +2 m catches leftover rim sheets beside the ball. A 6 m
-			// page box punched the lawn (0139); stay brush-local.
+			// Stamp-column hide. 14 m covers this cave mouth; undug lawn
+			// stays solid so it is not a 6 m page-box punch (0139).
 			Punched = CrustTiles->HideAirBackedQuads(
-				L, BrushR + 2.00f, TerrainMaterial.Get(), DensityAt);
+				L, FMath::Max(BrushR + 2.00f, 14.0f), TerrainMaterial.Get(), DensityAt);
 		}
 		else
 		{
