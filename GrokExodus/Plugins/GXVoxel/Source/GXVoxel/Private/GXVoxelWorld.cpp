@@ -667,6 +667,101 @@ FGXVoxelHit AGXVoxelWorld::RaycastVoxels(FVector WorldOrigin, FVector WorldDirec
 	};
 
 	const FVector Dir = WorldDirection.GetSafeNormal();
+	// Cave MC first so the ball cannot sit behind a leftover lid (0134).
+	if (CaveChunks.Num() > 0 && ChunkVisuals.Num() > 0)
+	{
+		const FTransform Xf = GetActorTransform();
+		const FVector LO = Xf.InverseTransformPosition(WorldOrigin);
+		const FVector LD = Xf.InverseTransformVectorNoScale(Dir).GetSafeNormal();
+		float BestT = MaxDistance;
+		FVector BestN = FVector::ZeroVector;
+		bool bCaveHit = false;
+		auto RayTri = [](const FVector& Orig, const FVector& D, const FVector& A,
+			const FVector& B, const FVector& C, float MaxT, float& OutT, FVector& OutN) -> bool
+		{
+			const FVector E1 = B - A;
+			const FVector E2 = C - A;
+			const FVector P = FVector::CrossProduct(D, E2);
+			const float Det = FVector::DotProduct(E1, P);
+			if (FMath::Abs(Det) < 1.0e-10f)
+			{
+				return false;
+			}
+			const float Inv = 1.0f / Det;
+			const FVector T = Orig - A;
+			const float U = FVector::DotProduct(T, P) * Inv;
+			if (U < 0.0f || U > 1.0f)
+			{
+				return false;
+			}
+			const FVector Q = FVector::CrossProduct(T, E1);
+			const float V = FVector::DotProduct(D, Q) * Inv;
+			if (V < 0.0f || U + V > 1.0f)
+			{
+				return false;
+			}
+			const float Tt = FVector::DotProduct(E2, Q) * Inv;
+			if (Tt <= 1.0e-4f || Tt >= MaxT)
+			{
+				return false;
+			}
+			OutT = Tt;
+			OutN = FVector::CrossProduct(E1, E2).GetSafeNormal();
+			return true;
+		};
+		for (const auto& Pair : ChunkVisuals)
+		{
+			if (!CaveChunks.Contains(Pair.Key) || Pair.Value.IndexCount < 3)
+			{
+				continue;
+			}
+			UProceduralMeshComponent* PMC = MeshBanks.IsValidIndex(Pair.Value.Bank)
+				? MeshBanks[Pair.Value.Bank].Get() : nullptr;
+			if (!PMC)
+			{
+				continue;
+			}
+			const FProcMeshSection* Sec = PMC->GetProcMeshSection(Pair.Value.Section);
+			if (!Sec)
+			{
+				continue;
+			}
+			const TArray<FProcMeshVertex>& Verts = Sec->ProcVertexBuffer;
+			const TArray<uint32>& Idx = Sec->ProcIndexBuffer;
+			for (int32 T = 0; T + 2 < Idx.Num(); T += 3)
+			{
+				if (!Verts.IsValidIndex(Idx[T]) || !Verts.IsValidIndex(Idx[T + 1])
+					|| !Verts.IsValidIndex(Idx[T + 2]))
+				{
+					continue;
+				}
+				float HitT = 0.0f;
+				FVector HitN = FVector::ZeroVector;
+				if (RayTri(LO, LD, Verts[Idx[T]].Position, Verts[Idx[T + 1]].Position,
+					Verts[Idx[T + 2]].Position, BestT, HitT, HitN))
+				{
+					BestT = HitT;
+					BestN = HitN;
+					bCaveHit = true;
+				}
+			}
+		}
+		if (bCaveHit)
+		{
+			const FVector HitPos = WorldOrigin + Dir * BestT;
+			const FVector Local = WorldToLocalMeters(HitPos);
+			if (FVector::DotProduct(BestN, -Dir) < 0.0f)
+			{
+				BestN = -BestN;
+			}
+			Hit.bHit = true;
+			Hit.Location = HitPos;
+			Hit.Distance = BestT;
+			Hit.MaterialId = SampleMaterial(FVector3d(Local.X, Local.Y, Local.Z));
+			Hit.Normal = BestN.IsNearlyZero() ? -Dir : BestN;
+			return Hit;
+		}
+	}
 	if (CrustTiles && CrustTiles->IsReady())
 	{
 		FVector HitPos = FVector::ZeroVector;
@@ -773,83 +868,57 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	int32 HiddenCave = 0;
 	bool bSteep = false;
 	const float BrushR = RadiusM * DigSpeedMul;
+	auto DensityAt = [this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); };
 	if (CrustTiles)
 	{
 		CrustTiles->NotifyBrush(
 			L, BrushR, true, Volume->GetStamp(), TerrainMaterial.Get(),
-			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); },
-			&Punched, false, &bSteep);
+			DensityAt, &Punched, false, &bSteep);
 	}
-	const FVector Radial = L.GetSafeNormal();
-	const bool bWallAim = !HitNormal.IsNearlyZero()
-		&& !Radial.IsNearlyZero()
-		&& FMath::Abs(FVector::DotProduct(HitNormal.GetSafeNormal(), Radial)) < 0.62f;
-	const bool bContinueCave = CrustTiles && CrustTiles->HasPunchedNear(L, BrushR * 3.0f);
-	const bool bOpenMouth = bWallAim || bSteep || bContinueCave;
-	if (bOpenMouth)
+	// Edited patch: remesh first, then hide air-backed lid only if MC exists
+	// (plan D / GX-shot-0134). Floor and wall both remesh.
 	{
-		// Heightfield cannot tunnel. Remesh the 3D density cave and punch
-		// only steep quads a cave vertex actually covers. Once a mouth
-		// exists, keep remeshing so the tunnel can go farther (0131).
 		const int32 SavedCreates = MaxMeshCreatesPerTick;
 		MaxMeshCreatesPerTick = MeshCreatesThisTick + 6;
 		RemeshCaveAt(L, BrushR, false);
 		MaxMeshCreatesPerTick = SavedCreates;
-		TArray<FVector> CavePts;
-		CollectCavePointsNear(L, BrushR + 1.2f, CavePts);
-		auto Covers = [&CavePts](const FVector& P) -> bool
+	}
+	int32 CaveTris = 0;
+	{
+		const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
+		const float Reach2 = FMath::Square(BrushR + ChunkM + 8.0f);
+		for (const FGXChunkKey& K : CaveChunks)
 		{
-			const float Cover2 = 0.65f * 0.65f;
-			for (const FVector& C : CavePts)
+			const FVector C((K.X + 0.5f) * ChunkM, (K.Y + 0.5f) * ChunkM, (K.Z + 0.5f) * ChunkM);
+			if (FVector::DistSquared(C, L) > Reach2)
 			{
-				if (FVector::DistSquared(C, P) <= Cover2)
-				{
-					return true;
-				}
+				continue;
 			}
-			return false;
-		};
-		// Invariant: never punch a lid quad unless cave verts actually
-		// sit in the window. 13 punches vs a 0-tris filter showed the
-		// orange ball (GX-shot-0133).
-		const bool bAlreadyOpen = CrustTiles && CrustTiles->HasPunchedNear(L, BrushR * 2.0f);
-		if (CrustTiles)
-		{
-			if (CavePts.Num() < 24)
+			if (const FChunkVisual* V = ChunkVisuals.Find(K))
 			{
-				Closed = CrustTiles->CloseUncoveredBrush(
-					L, BrushR * 3.0f + 4.0f, TerrainMaterial.Get(), Covers);
-			}
-			else
-			{
-				Punched = CrustTiles->PunchBrush(
-					L, BrushR, TerrainMaterial.Get(), Covers);
+				CaveTris += V->IndexCount / 3;
 			}
 		}
-		if (Punched == 0 && CavePts.Num() == 0 && !bAlreadyOpen)
+	}
+	if (CrustTiles)
+	{
+		if (CaveTris >= 12)
 		{
-			const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
-			const float Reach2 = FMath::Square(BrushR + ChunkM + 8.0f);
-			TArray<FGXChunkKey> Drop;
-			for (const FGXChunkKey& K : CaveChunks)
-			{
-				const FVector C((K.X + 0.5f) * ChunkM, (K.Y + 0.5f) * ChunkM, (K.Z + 0.5f) * ChunkM);
-				if (FVector::DistSquared(C, L) <= Reach2)
-				{
-					Drop.Add(K);
-				}
-			}
-			for (const FGXChunkKey& K : Drop)
-			{
-				ReleaseVisual(K);
-				HollowChunks.Add(K);
-				++HiddenCave;
-			}
+			Punched = CrustTiles->HideAirBackedQuads(
+				L, BrushR + 0.50f, TerrainMaterial.Get(), DensityAt);
 		}
-		GX_PERF(1, TEXT("GX-cave mouth wall=%d steep=%d pts=%d punch=%d hide=%d"),
-			bWallAim ? 1 : 0, bSteep ? 1 : 0, CavePts.Num(), Punched, HiddenCave);
+		else
+		{
+			Closed = CrustTiles->CloseUncoveredBrush(
+				L, BrushR * 3.0f + 4.0f, TerrainMaterial.Get(),
+				TFunction<bool(const FVector&)>());
+			GX_PERF(1, TEXT("GX-cave miss tris=%d — lid stays"), CaveTris);
+		}
 	}
 	(void)bSteep;
+	(void)HiddenCave;
+	(void)HitNormal;
+	GX_PERF(1, TEXT("GX-cave remesh tris=%d hide-air=%d close=%d"), CaveTris, Punched, Closed);
 	{
 		static double LastBoxesAt = -1.0e9;
 		const double Now = FPlatformTime::Seconds();
@@ -900,6 +969,9 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 			L, RadiusM, false, Volume->GetStamp(), TerrainMaterial.Get(),
 			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); },
 			nullptr, false, nullptr, MaterialId);
+		CrustTiles->HideAirBackedQuads(
+			L, RadiusM + 0.50f, TerrainMaterial.Get(),
+			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); });
 	}
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
@@ -1727,7 +1799,7 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 	const bool bEdited = Volume && Volume->ChunkHasEdits(Coord);
 	const FVector Center((Coord.X + 0.5f) * ChunkM, (Coord.Y + 0.5f) * ChunkM, (Coord.Z + 0.5f) * ChunkM);
 	const bool bNearCol = FVector::Dist(Center, ViewerLocal) <= CollisionRadius;
-	const bool bCookCol = bEdited && bNearCol;
+	const bool bCookCol = (bEdited && bNearCol) || CaveChunks.Contains(Coord);
 
 	PMC->bUseAsyncCooking = !bCookCol;
 	FChunkVisual* Slot = ChunkVisuals.Find(Coord);
@@ -2319,39 +2391,24 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 	{
 		return;
 	}
-	TArray<FVector> Rim;
+	TArray<FVector> AliveLid;
 	if (CrustTiles)
 	{
-		for (const FVector4& B : *Balls)
-		{
-			CrustTiles->CollectLivePointsNear(FVector(B.X, B.Y, B.Z), B.W + 1.5f, Rim);
-		}
+		const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
+		const FVector Center(
+			(Coord.X + 0.5f) * ChunkM,
+			(Coord.Y + 0.5f) * ChunkM,
+			(Coord.Z + 0.5f) * ChunkM);
+		CrustTiles->CollectAliveQuadCentroidsNear(Center, ChunkM * 0.75f, AliveLid);
 	}
-	const float LidPad2 = FMath::Square(FMath::Max(1.00f, VoxelSize * 1.00f));
+	const float LidPad2 = 0.50f * 0.50f;
 	TArray<int32> Kept;
 	Kept.Reserve(Mesh.Indices.Num());
-	auto Inside = [Balls](const FVector& P) -> bool
+	auto OnAliveLid = [&AliveLid, LidPad2](const FVector& P) -> bool
 	{
-		for (const FVector4& B : *Balls)
+		for (const FVector& C : AliveLid)
 		{
-			const FVector C(B.X, B.Y, B.Z);
-			if (FVector::DistSquared(P, C) <= B.W * B.W)
-			{
-				return true;
-			}
-		}
-		return false;
-	};
-	auto NearLid = [&Rim, &Inside, LidPad2](const FVector& P) -> bool
-	{
-		for (const FVector& R : Rim)
-		{
-			// Rim verts inside a carve ball are the mouth we want to keep.
-			if (Inside(R))
-			{
-				continue;
-			}
-			if (FVector::DistSquared(P, R) <= LidPad2)
+			if (FVector::DistSquared(P, C) <= LidPad2)
 			{
 				return true;
 			}
@@ -2378,7 +2435,7 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 		const FVector Rad = Cent.GetSafeNormal();
 		const bool bFloorLike = !FaceN.IsNearlyZero() && !Rad.IsNearlyZero()
 			&& FMath::Abs(FVector::DotProduct(FaceN.GetSafeNormal(), Rad)) > 0.55f;
-		if (bFloorLike && NearLid(Cent))
+		if (bFloorLike && OnAliveLid(Cent))
 		{
 			continue;
 		}

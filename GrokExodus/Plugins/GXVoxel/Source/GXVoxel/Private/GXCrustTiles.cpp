@@ -875,6 +875,178 @@ int32 FGXCrustTiles::CloseUncoveredBrush(
 	return Closed;
 }
 
+int32 FGXCrustTiles::SyncAirBackedQuads(
+	FTile& Tile,
+	const FVector& LocalM,
+	float RadiusM,
+	const TFunction<float(const FVector&)>& DensityAt)
+{
+	const int32 Dim = GridDim(Tile);
+	if (Dim < 2 || RadiusM <= 0.0f || !DensityAt || Tile.LivePos.Num() != Dim * Dim)
+	{
+		return 0;
+	}
+	const int32 Cells = Dim - 1;
+	if (Tile.QuadAlive.Num() != Cells * Cells)
+	{
+		Tile.QuadAlive.Init(true, Cells * Cells);
+	}
+	const float R2 = RadiusM * RadiusM;
+	int32 N = 0;
+	for (int32 J = 0; J < Cells; ++J)
+	{
+		for (int32 I = 0; I < Cells; ++I)
+		{
+			const int32 Q = I + J * Cells;
+			const int32 A = I + J * Dim;
+			const int32 Bv = (I + 1) + J * Dim;
+			const int32 C = I + (J + 1) * Dim;
+			const int32 D = (I + 1) + (J + 1) * Dim;
+			if (!Tile.LivePos.IsValidIndex(A) || !Tile.LivePos.IsValidIndex(Bv)
+				|| !Tile.LivePos.IsValidIndex(C) || !Tile.LivePos.IsValidIndex(D))
+			{
+				continue;
+			}
+			const FVector WA = (Tile.OriginCm + Tile.LivePos[A]) * 0.01f;
+			const FVector WB = (Tile.OriginCm + Tile.LivePos[Bv]) * 0.01f;
+			const FVector WC = (Tile.OriginCm + Tile.LivePos[C]) * 0.01f;
+			const FVector WD = (Tile.OriginCm + Tile.LivePos[D]) * 0.01f;
+			const FVector Cent = (WA + WB + WC + WD) * 0.25f;
+			if (FVector::DistSquared(Cent, LocalM) > R2)
+			{
+				continue;
+			}
+			const FVector Rad = Cent.GetSafeNormal();
+			const FVector Under = Cent - Rad * 0.40f;
+			const bool bAir = DensityAt(Cent) <= 0.0f || DensityAt(Under) <= 0.0f;
+			if (bAir == !Tile.QuadAlive[Q])
+			{
+				continue;
+			}
+			Tile.QuadAlive[Q] = !bAir;
+			++N;
+		}
+	}
+	if (N == 0)
+	{
+		return 0;
+	}
+	RebuildIndices(Tile);
+	if (Tile.Indices.Num() < 3)
+	{
+		Tile.QuadAlive.Init(true, Cells * Cells);
+		RebuildIndices(Tile);
+		return 0;
+	}
+	return N;
+}
+
+int32 FGXCrustTiles::HideAirBackedQuads(
+	const FVector& LocalM,
+	float RadiusM,
+	UMaterialInterface* Material,
+	const TFunction<float(const FVector&)>& DensityAt)
+{
+	if (RadiusM <= 0.0f || Live.Num() == 0 || !DensityAt)
+	{
+		return 0;
+	}
+	int32 Changed = 0;
+	const float TileReach2 = FMath::Square(RadiusM + TileM * 0.80f + 8.0f);
+	for (auto& Pair : Live)
+	{
+		FTile& Tile = Pair.Value;
+		if (FVector::DistSquared(Tile.OriginCm * 0.01f, LocalM) > TileReach2)
+		{
+			continue;
+		}
+		UProceduralMeshComponent* Comp = Tile.Comp.Get();
+		if (!Comp || Tile.LivePos.Num() == 0)
+		{
+			continue;
+		}
+		const int32 N = SyncAirBackedQuads(Tile, LocalM, RadiusM, DensityAt);
+		if (N == 0)
+		{
+			continue;
+		}
+		DropNanite(Tile);
+		Comp->ClearMeshSection(0);
+		Comp->CreateMeshSection_LinearColor(
+			0, Tile.LivePos, Tile.Indices, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents, true);
+		if (Material)
+		{
+			Comp->SetMaterial(0, Material);
+		}
+		Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		Comp->SetVisibility(true);
+		Comp->UpdateBounds();
+		Changed += N;
+	}
+	if (Changed > 0)
+	{
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles hide-air n=%d r=%.2f"), Changed, RadiusM);
+		GX_PERF(1, TEXT("GX-tile hide-air n=%d r=%.2f"), Changed, RadiusM);
+	}
+	return Changed;
+}
+
+void FGXCrustTiles::CollectAliveQuadCentroidsNear(const FVector& LocalM, float RadiusM, TArray<FVector>& Out) const
+{
+	if (RadiusM <= 0.0f || Live.Num() == 0)
+	{
+		return;
+	}
+	const float TileReach2 = FMath::Square(RadiusM + TileM * 0.80f + 8.0f);
+	const float R2 = RadiusM * RadiusM;
+	for (const auto& Pair : Live)
+	{
+		const FTile& Tile = Pair.Value;
+		if (FVector::DistSquared(Tile.OriginCm * 0.01f, LocalM) > TileReach2)
+		{
+			continue;
+		}
+		const int32 Dim = GridDim(Tile);
+		if (Dim < 2)
+		{
+			continue;
+		}
+		const int32 Cells = Dim - 1;
+		if (Tile.QuadAlive.Num() != Cells * Cells)
+		{
+			continue;
+		}
+		for (int32 J = 0; J < Cells; ++J)
+		{
+			for (int32 I = 0; I < Cells; ++I)
+			{
+				if (!Tile.QuadAlive[I + J * Cells])
+				{
+					continue;
+				}
+				const int32 A = I + J * Dim;
+				const int32 Bv = (I + 1) + J * Dim;
+				const int32 C = I + (J + 1) * Dim;
+				const int32 D = (I + 1) + (J + 1) * Dim;
+				if (!Tile.LivePos.IsValidIndex(A) || !Tile.LivePos.IsValidIndex(Bv)
+					|| !Tile.LivePos.IsValidIndex(C) || !Tile.LivePos.IsValidIndex(D))
+				{
+					continue;
+				}
+				const FVector Cent = (
+					(Tile.OriginCm + Tile.LivePos[A])
+					+ (Tile.OriginCm + Tile.LivePos[Bv])
+					+ (Tile.OriginCm + Tile.LivePos[C])
+					+ (Tile.OriginCm + Tile.LivePos[D])) * 0.0025f;
+				if (FVector::DistSquared(Cent, LocalM) <= R2)
+				{
+					Out.Add(Cent);
+				}
+			}
+		}
+	}
+}
+
 int32 FGXCrustTiles::GridDim(const FTile& Tile)
 {
 	const int32 N = Tile.LivePos.Num();

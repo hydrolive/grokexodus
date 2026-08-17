@@ -73,6 +73,14 @@ public:
 		float RadiusM,
 		UMaterialInterface* Material,
 		const TFunction<bool(const FVector&)>& CaveCovers);
+	/** Hide quads with air under them; restore quads that are solid again. */
+	int32 HideAirBackedQuads(
+		const FVector& LocalM,
+		float RadiusM,
+		UMaterialInterface* Material,
+		const TFunction<float(const FVector&)>& DensityAt);
+	/** Alive (drawn) quad centroids in metres, for cave-lid filtering. */
+	void CollectAliveQuadCentroidsNear(const FVector& LocalM, float RadiusM, TArray<FVector>& Out) const;
 	bool HasTileAt(const FVector& LocalM) const;
 	/** True if any heightfield quad near LocalM is already punched. */
 	bool HasPunchedNear(const FVector& LocalM, float RadiusM) const;
@@ -144,6 +152,11 @@ private:
 	static int32 RebuildIndices(FTile& Tile);
 	static int32 RepairWindingWindow(FTile& Tile, int32 I0, int32 I1, int32 J0, int32 J1);
 	static int32 PaintSteepDirt(FTile& Tile, int32 I0, int32 I1, int32 J0, int32 J1);
+	static int32 SyncAirBackedQuads(
+		FTile& Tile,
+		const FVector& LocalM,
+		float RadiusM,
+		const TFunction<float(const FVector&)>& DensityAt);
 	static int32 PunchSteepQuads(
 		FTile& Tile,
 		const FVector& LocalM,

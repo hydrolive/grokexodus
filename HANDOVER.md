@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.33**  
+Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.34**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -8,7 +8,7 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 These are why 0.8–0.10 went in a circle. A later pass that violates one will
 reintroduce a bug we already paid for.
 
-1. **Never delete a heightfield face without a visible mesh behind it.** Punch only when cave verts cover the quad. If remesh is empty, close the punch — do not hide the cave.
+1. **Never hide a heightfield face unless remeshed cave tris already exist.** Hide because density under the quad is air, not because a cave vert is nearby. If remesh is empty, keep the lid.
 2. **Never hide a cave mesh that backs a punched hole.** That is the black triangle (GX-shot-0130). Hide leftover sheets only when no punch exists nearby.
 3. **Never move tile verts off the planet radial.** 3D wall dent folds tris into growing black blades.
 4. **Texture:** floor uses rest-position triplanar (no crack swim). Steep walls use live WorldPosition (rest-pos smears the ground photo down the cliff).
@@ -33,6 +33,7 @@ density no longer matches the new lid.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.34** Plan D: edited patch has **one visual owner**. Every dig remeshes cave MC first; tile quads hide only when density under them is air **and** the remesh has ≥12 tris. Tool ray hits cave PMC first. Cave sections cook collision. Punch-if-cave-vert is gone. Reset `earth_default.gxsav`.
 - **GX 0.10.33** Shot GX-shot-0133: cave existed but the **lid stayed**, then **faces vanished** and the **orange ball** sat in the window. CSG carved under a lid that only slumped 0.4 m/tick; punch opened 13 quads while the cave filter kept 0 tris (`1990→0`). Lid verts now drop toward the density floor (cap follows the dig). Cave remesh keeps all non-floor MC. Punch only if ≥24 cave verts and a vert is within 0.65 m of the quad. Reset `earth_default.gxsav`.
 - **GX 0.10.32** Shot GX-shot-0132: rectangular **black windows** looked into a **leftover underground cave** from `earth_default.gxsav` (9 dirty pages). Save backed up to `bak_pre_0132` and deleted. Fresh PIE is stamp crust only. Reset that save after any major voxel gen/handling change.
 - **GX 0.10.32** Shot GX-shot-0131: cave **started**, then **black missing faces** and the tunnel **stopped**. Cave filter dropped walls next to the punched rim (`1233→66` tris). NearLid now only strips floor-like lid sheets. Remesh 6 chunks / 8 m so the pocket can grow. A punched mouth keeps remeshing even if the hit is not steep. Tile ray skips a face with air behind it so the ball sits on the next solid, not a leftover sliver.
