@@ -299,6 +299,7 @@ protected:
 	bool bAtlasBuildInFlight = false;
 	bool bWorldReady = false;
 	bool bRevealedTileEdits = false;
+	int32 LastRestoreTileCount = 0;
 	float LoadProgress = 0.0f;
 	FString LoadStatus = TEXT("Booting planet…");
 	int32 LastDesiredNear = 0;
@@ -345,6 +346,7 @@ protected:
 	bool ShouldPunchClipmap(const FVector& LocalM) const;
 	void RemeshAroundLocal(const FVector& LocalM, float RadiusM);
 	void RemeshCaveAt(const FVector& LocalM, float RadiusM, bool bOnlyExistingCaves);
+	void RestoreEditedSurfaces();
 	bool HasCaveVisualNear(const FVector& LocalM, float RadiusM) const;
 	void CollectCavePointsNear(const FVector& LocalM, float RadiusM, TArray<FVector>& Out) const;
 	void FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const;
