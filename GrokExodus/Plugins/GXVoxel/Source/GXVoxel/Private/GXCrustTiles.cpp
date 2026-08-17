@@ -971,10 +971,16 @@ int32 FGXCrustTiles::SyncAirBackedQuads(
 			const bool bSpan = bDropped
 				&& ((MaxR - MinR) > 0.70f || MaxE2 > FMath::Square(Cell * 1.85f));
 			const bool bDroppedLid = (SCent.Size() - LiveCent.Size()) > 0.55f;
-			(void)DiskR;
-			// Disk alone punched black stairs past the cave (GX-shot-0145).
-			// Only open a column that is actually excavated.
-			const bool bHide = ColAir(SCent) || bSpan || bDroppedLid;
+			const FVector BrushSurf = LocalM.GetSafeNormal() * SCent.Size();
+			const bool bDisk = DiskR > 0.05f && !BrushSurf.IsNearlyZero()
+				&& FVector::DistSquared(SCent, BrushSurf) <= DiskR * DiskR;
+			const FVector SDir = SCent.GetSafeNormal();
+			const bool bSkinAir = !SDir.IsNearlyZero()
+				&& DensityAt(SDir * (SCent.Size() - 0.20f)) <= 0.0f;
+			// 0145: fat disk, no air test = black stairs. 0146: air-only
+			// hid 11 quads so the ball sat on the rim. Air-gated disk
+			// matches the brush.
+			const bool bHide = ColAir(SCent) || (bDisk && bSkinAir) || bSpan || bDroppedLid;
 			const bool bSolid = ColSolid(SA) && ColSolid(SB) && ColSolid(SC) && ColSolid(SD)
 				&& !bSpan && !bDroppedLid;
 			if (Tile.QuadAlive[Q])
