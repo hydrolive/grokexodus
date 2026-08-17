@@ -912,11 +912,17 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	{
 		if (CaveTris >= 12)
 		{
-			// Stamp-air + a tight brush disk. 14 m cover only walks tiles;
-			// the disk is the brush, not a lawn punch (0139).
+			// Stamp-air only. A R+1.25 disk hid grass with no cave behind
+			// it (GX-shot-0145 black stair rim).
 			Punched = CrustTiles->HideAirBackedQuads(
-				L, FMath::Max(BrushR + 2.00f, 14.0f), TerrainMaterial.Get(), DensityAt,
-				BrushR + 1.25f);
+				L, FMath::Max(BrushR + 2.00f, 14.0f), TerrainMaterial.Get(), DensityAt);
+			if (Punched > 0)
+			{
+				const int32 Saved2 = MaxMeshCreatesPerTick;
+				MaxMeshCreatesPerTick = MeshCreatesThisTick + 6;
+				RemeshCaveAt(L, BrushR, false);
+				MaxMeshCreatesPerTick = Saved2;
+			}
 		}
 		else
 		{
