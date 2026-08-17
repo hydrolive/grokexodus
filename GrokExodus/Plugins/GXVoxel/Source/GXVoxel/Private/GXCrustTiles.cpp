@@ -213,9 +213,9 @@ int32 FGXCrustTiles::NotifyBrush(
 	{
 		return 0;
 	}
-	// Floor: radial bowl. Wall: punch the brush so a cave can open.
-	// Do not FineCell-rebuild an already-sculpted tile — that restores the lid.
-	const float Cover = RadiusM + FineCellM;
+	// Floor: radial bowl. Wall: push into the dirt. Wide cover + smoothstep
+	// so the rim does not leave a stretched leftover sheet (GX-leftover-0112).
+	const float Cover = RadiusM * 1.75f + FineCellM * 2.5f;
 	const float Cover2 = Cover * Cover;
 	const float R2 = RadiusM * RadiusM;
 	int32 Changed = 0;
@@ -243,8 +243,8 @@ int32 FGXCrustTiles::NotifyBrush(
 
 		if (bRemove)
 		{
-			// Never delete tris (GX-holes-0111). Floor: radial bowl.
-			// Wall: push verts into the dirt along -N, capped per click.
+			// Never delete tris. Wide cover + smoothstep so a hard R cutoff
+			// cannot leave a leftover fin (GX-leftover-0112).
 			const float MaxStep = RadiusM * 0.90f;
 			const float WallStep = FineCellM * 1.35f;
 			int32 N = 0;
@@ -252,22 +252,20 @@ int32 FGXCrustTiles::NotifyBrush(
 			{
 				const FVector Dir = Tile.StampDir[I];
 				const FVector W = (Tile.OriginCm + Tile.LivePos[I]) * 0.01f;
-				if (FVector::DistSquared(W, LocalM) > Cover2)
+				const float Dist3 = FVector::Dist(W, LocalM);
+				if (Dist3 > Cover)
 				{
 					continue;
 				}
+				float Wgt = 1.0f - Dist3 / Cover;
+				Wgt = Wgt * Wgt * (3.0f - 2.0f * Wgt);
 				const FVector Nrm = (Tile.LiveN.IsValidIndex(I) ? Tile.LiveN[I] : Dir).GetSafeNormal();
 				const bool bSteep = FMath::Abs(FVector::DotProduct(Nrm, Dir)) < 0.72f;
 				FVector NewW = W;
 				if (bSteep)
 				{
-					const float Dist3 = FVector::Dist(W, LocalM);
-					if (Dist3 >= RadiusM)
-					{
-						continue;
-					}
-					const float Into = RadiusM - Dist3;
-					const float Step = FMath::Min(Into, WallStep);
+					const float Into = FMath::Max(0.0f, RadiusM - Dist3);
+					const float Step = FMath::Min(Into + FineCellM * 0.35f, WallStep) * Wgt;
 					if (Step < 0.01f)
 					{
 						continue;
@@ -279,16 +277,17 @@ int32 FGXCrustTiles::NotifyBrush(
 					const float CurR = W.Size();
 					const float Bcoe = FVector::DotProduct(Dir, LocalM);
 					const float Disc = Bcoe * Bcoe - (LocalM.SizeSquared() - R2);
-					float NewR = CurR;
+					float TargetR = CurR - MaxStep * 0.20f;
 					if (Disc >= 0.0f)
 					{
 						const float THit = Bcoe - FMath::Sqrt(Disc);
 						if (THit > 0.0f)
 						{
-							NewR = FMath::Max(THit, CurR - MaxStep);
-							NewR = FMath::Min(CurR, NewR);
+							TargetR = FMath::Max(THit, CurR - MaxStep);
+							TargetR = FMath::Min(CurR, TargetR);
 						}
 					}
+					const float NewR = FMath::Lerp(CurR, TargetR, Wgt);
 					if (FMath::Abs(NewR - CurR) < 0.01f)
 					{
 						continue;
@@ -300,7 +299,7 @@ int32 FGXCrustTiles::NotifyBrush(
 					continue;
 				}
 				Tile.LivePos[I] = NewW * 100.0f - Tile.OriginCm;
-				if (Tile.UV0.IsValidIndex(I))
+				if (Wgt > 0.35f && Tile.UV0.IsValidIndex(I))
 				{
 					Tile.UV0[I] = FVector2D(3.0f, 0.0f);
 					if (Tile.Colors.IsValidIndex(I))

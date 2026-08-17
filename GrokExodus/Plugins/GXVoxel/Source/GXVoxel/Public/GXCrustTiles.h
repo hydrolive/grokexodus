@@ -32,8 +32,8 @@ struct FGXCrustTileKey
 
 /**
  * Unedited crust as non-overlapping tiles.
- * Floor digs drop verts radially. Wall verts push into the dirt along
- * -N (no deleted tris). First stroke 0.35 m.
+ * Floor digs drop verts radially with a wide smoothstep rim. Wall verts
+ * push into the dirt along -N. Never delete tris. First stroke 0.35 m.
  */
 class GXVOXEL_API FGXCrustTiles
 {
