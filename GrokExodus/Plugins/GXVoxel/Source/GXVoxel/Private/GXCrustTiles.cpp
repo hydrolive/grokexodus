@@ -226,7 +226,9 @@ int32 FGXCrustTiles::NotifyBrush(
 	int32 PunchedAll = 0;
 	int32 SteepCenter = 0;
 	int32 CenterHits = 0;
-	const float TileReach2 = FMath::Square(Cover + TileM * 0.55f + 4.0f);
+	// Half-diagonal of a 64 m tile is 45.3 m. 0.55*Tile+4 was 39 m and
+	// skipped every tile when the brush sat on a four-tile corner (spawn).
+	const float TileReach2 = FMath::Square(Cover + TileM * 0.80f + 8.0f);
 	// At most one FineCell cook per stroke. Cooking every nearby 16 k-vert
 	// tile (0.10.14) took longer than the 140 ms hold tick — later digs
 	// never ran their visual drop.
@@ -513,7 +515,7 @@ int32 FGXCrustTiles::PunchBrush(const FVector& LocalM, float RadiusM, UMaterialI
 		return 0;
 	}
 	int32 Punched = 0;
-	const float TileReach2 = FMath::Square(RadiusM + TileM * 0.55f + 4.0f);
+	const float TileReach2 = FMath::Square(RadiusM + TileM * 0.80f + 8.0f);
 	for (auto& Pair : Live)
 	{
 		FTile& Tile = Pair.Value;

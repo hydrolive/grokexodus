@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.17**  
+Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.18**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.18** Spawn sits on a four-tile corner. Brush reach was `0.55*64+4=39 m`; tile centers are 45 m away so **no verts moved**. Reach is `0.80*64+8`. 0.10.17 tunnel/normal work is in this binary.
 - **GX 0.10.17** Shot GX-stretch-0116: could only dig **down** (heightfield) and crater walls had **vertically stretched dirt** (`LiveN = radial`). Floor still drops radially. After each window drop we **recompute face normals** (triplanar uses the wall plane). A steep hit remeshes the **2 closest** cave chunks sync, then **punches steep quads** only if that cave mesh exists. Ray skips punched quads. Lid filter ignores rim verts inside the carve ball so the mouth is not emptied.
 - **GX 0.10.16** Shot GX-through-0115: orange ball went **through the visible wall** — ray used carved voxel density (air) so it sat below the tile mesh. Tool ray hits the **live tile triangles** first (two-sided). Sit-into is 0.18 R.
 - **GX 0.10.15** Hold-dig hitch: FineCell cooked every nearby **34 k** vert tile and each stroke walked/uploaded the whole mesh + welded neighbors (later clicks never applied). FineCell is **0.5 m**, **one tile per stroke**. Drop walks only the brush window. No full RecomputeNormals. Weld uploads only edges that actually moved.
