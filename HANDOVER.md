@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.31**  
+Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.32**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -18,6 +18,7 @@ reintroduce a bug we already paid for.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.32** Shot GX-shot-0131: cave **started**, then **black missing faces** and the tunnel **stopped**. Cave filter dropped walls next to the punched rim (`1233→66` tris). NearLid now only strips floor-like lid sheets. Remesh 6 chunks / 8 m so the pocket can grow. A punched mouth keeps remeshing even if the hit is not steep. Tile ray skips a face with air behind it so the ball sits on the next solid, not a leftover sliver.
 - **GX 0.10.31** Editor shot GX-shot-0130: **black triangle hole**, **stretched wall dirt**, no cave. 0.10.30 punched one quad then hid the cave on the next click (`punch=0 hide=2`). Hide only when there is no punch nearby; empty remesh closes punches. Walls sample live WorldPos so dirt is not a smeared ground photo.
 - **GX 0.10.30** Shots 011733–011838: crater **dirt slid every stroke** (world-pos triplanar followed dropping verts) and a **wall hit could not open a cave** (0.10.29 stripped remesh+punch). Tile UV0.y is the stamp surface radius; PBR samples that rest position so the bowl does not swim. A wall aim (hit N vs radial) remeshes two cave chunks and punches only steep quads a cave vertex covers. Floor stays a closed radial bowl. No 3D wall dent.
 - **GX 0.10.29** Shots 010122–010203: **black blades grew**, **undug hills turned dirt**, some clicks did nothing. Cause: 0.10.27 3D wall dent folded tris (backfaces); each fold recomputed slope normals across the Reach window and welded every 64 m edge within 74 m. Dig is **radial-only** again (reseats leftover dents onto StampDir). Per-tick drop capped at 0.85 cell so quads cannot invert. Normals/winding only on verts that moved. Weld only the brush tile's four edges, pairs inside Cover+2 m. Inside-ball clicks that miss THit still drop MaxStep so the stroke is not a no-op. Heightfield cannot tunnel.

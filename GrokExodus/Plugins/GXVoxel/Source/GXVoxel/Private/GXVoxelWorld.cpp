@@ -674,16 +674,24 @@ FGXVoxelHit AGXVoxelWorld::RaycastVoxels(FVector WorldOrigin, FVector WorldDirec
 		if (CrustTiles->RaycastVisible(WorldOrigin, Dir, MaxDistance, HitPos, HitN))
 		{
 			const FVector Local = WorldToLocalMeters(HitPos);
-			Hit.bHit = true;
-			Hit.Location = HitPos;
-			Hit.Distance = FVector::Dist(WorldOrigin, HitPos);
-			Hit.MaterialId = SampleMaterial(FVector3d(Local.X, Local.Y, Local.Z));
-			Hit.Normal = HitN.IsNearlyZero() ? Local.GetSafeNormal() : HitN;
-			if (Hit.Normal.IsNearlyZero())
+			FVector N = HitN.IsNearlyZero() ? Local.GetSafeNormal() : HitN.GetSafeNormal();
+			if (N.IsNearlyZero())
 			{
-				Hit.Normal = -Dir;
+				N = -Dir;
 			}
-			return Hit;
+			// Skip leftover lid / look-through: air 0.55 m behind the hit
+			// means this face is not the next solid (GX-shot-0131).
+			const FVector Probe = Local - N * 0.55f;
+			const float Behind = SampleDensityMeters(FVector3d(Probe.X, Probe.Y, Probe.Z));
+			if (Behind > 0.0f)
+			{
+				Hit.bHit = true;
+				Hit.Location = HitPos;
+				Hit.Distance = FVector::Dist(WorldOrigin, HitPos);
+				Hit.MaterialId = SampleMaterial(FVector3d(Local.X, Local.Y, Local.Z));
+				Hit.Normal = N;
+				return Hit;
+			}
 		}
 	}
 	const float StepCm = 12.0f;
@@ -776,14 +784,15 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	const bool bWallAim = !HitNormal.IsNearlyZero()
 		&& !Radial.IsNearlyZero()
 		&& FMath::Abs(FVector::DotProduct(HitNormal.GetSafeNormal(), Radial)) < 0.62f;
-	const bool bOpenMouth = bWallAim || bSteep;
+	const bool bContinueCave = CrustTiles && CrustTiles->HasPunchedNear(L, BrushR * 3.0f);
+	const bool bOpenMouth = bWallAim || bSteep || bContinueCave;
 	if (bOpenMouth)
 	{
 		// Heightfield cannot tunnel. Remesh the 3D density cave and punch
-		// only steep quads a cave vertex actually covers (0.10.27). Floor
-		// hits stay a closed bowl so 1 m MC sheets cannot sit in the pit.
+		// only steep quads a cave vertex actually covers. Once a mouth
+		// exists, keep remeshing so the tunnel can go farther (0131).
 		const int32 SavedCreates = MaxMeshCreatesPerTick;
-		MaxMeshCreatesPerTick = MeshCreatesThisTick + 2;
+		MaxMeshCreatesPerTick = MeshCreatesThisTick + 6;
 		RemeshCaveAt(L, BrushR, false);
 		MaxMeshCreatesPerTick = SavedCreates;
 		TArray<FVector> CavePts;
@@ -2363,8 +2372,16 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 		{
 			continue;
 		}
-		// 1 m MC on the crater rim was the GX-float-0119 sheet through the ball.
-		if (NearLid(Cent))
+		// Only strip floor-like lid sheets (GX-float-0119). Cave walls
+		// sit next to the punched rim — NearLid on those was 1233→66
+		// tris and the black windows in GX-shot-0131.
+		FVector FaceN = FVector::CrossProduct(
+			Mesh.Positions[IB] - Mesh.Positions[IA],
+			Mesh.Positions[IC] - Mesh.Positions[IA]);
+		const FVector Rad = Cent.GetSafeNormal();
+		const bool bFloorLike = !FaceN.IsNearlyZero() && !Rad.IsNearlyZero()
+			&& FMath::Abs(FVector::DotProduct(FaceN.GetSafeNormal(), Rad)) > 0.55f;
+		if (bFloorLike && NearLid(Cent))
 		{
 			continue;
 		}
@@ -2386,7 +2403,7 @@ void AGXVoxelWorld::RemeshCaveAt(const FVector& LocalM, float RadiusM, bool bOnl
 		return;
 	}
 	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
-	const float Cover = FMath::Max(RadiusM, 1.0f) + VoxelSize * 2.0f;
+	const float Cover = FMath::Max(RadiusM, 1.0f) + 8.0f;
 	const int32 Reach = FMath::CeilToInt(Cover / ChunkM) + 1;
 	const FGXChunkKey Center = FGXVoxelVolume::VoxelToChunk(
 		FGXVoxelVolume::WorldToVoxel(FVector3d(LocalM.X, LocalM.Y, LocalM.Z), VoxelSize));
@@ -2429,7 +2446,7 @@ void AGXVoxelWorld::RemeshCaveAt(const FVector& LocalM, float RadiusM, bool bOnl
 		}
 	}
 	Cands.Sort([](const FCand& A, const FCand& B) { return A.Ds < B.Ds; });
-	const int32 Take = FMath::Min(2, Cands.Num());
+	const int32 Take = FMath::Min(6, Cands.Num());
 	int32 N = 0;
 	const double Now = FPlatformTime::Seconds();
 	for (int32 I = 0; I < Take; ++I)
