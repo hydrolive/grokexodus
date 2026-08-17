@@ -751,10 +751,6 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	}
 	RebuildEditedPageBoxes();
 	MarkPersistDirty();
-	if (Punched > 0)
-	{
-		RemeshCaveAt(L, RadiusM * DigSpeedMul, false);
-	}
 	if (HorizonClipmap && !(CrustTiles && CrustTiles->HasTileAt(L)))
 	{
 		HorizonClipmap->NotifyBrush(

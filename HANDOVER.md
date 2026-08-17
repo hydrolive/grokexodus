@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.11**  
+Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.12**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.12** Shot GX-holes-0111: wall punch deleted large tris — **black windows**, remesh did not fill. Dig **never deletes tris**. Floor: radial bowl. Wall: push verts into the dirt along −N, capped 1.35×cell per tick. No remesh on the click.
 - **GX 0.10.11** Shot GX-nocave-0110: orange ball on a **vertical crater wall** — radial drop cannot destroy a wall. Steep hits **punch tris** whose centroid is inside the brush and **async-remesh** the cave (no 312 ms sync flush). Floor hits still only drop verts. Lid filter 1.0 m, used tile verts only, remesh debounce left on.
 - **GX 0.10.10** Shot GX-lowpoly-0109: crater walls were **low-poly with black missing triangles**. Sliver strip (edge > 2.8×cell) deleted steep wall faces after a radial drop. Dig never deletes tris. First sculpt refines to **0.35 m**. Still no per-click remesh.
 - **GX 0.10.9** Shot GX-faces-0108: leftover **vertical sheet** in the pit; each hold-tick remeshed 2–4 chunks (**312 ms**, 3 FPS) and got slower as carve-balls piled up (`cache=0/114`). Dig no longer remeshes voxels. Tile verts drop radially; stretched leftover tris (edge > 2.8×cell) are stripped. Density CSG still writes.
