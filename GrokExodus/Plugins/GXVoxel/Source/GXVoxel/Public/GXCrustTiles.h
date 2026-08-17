@@ -32,9 +32,9 @@ struct FGXCrustTileKey
 
 /**
  * Unedited crust as non-overlapping tiles.
- * Dig punches triangles whose centroid is inside the brush sphere (walls
- * and floors) so density remesh can show a cave. Never hide a whole tile.
- * First stroke refines to 0.5 m. Nanite is idle underfoot only.
+ * Dig keeps the heightfield watertight: radial drop + 3D sphere project
+ * (wall dent). Voxel remesh is the cave interior only — never a 1 m lid.
+ * First stroke refines to 0.5 m.
  */
 class GXVOXEL_API FGXCrustTiles
 {
@@ -58,6 +58,8 @@ public:
 		UMaterialInterface* Material,
 		const TFunction<float(const FVector&)>& DensityAt);
 	bool HasTileAt(const FVector& LocalM) const;
+	/** Live tile verts inside RadiusM of LocalM (planet-local metres). */
+	void CollectLivePointsNear(const FVector& LocalM, float RadiusM, TArray<FVector>& Out) const;
 	/** True when the (2*Half+1)^2 block around the pawn is live. */
 	bool HasNeighborhood(const FVector& LocalM, int32 Half) const;
 	bool IsReady() const { return bReady; }

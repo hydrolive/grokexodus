@@ -208,16 +208,12 @@ int32 FGXCrustTiles::NotifyBrush(
 	{
 		return 0;
 	}
-	// Remove punches tris inside the brush so a wall stroke is a cave mouth
-	// (radial-only CSG could not destroy a wall). Place still raises radially.
+	// Remove stays watertight (radial bowl + 3D sphere dent). Place raises.
 	// Do not FineCell-rebuild an already-sculpted tile — that restores the lid.
 	const float Cover = RadiusM + FineCellM;
 	const float Cover2 = Cover * Cover;
 	const float R2 = RadiusM * RadiusM;
-	const float PunchR = RadiusM + FineCellM * 0.50f;
-	const float PunchR2 = PunchR * PunchR;
 	int32 Changed = 0;
-	int32 PunchedTris = 0;
 	for (auto& Pair : Live)
 	{
 		FTile& Tile = Pair.Value;
@@ -239,67 +235,81 @@ int32 FGXCrustTiles::NotifyBrush(
 		DropNanite(Tile);
 		Tile.bSculpted = true;
 
-		if (bRemove && Tile.Indices.Num() >= 3)
+		if (bRemove)
 		{
-			TArray<int32> Kept;
-			Kept.Reserve(Tile.Indices.Num());
-			int32 Cut = 0;
-			for (int32 T = 0; T + 2 < Tile.Indices.Num(); T += 3)
+			// Keep the heightfield watertight. Punching tris left a sawtooth
+			// that 1 m MC filled with a spikey lid (GX-spikes-0107 / 0108).
+			// Radial drop makes the bowl; 3D project onto the sphere dents a wall.
+			const float MaxStep = RadiusM * 0.90f;
+			int32 N = 0;
+			for (int32 I = 0; I < Tile.LivePos.Num(); ++I)
 			{
-				const int32 IA = Tile.Indices[T];
-				const int32 IB = Tile.Indices[T + 1];
-				const int32 IC = Tile.Indices[T + 2];
-				if (!Tile.LivePos.IsValidIndex(IA) || !Tile.LivePos.IsValidIndex(IB)
-					|| !Tile.LivePos.IsValidIndex(IC))
+				const FVector Dir = Tile.StampDir[I];
+				const FVector W = (Tile.OriginCm + Tile.LivePos[I]) * 0.01f;
+				if (FVector::DistSquared(W, LocalM) > Cover2)
 				{
 					continue;
 				}
-				const FVector WA = (Tile.OriginCm + Tile.LivePos[IA]) * 0.01f;
-				const FVector WB = (Tile.OriginCm + Tile.LivePos[IB]) * 0.01f;
-				const FVector WC = (Tile.OriginCm + Tile.LivePos[IC]) * 0.01f;
-				const FVector Cent = (WA + WB + WC) * (1.0f / 3.0f);
-				const bool bCut = FVector::DistSquared(Cent, LocalM) <= PunchR2
-					|| FVector::DistSquared(WA, LocalM) <= R2
-					|| FVector::DistSquared(WB, LocalM) <= R2
-					|| FVector::DistSquared(WC, LocalM) <= R2;
-				if (bCut)
+				const float CurR = W.Size();
+				float NewR = CurR;
+				FVector NewW = W;
+				const FVector Offset = W - LocalM;
+				const float Dist3 = Offset.Size();
+				if (Dist3 < RadiusM && Dist3 > 1.0e-3f)
 				{
-					++Cut;
-					if (Tile.UV0.IsValidIndex(IA)) { Tile.UV0[IA] = FVector2D(3.0f, 0.0f); }
-					if (Tile.UV0.IsValidIndex(IB)) { Tile.UV0[IB] = FVector2D(3.0f, 0.0f); }
-					if (Tile.UV0.IsValidIndex(IC)) { Tile.UV0[IC] = FVector2D(3.0f, 0.0f); }
-					if (Tile.Colors.IsValidIndex(IA)) { Tile.Colors[IA] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f); }
-					if (Tile.Colors.IsValidIndex(IB)) { Tile.Colors[IB] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f); }
-					if (Tile.Colors.IsValidIndex(IC)) { Tile.Colors[IC] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f); }
+					const FVector OnSphere = LocalM + Offset * (RadiusM / Dist3);
+					if (OnSphere.Size() <= CurR + 0.02f)
+					{
+						NewW = OnSphere;
+						NewR = NewW.Size();
+					}
+				}
+				const float Bcoe = FVector::DotProduct(Dir, LocalM);
+				const float Disc = Bcoe * Bcoe - (LocalM.SizeSquared() - R2);
+				if (Disc >= 0.0f)
+				{
+					const float THit = Bcoe - FMath::Sqrt(Disc);
+					if (THit > 0.0f)
+					{
+						const float RadialR = FMath::Clamp(THit, CurR - MaxStep, CurR);
+						if (RadialR < NewR)
+						{
+							NewR = RadialR;
+							NewW = Dir * NewR;
+						}
+					}
+				}
+				if (FMath::Abs(NewR - CurR) < 0.01f && FVector::DistSquared(NewW, W) < 1.0e-4f)
+				{
 					continue;
 				}
-				Kept.Add(IA);
-				Kept.Add(IB);
-				Kept.Add(IC);
+				if (CurR - NewR > MaxStep)
+				{
+					NewR = CurR - MaxStep;
+					NewW = NewW.GetSafeNormal() * NewR;
+				}
+				Tile.LivePos[I] = NewW * 100.0f - Tile.OriginCm;
+				if ((CurR - NewR) > 0.15f && Tile.UV0.IsValidIndex(I))
+				{
+					Tile.UV0[I] = FVector2D(3.0f, 0.0f);
+					if (Tile.Colors.IsValidIndex(I))
+					{
+						Tile.Colors[I] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f);
+					}
+				}
+				++N;
 			}
-			if (Cut == 0)
+			if (N == 0)
 			{
 				continue;
 			}
-			// Never delete the whole tile — that was the 0.10.2 teal window.
-			if (Kept.Num() < 3)
-			{
-				continue;
-			}
-			Tile.Indices = MoveTemp(Kept);
-			PunchedTris += Cut;
 			RecomputeNormals(Tile);
-			Comp->ClearMeshSection(0);
-			Comp->CreateMeshSection_LinearColor(
-				0, Tile.LivePos, Tile.Indices, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents, true);
-			if (Material)
-			{
-				Comp->SetMaterial(0, Material);
-			}
+			Comp->UpdateMeshSection_LinearColor(
+				0, Tile.LivePos, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents);
 			Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 			Comp->SetVisibility(true);
 			Comp->UpdateBounds();
-			Changed += Cut;
+			Changed += N;
 			continue;
 		}
 
@@ -352,10 +362,10 @@ int32 FGXCrustTiles::NotifyBrush(
 	}
 	if (Changed > 0)
 	{
-		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles sculpt %s n=%d punch=%d r=%.2f cell=%.2f"),
-			bRemove ? TEXT("dig") : TEXT("place"), Changed, PunchedTris, RadiusM, FineCellM);
-		GX_PERF(1, TEXT("GX-tile sculpt %s n=%d punch=%d r=%.2f"),
-			bRemove ? TEXT("dig") : TEXT("place"), Changed, PunchedTris, RadiusM);
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles sculpt %s n=%d r=%.2f cell=%.2f"),
+			bRemove ? TEXT("dig") : TEXT("place"), Changed, RadiusM, FineCellM);
+		GX_PERF(1, TEXT("GX-tile sculpt %s n=%d r=%.2f"),
+			bRemove ? TEXT("dig") : TEXT("place"), Changed, RadiusM);
 	}
 	return Changed;
 }
@@ -588,6 +598,42 @@ void FGXCrustTiles::ApplyNaniteVisual(FTile& Tile, UMaterialInterface* Material)
 bool FGXCrustTiles::HasTileAt(const FVector& LocalM) const
 {
 	return Live.Contains(KeyAt(LocalM, 0));
+}
+
+void FGXCrustTiles::CollectLivePointsNear(const FVector& LocalM, float RadiusM, TArray<FVector>& Out) const
+{
+	if (RadiusM <= 0.0f || Live.Num() == 0)
+	{
+		return;
+	}
+	const float R2 = RadiusM * RadiusM;
+	const float TileReach2 = FMath::Square(RadiusM + TileM + 4.0f);
+	for (const auto& Pair : Live)
+	{
+		const FTile& Tile = Pair.Value;
+		const FVector TileWorld = Tile.OriginCm * 0.01f;
+		if (FVector::DistSquared(TileWorld, LocalM) > TileReach2)
+		{
+			continue;
+		}
+		TSet<int32> Used;
+		for (const int32 Ix : Tile.Indices)
+		{
+			Used.Add(Ix);
+		}
+		for (const int32 I : Used)
+		{
+			if (!Tile.LivePos.IsValidIndex(I))
+			{
+				continue;
+			}
+			const FVector W = (Tile.OriginCm + Tile.LivePos[I]) * 0.01f;
+			if (FVector::DistSquared(W, LocalM) <= R2)
+			{
+				Out.Add(W);
+			}
+		}
+	}
 }
 
 bool FGXCrustTiles::HasNeighborhood(const FVector& LocalM, int32 Half) const

@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.7**  
+Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.8**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.8** Shot GX-spikes-0107 / 0108: cave mouth had a **spikey grass lid** then a **1 m voxel slab** (punched tris + MC on the rim). Heightfield stays watertight: radial drop + 3D sphere project (wall dent). Voxel remesh only keeps tris > 1.5 m from a live tile vert. Empty lid filters do not remesh every tick.
 - **GX 0.10.7** Shot GX-nocave-0106: orange ball on a **crater wall** but heightfield only dropped radially — could not destroy walls or make caves. Dig now **punches tris whose centroid is inside the brush**, remeshes 1 m voxels into that sphere, and clips the MC to the carve balls. Stream no longer drops those cave chunks. Lid scrape only near the stamp crust (no chimney in a pit). First FineCell cook still happens on virgin tiles; already-sculpted tiles are not rebuilt (that restored the lid).
 - **GX 0.10.6** Shot GX-thrash-1: one crater soft, the next a **mineshaft**; texture/mesh thrash. Uncapped ray-sphere in a pit dropped verts tens of metres. Each stroke now **caps at 0.9 R**. Overlap cell removed (z-fight). UpdateMeshSection after the first FineCell cook. Clear leftover save.
 - **GX 0.10.5** Shot GX-dig-0104: dig **yanked 1 m verts toward the brush** — huge dirt pyramids. First stroke refines the tile to **0.5 m**. Verts move **only along the planet radial** to the brush-sphere hit (closed crater matching the ball). Dirt on the floor.

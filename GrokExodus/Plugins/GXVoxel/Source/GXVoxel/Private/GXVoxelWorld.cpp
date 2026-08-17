@@ -1175,6 +1175,11 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 				{
 					continue;
 				}
+				// Lid-only cave chunks (filter emptied) must not remesh every tick.
+				if (CaveChunks.Contains(CC) && HollowChunks.Contains(CC))
+				{
+					continue;
+				}
 				if (!bEdited && !bDrawVoxelVisuals)
 				{
 					continue;
@@ -1537,8 +1542,8 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 			Coord.X, Coord.Y, Coord.Z, Before / 3, MeshData.Indices.Num() / 3);
 		if (MeshData.IsEmpty())
 		{
-			// Walls live on a neighbor. Do not settle hollow or the next
-			// stroke will skip this chunk.
+			// All tris were the grass lid. Do not retry every stream tick.
+			HollowChunks.Add(Coord);
 			return true;
 		}
 	}
@@ -2198,6 +2203,15 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 	{
 		return;
 	}
+	TArray<FVector> Rim;
+	if (CrustTiles)
+	{
+		for (const FVector4& B : *Balls)
+		{
+			CrustTiles->CollectLivePointsNear(FVector(B.X, B.Y, B.Z), B.W + 1.5f, Rim);
+		}
+	}
+	const float LidPad2 = FMath::Square(FMath::Max(1.50f, VoxelSize * 1.50f));
 	TArray<int32> Kept;
 	Kept.Reserve(Mesh.Indices.Num());
 	auto Inside = [Balls](const FVector& P) -> bool
@@ -2206,6 +2220,17 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 		{
 			const FVector C(B.X, B.Y, B.Z);
 			if (FVector::DistSquared(P, C) <= B.W * B.W)
+			{
+				return true;
+			}
+		}
+		return false;
+	};
+	auto NearLid = [&Rim, LidPad2](const FVector& P) -> bool
+	{
+		for (const FVector& R : Rim)
+		{
+			if (FVector::DistSquared(P, R) <= LidPad2)
 			{
 				return true;
 			}
@@ -2223,12 +2248,18 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 			continue;
 		}
 		const FVector Cent = (Mesh.Positions[IA] + Mesh.Positions[IB] + Mesh.Positions[IC]) * (1.0f / 3.0f);
-		if (Inside(Cent) || Inside(Mesh.Positions[IA]) || Inside(Mesh.Positions[IB]) || Inside(Mesh.Positions[IC]))
+		if (!(Inside(Cent) || Inside(Mesh.Positions[IA]) || Inside(Mesh.Positions[IB]) || Inside(Mesh.Positions[IC])))
 		{
-			Kept.Add(IA);
-			Kept.Add(IB);
-			Kept.Add(IC);
+			continue;
 		}
+		// 1 m MC on the punched grass rim was the GX-spikes-0107 sawtooth.
+		if (NearLid(Cent))
+		{
+			continue;
+		}
+		Kept.Add(IA);
+		Kept.Add(IB);
+		Kept.Add(IC);
 	}
 	Mesh.Indices = MoveTemp(Kept);
 	if (Mesh.Indices.Num() < 3)
