@@ -309,32 +309,43 @@ int32 FGXCrustTiles::NotifyBrush(
 				: 0;
 			auto SculptVert = [&](int32 Idx)
 			{
-				if (!Tile.LivePos.IsValidIndex(Idx))
+				if (!Tile.LivePos.IsValidIndex(Idx) || !Tile.StampDir.IsValidIndex(Idx))
 				{
 					return;
 				}
+				const FVector Dir = Tile.StampDir[Idx];
 				const FVector W = (Tile.OriginCm + Tile.LivePos[Idx]) * 0.01f;
 				const float Dist3 = FVector::Dist(W, LocalM);
 				if (Dist3 > Cover)
 				{
 					return;
 				}
-				// Radial THit misses a wall sphere (GX-wallgrass-0121) and
-				// reports "no dig". Project onto the 3D brush sphere instead.
-				// Only verts inside R (plus a one-cell rim). Yank-to-center
-				// of outside verts was the 0.10.5 pyramid.
-				FVector OutDir = W - LocalM;
-				if (OutDir.IsNearlyZero())
+				// Stay on the planet radial. 3D antipode yank (0.10.23) pulled
+				// a few verts a metre down and left dirt slivers (GX-print-0123).
+				const float CurR = W.Size();
+				const float Bcoe = FVector::DotProduct(Dir, LocalM);
+				const float Disc = Bcoe * Bcoe - (LocalM.SizeSquared() - R2);
+				float TargetR = -1.0f;
+				if (Disc >= 0.0f)
 				{
-					OutDir = Tile.StampDir.IsValidIndex(Idx) ? Tile.StampDir[Idx] : W.GetSafeNormal();
+					const float THit = Bcoe - FMath::Sqrt(Disc);
+					if (THit > 0.0f && THit < CurR)
+					{
+						TargetR = THit;
+					}
 				}
-				if (!OutDir.Normalize())
+				if (TargetR < 0.0f)
 				{
-					return;
+					if (Dist3 > RadiusM)
+					{
+						return;
+					}
+					// Inside the ball but the radial missed (wall). Slump
+					// along the radial by how deep we sit in the sphere.
+					TargetR = CurR - (RadiusM - Dist3);
 				}
-				// Outer hemisphere (LocalM+Out*R) was a stone cap (GX-tools-0122).
-				// Subtract uses the far side of the sphere (through the center).
-				const FVector OnSphere = LocalM - OutDir * RadiusM;
+				TargetR = FMath::Max(TargetR, CurR - RadiusM * 0.90f);
+				TargetR = FMath::Min(CurR, TargetR);
 				float Wgt = 1.0f;
 				if (Dist3 > RadiusM)
 				{
@@ -342,19 +353,12 @@ int32 FGXCrustTiles::NotifyBrush(
 					Wgt = FMath::Clamp(Wgt, 0.0f, 1.0f);
 					Wgt = Wgt * Wgt * (3.0f - 2.0f * Wgt);
 				}
-				FVector Desired = FMath::Lerp(W, OnSphere, Wgt);
-				FVector Delta = Desired - W;
-				const float MaxM = RadiusM * 0.90f;
-				if (Delta.Size() > MaxM)
-				{
-					Delta *= MaxM / Delta.Size();
-					Desired = W + Delta;
-				}
-				if (FVector::DistSquared(Desired, W) < 1e-4f)
+				const float NewR = FMath::Lerp(CurR, TargetR, Wgt);
+				if (FMath::Abs(NewR - CurR) < 0.01f)
 				{
 					return;
 				}
-				Tile.LivePos[Idx] = Desired * 100.0f - Tile.OriginCm;
+				Tile.LivePos[Idx] = Dir * NewR * 100.0f - Tile.OriginCm;
 				if (Dist3 <= RadiusM && Tile.UV0.IsValidIndex(Idx))
 				{
 					Tile.UV0[Idx] = FVector2D(3.0f, 0.0f);

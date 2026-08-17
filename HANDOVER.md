@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.23**  
+Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.24**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.24** Shot GX-print-0123: 0.10.23 antipode yank pulled a few verts ~1 m down — **impact print + dirt slivers**, no bowl. Dig is radial again: snap to the near sphere hit (THit). If the radial misses but the vert is inside the ball (wall), slump by `R-dist`. Place still paints rock.
 - **GX 0.10.23** Shot GX-tools-0122: orange **dig raised a stone cap** (projected to the outer hemisphere). Teal place raised verts but never painted UV so it stayed **grass**. Dig now moves verts to the **inner** side of the brush sphere (subtract). Place paints `PlaceMaterialId` (default rock=2).
 - **GX 0.10.22** Shot GX-wallgrass-0121: radial THit **missed wall** strokes (THit≥CurR / Disc<0) and **grass ran down old crater walls** (steep verts kept grass UV + radial N). Dig projects verts **inside the 3D brush sphere** onto that sphere (walls recede). First touch of a sculpted tile recomputes N and paints dirt on steep faces.
 - **GX 0.10.21** Shot GX-pool-0120: hole was a **rectangular swimming pool** with vertical walls — FlattenLongQuads snapped ΔR>1.75 m quads to min R, and cover was 1.45 R + 2 cell so verts outside the ball still dropped. Dig snaps verts to the **brush-sphere hit** only (one-cell rim). No flatten. Overlay GX 0.10.21.
