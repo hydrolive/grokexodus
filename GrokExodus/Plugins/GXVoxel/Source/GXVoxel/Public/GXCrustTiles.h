@@ -32,9 +32,9 @@ struct FGXCrustTileKey
 
 /**
  * Unedited crust as non-overlapping tiles.
- * Floor digs drop verts radially with a wide smoothstep. Shared tile edges
- * are welded (min R). Wall digs punch steep quads only after a cave mesh
- * exists behind the mouth — heightfield cannot represent a tunnel.
+ * Digs drop verts along StampDir only (heightfield). Shared edges weld
+ * min-R, and only pairs inside the brush cover. Heightfield cannot
+ * represent a tunnel — off-radial wall dents fold into black blades.
  */
 class GXVOXEL_API FGXCrustTiles
 {
@@ -134,8 +134,8 @@ private:
 	void SubdivideTileInPlace(FTile& Tile, UMaterialInterface* Material);
 	static int32 GridDim(const FTile& Tile);
 	void WeldSeamsNear(const FVector& LocalM, float CoverM, UMaterialInterface* Material, int32& InOutChanged);
-	static int32 WeldSharedU(FTile& Left, FTile& Right);
-	static int32 WeldSharedV(FTile& Lo, FTile& Hi);
+	static int32 WeldSharedU(FTile& Left, FTile& Right, const FVector& LocalM, float NearM);
+	static int32 WeldSharedV(FTile& Lo, FTile& Hi, const FVector& LocalM, float NearM);
 	static void PushTileMesh(FTile& Tile);
 	static void RecomputeNormals(FTile& Tile);
 	static void RecomputeNormalsWindow(FTile& Tile, int32 I0, int32 I1, int32 J0, int32 J1);
