@@ -294,29 +294,6 @@ int32 FGXCrustTiles::NotifyBrush(
 				// Stay on the planet radial. 3D antipode yank (0.10.23) pulled
 				// a few verts a metre down and left dirt slivers (GX-print-0123).
 				const float CurR = W.Size();
-				const float Bcoe = FVector::DotProduct(Dir, LocalM);
-				const float Disc = Bcoe * Bcoe - (LocalM.SizeSquared() - R2);
-				float TargetR = -1.0f;
-				if (Disc >= 0.0f)
-				{
-					const float THit = Bcoe - FMath::Sqrt(Disc);
-					if (THit > 0.0f && THit < CurR)
-					{
-						TargetR = THit;
-					}
-				}
-				if (TargetR < 0.0f)
-				{
-					if (Dist3 > RadiusM)
-					{
-						return;
-					}
-					// Inside the ball but the radial missed (wall). Slump
-					// along the radial by how deep we sit in the sphere.
-					TargetR = CurR - (RadiusM - Dist3);
-				}
-				TargetR = FMath::Max(TargetR, CurR - RadiusM * 0.90f);
-				TargetR = FMath::Min(CurR, TargetR);
 				float Wgt = 1.0f;
 				if (Dist3 > RadiusM)
 				{
@@ -324,12 +301,57 @@ int32 FGXCrustTiles::NotifyBrush(
 					Wgt = FMath::Clamp(Wgt, 0.0f, 1.0f);
 					Wgt = Wgt * Wgt * (3.0f - 2.0f * Wgt);
 				}
-				const float NewR = FMath::Lerp(CurR, TargetR, Wgt);
-				if (FMath::Abs(NewR - CurR) < 0.01f)
+				FVector Face = Tile.LiveN.IsValidIndex(Idx) ? Tile.LiveN[Idx] : Dir;
+				if (!Face.Normalize())
 				{
-					return;
+					Face = Dir;
 				}
-				Tile.LivePos[Idx] = Dir * NewR * 100.0f - Tile.OriginCm;
+				const bool bSteep = FMath::Abs(FVector::DotProduct(Face, Dir)) < 0.62f;
+				if (bSteep)
+				{
+					// Recede the wall into the dirt toward the brush center.
+					// Radial-only slump cannot destroy a previous crater wall.
+					FVector ToC = LocalM - W;
+					if (!ToC.Normalize())
+					{
+						return;
+					}
+					const FVector Desired = LocalM + ToC * RadiusM;
+					FVector Delta = (Desired - W) * Wgt;
+					const float MaxM = FMath::Max(Cell, RadiusM * 0.45f);
+					if (Delta.Size() > MaxM)
+					{
+						Delta *= MaxM / Delta.Size();
+					}
+					if (Delta.SizeSquared() < 1e-4f)
+					{
+						return;
+					}
+					const FVector NewW = W + Delta;
+					Tile.LivePos[Idx] = NewW * 100.0f - Tile.OriginCm;
+				}
+				else
+				{
+					const float Bcoe = FVector::DotProduct(Dir, LocalM);
+					const float Disc = Bcoe * Bcoe - (LocalM.SizeSquared() - R2);
+					if (Disc < 0.0f)
+					{
+						return;
+					}
+					const float THit = Bcoe - FMath::Sqrt(Disc);
+					if (THit <= 0.0f || THit >= CurR)
+					{
+						return;
+					}
+					float TargetR = FMath::Max(THit, CurR - RadiusM * 0.90f);
+					TargetR = FMath::Min(CurR, TargetR);
+					const float NewR = FMath::Lerp(CurR, TargetR, Wgt);
+					if (FMath::Abs(NewR - CurR) < 0.01f)
+					{
+						return;
+					}
+					Tile.LivePos[Idx] = Dir * NewR * 100.0f - Tile.OriginCm;
+				}
 				if (Dist3 <= RadiusM && Tile.UV0.IsValidIndex(Idx))
 				{
 					Tile.UV0[Idx] = FVector2D(3.0f, 0.0f);

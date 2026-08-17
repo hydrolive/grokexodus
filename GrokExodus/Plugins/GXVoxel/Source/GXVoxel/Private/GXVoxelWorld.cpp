@@ -772,34 +772,54 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); },
 			&Punched, false, &bSteep);
 	}
-	// 0.10.19 remesh+punch left 1 m MC sheets through the bowl
-	// (GX-float-0119). Heightfield is the visual. Density stays 3D.
-	if (CaveChunks.Num() > 0)
+	if (bSteep)
 	{
-		const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
-		const float Reach2 = FMath::Square(BrushR + ChunkM + 8.0f);
-		TArray<FGXChunkKey> Drop;
-		for (const FGXChunkKey& K : CaveChunks)
+		const int32 SavedCreates = MaxMeshCreatesPerTick;
+		MaxMeshCreatesPerTick = MeshCreatesThisTick + 2;
+		RemeshCaveAt(L, BrushR, false);
+		MaxMeshCreatesPerTick = SavedCreates;
+		TArray<FVector> CavePts;
+		CollectCavePointsNear(L, BrushR + 1.2f, CavePts);
+		auto Covers = [&CavePts](const FVector& P) -> bool
 		{
-			const FVector C((K.X + 0.5f) * ChunkM, (K.Y + 0.5f) * ChunkM, (K.Z + 0.5f) * ChunkM);
-			if (FVector::DistSquared(C, L) <= Reach2)
+			const float Cover2 = FMath::Square(1.00f);
+			for (const FVector& C : CavePts)
 			{
-				Drop.Add(K);
+				if (FVector::DistSquared(C, P) <= Cover2)
+				{
+					return true;
+				}
+			}
+			return false;
+		};
+		if (CrustTiles)
+		{
+			Closed = CrustTiles->CloseUncoveredBrush(L, BrushR * 3.0f + 4.0f, TerrainMaterial.Get(), Covers);
+			if (CavePts.Num() > 0)
+			{
+				Punched = CrustTiles->PunchBrush(L, BrushR, TerrainMaterial.Get(), Covers);
 			}
 		}
-		for (const FGXChunkKey& K : Drop)
+		if (Punched == 0)
 		{
-			ReleaseVisual(K);
-			CaveChunks.Remove(K);
-			CarveBalls.Remove(K);
-			HollowChunks.Add(K);
-			++HiddenCave;
+			const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
+			const float Reach2 = FMath::Square(BrushR + ChunkM + 8.0f);
+			TArray<FGXChunkKey> Drop;
+			for (const FGXChunkKey& K : CaveChunks)
+			{
+				const FVector C((K.X + 0.5f) * ChunkM, (K.Y + 0.5f) * ChunkM, (K.Z + 0.5f) * ChunkM);
+				if (FVector::DistSquared(C, L) <= Reach2)
+				{
+					Drop.Add(K);
+				}
+			}
+			for (const FGXChunkKey& K : Drop)
+			{
+				ReleaseVisual(K);
+				HollowChunks.Add(K);
+				++HiddenCave;
+			}
 		}
-	}
-	if (CrustTiles)
-	{
-		Closed = CrustTiles->CloseUncoveredBrush(
-			L, BrushR * 4.0f + 8.0f, TerrainMaterial.Get(), TFunction<bool(const FVector&)>());
 	}
 	{
 		static double LastBoxesAt = -1.0e9;
