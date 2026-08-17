@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.35**  
+Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.36**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -33,6 +33,7 @@ density no longer matches the new lid.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.36** Shot GX-shot-0136: cave works; punching the lid left a **mess of stretched triangles** over the ball. Mixed rim quads spanned the pit. Hide-air now also drops 3-corner-air cells and slivers (ΔR > 1 m or edge > 2.4 cell). Next stroke heals the existing fins.
 - **GX 0.10.35** Shot GX-shot-0135: cave works; **sawtooth rim** and **dirt stains** on the remaining lid. Hide-air only removes quads whose **four corners** are air; mixed rim stays as a collar. Flat remaining verts get grass UV back; lip verts stay dirt.
 - **GX 0.10.34** Plan D: edited patch has **one visual owner**. Every dig remeshes cave MC first; tile quads hide only when density under them is air **and** the remesh has ≥12 tris. Tool ray hits cave PMC first. Cave sections cook collision. Punch-if-cave-vert is gone. Reset `earth_default.gxsav`.
 - **GX 0.10.33** Shot GX-shot-0133: cave existed but the **lid stayed**, then **faces vanished** and the **orange ball** sat in the window. CSG carved under a lid that only slumped 0.4 m/tick; punch opened 13 quads while the cave filter kept 0 tris (`1990→0`). Lid verts now drop toward the density floor (cap follows the dig). Cave remesh keeps all non-floor MC. Punch only if ≥24 cave verts and a vert is within 0.65 m of the quad. Reset `earth_default.gxsav`.

@@ -925,9 +925,19 @@ int32 FGXCrustTiles::SyncAirBackedQuads(
 				}
 				return DensityAt(W) <= 0.0f || DensityAt(W - Rad * 0.40f) <= 0.0f;
 			};
-			// Only hide a fully excavated cell. Partial rim quads stayed
-			// as sawtooth cuts + dirt stains (GX-shot-0135).
-			const bool bAir = CornerAir(WA) && CornerAir(WB) && CornerAir(WC) && CornerAir(WD);
+			const int32 AirN = (CornerAir(WA) ? 1 : 0) + (CornerAir(WB) ? 1 : 0)
+				+ (CornerAir(WC) ? 1 : 0) + (CornerAir(WD) ? 1 : 0);
+			const float RA = WA.Size(), RB = WB.Size(), RC = WC.Size(), RD = WD.Size();
+			const float MaxR = FMath::Max(FMath::Max(RA, RB), FMath::Max(RC, RD));
+			const float MinR = FMath::Min(FMath::Min(RA, RB), FMath::Min(RC, RD));
+			const float Cell = (Tile.FineCell > 0.1f) ? Tile.FineCell : CellM;
+			const float LongEdge = FMath::Max(FMath::Max(FVector::Dist(WA, WB), FVector::Dist(WA, WC)),
+				FMath::Max(FVector::Dist(WD, WB), FVector::Dist(WD, WC)));
+			// Mixed rim quads that span the pit become the triangle fins
+			// over the orange ball (GX-shot-0136). Hide those slivers.
+			const bool bSliver = (MaxR - MinR) > FMath::Max(1.00f, Cell * 1.85f)
+				|| LongEdge > Cell * 2.40f;
+			const bool bAir = AirN >= 3 || bSliver;
 			if (bAir == !Tile.QuadAlive[Q])
 			{
 				continue;
