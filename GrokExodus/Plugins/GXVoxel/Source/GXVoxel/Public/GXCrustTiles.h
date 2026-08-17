@@ -140,6 +140,7 @@ private:
 	static void RecomputeNormals(FTile& Tile);
 	static void RecomputeNormalsWindow(FTile& Tile, int32 I0, int32 I1, int32 J0, int32 J1);
 	static int32 RebuildIndices(FTile& Tile);
+	static int32 RepairWindingWindow(FTile& Tile, int32 I0, int32 I1, int32 J0, int32 J1);
 	static int32 PaintSteepDirt(FTile& Tile, int32 I0, int32 I1, int32 J0, int32 J1);
 	static int32 PunchSteepQuads(
 		FTile& Tile,

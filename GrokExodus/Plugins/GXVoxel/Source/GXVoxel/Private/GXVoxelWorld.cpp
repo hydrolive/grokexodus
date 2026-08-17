@@ -772,55 +772,8 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); },
 			&Punched, false, &bSteep);
 	}
-	if (bSteep)
-	{
-		const int32 SavedCreates = MaxMeshCreatesPerTick;
-		MaxMeshCreatesPerTick = MeshCreatesThisTick + 2;
-		RemeshCaveAt(L, BrushR, false);
-		MaxMeshCreatesPerTick = SavedCreates;
-		TArray<FVector> CavePts;
-		CollectCavePointsNear(L, BrushR + 1.2f, CavePts);
-		auto Covers = [&CavePts](const FVector& P) -> bool
-		{
-			const float Cover2 = FMath::Square(1.00f);
-			for (const FVector& C : CavePts)
-			{
-				if (FVector::DistSquared(C, P) <= Cover2)
-				{
-					return true;
-				}
-			}
-			return false;
-		};
-		if (CrustTiles)
-		{
-			Closed = CrustTiles->CloseUncoveredBrush(L, BrushR * 3.0f + 4.0f, TerrainMaterial.Get(), Covers);
-			if (CavePts.Num() > 0)
-			{
-				Punched = CrustTiles->PunchBrush(L, BrushR, TerrainMaterial.Get(), Covers);
-			}
-		}
-		if (Punched == 0)
-		{
-			const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
-			const float Reach2 = FMath::Square(BrushR + ChunkM + 8.0f);
-			TArray<FGXChunkKey> Drop;
-			for (const FGXChunkKey& K : CaveChunks)
-			{
-				const FVector C((K.X + 0.5f) * ChunkM, (K.Y + 0.5f) * ChunkM, (K.Z + 0.5f) * ChunkM);
-				if (FVector::DistSquared(C, L) <= Reach2)
-				{
-					Drop.Add(K);
-				}
-			}
-			for (const FGXChunkKey& K : Drop)
-			{
-				ReleaseVisual(K);
-				HollowChunks.Add(K);
-				++HiddenCave;
-			}
-		}
-	}
+	(void)bSteep;
+	(void)HiddenCave;
 	{
 		static double LastBoxesAt = -1.0e9;
 		const double Now = FPlatformTime::Seconds();

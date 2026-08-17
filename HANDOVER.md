@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.27**  
+Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.28**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.28** Shots 005306 / 005323 / 005337: each dig added **seams** and **dirt on undug hills**. Full-tile winding rebuild flipped stamp tris; PaintSteepDirt painted natural slopes; punch opened black blades. Winding repair is **window-only**. Dirt only on verts the brush moved. No punch/remesh. FineCell 0.5 m welds to 1 m neighbors.
 - **GX 0.10.27** Could only dig **down** — crater walls ignored the brush (radial slump). Steep verts now **recede into the dirt** toward the brush (capped 0.45 R/tick). A steep hit remeshes 2 cave chunks and punches only quads a cave vert covers (1 m). Unbacked cave meshes are hidden (no floating sheets).
 - **GX 0.10.26** Shot GX-exposed-0125: a **black standing triangle** next to the ball — a crater-wall tri folded so the backface showed. After each drop, rebuild indices so Cross faces the core (0.9.11 winding). CreateMeshSection if any tri flipped.
 - **GX 0.10.25** Shots 224544 → 224558: a dig **slid grass/dirt on undug hills**. First stroke FineCell-rebuilt the whole 64 m tile from the stamp (and a full-tile normal heal). Refine is now **in-place subdivide** (old verts stay put). Normals/dirt paint stay in the brush window.

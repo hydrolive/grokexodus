@@ -258,9 +258,6 @@ int32 FGXCrustTiles::NotifyBrush(
 		{
 			continue;
 		}
-		DropNanite(Tile);
-		Tile.bSculpted = true;
-
 		if (bRemove)
 		{
 			// Snap verts to the brush sphere. A wide cover + min-R flatten
@@ -388,12 +385,12 @@ int32 FGXCrustTiles::NotifyBrush(
 			{
 				continue;
 			}
-			const int32 Flipped = (Dim >= 2) ? RebuildIndices(Tile) : 0;
+			DropNanite(Tile);
+			Tile.bSculpted = true;
+			const int32 Flipped = (Dim >= 2) ? RepairWindingWindow(Tile, I0, I1, J0, J1) : 0;
 			if (Dim >= 2)
 			{
 				RecomputeNormalsWindow(Tile, I0, I1, J0, J1);
-				PaintSteepDirt(Tile, I0, I1, J0, J1);
-				Tile.bSteepDirtHealed = true;
 			}
 			else
 			{
@@ -502,6 +499,8 @@ int32 FGXCrustTiles::NotifyBrush(
 		{
 			continue;
 		}
+		DropNanite(Tile);
+		Tile.bSculpted = true;
 		RecomputeNormals(Tile);
 		Comp->UpdateMeshSection_LinearColor(
 			0, Tile.LivePos, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents);
@@ -820,32 +819,79 @@ int32 FGXCrustTiles::WeldSharedU(FTile& Left, FTile& Right)
 {
 	const int32 DL = GridDim(Left);
 	const int32 DR = GridDim(Right);
-	if (DL < 2 || DL != DR || Left.StampDir.Num() != Left.LivePos.Num()
+	if (DL < 2 || DR < 2 || Left.StampDir.Num() != Left.LivePos.Num()
 		|| Right.StampDir.Num() != Right.LivePos.Num())
 	{
 		return 0;
 	}
-	int32 N = 0;
-	for (int32 J = 0; J < DL; ++J)
+	auto Snap = [](FTile& T, int32 Idx, const FVector& NewW)
 	{
-		const int32 IL = (DL - 1) + J * DL;
-		const int32 IR = 0 + J * DR;
+		if (T.LivePos.IsValidIndex(Idx))
+		{
+			T.LivePos[Idx] = NewW * 100.0f - T.OriginCm;
+		}
+	};
+	auto PairR = [&](int32 IL, int32 IR) -> int32
+	{
 		const FVector WA = (Left.OriginCm + Left.LivePos[IL]) * 0.01f;
 		const FVector WB = (Right.OriginCm + Right.LivePos[IR]) * 0.01f;
 		const float RA = WA.Size();
 		const float RB = WB.Size();
 		if (FMath::Abs(RA - RB) < 0.02f)
 		{
-			continue;
+			return 0;
 		}
 		const float NewR = FMath::Min(RA, RB);
 		const FVector Dir = (RA <= RB)
 			? (Left.StampDir.IsValidIndex(IL) ? Left.StampDir[IL] : WA.GetSafeNormal())
 			: (Right.StampDir.IsValidIndex(IR) ? Right.StampDir[IR] : WB.GetSafeNormal());
 		const FVector NewW = Dir * NewR;
-		Left.LivePos[IL] = NewW * 100.0f - Left.OriginCm;
-		Right.LivePos[IR] = NewW * 100.0f - Right.OriginCm;
-		++N;
+		Snap(Left, IL, NewW);
+		Snap(Right, IR, NewW);
+		return 1;
+	};
+	int32 N = 0;
+	const int32 Coarse = FMath::Min(DL, DR);
+	const int32 StepL = (DL > DR) ? (DL - 1) / (DR - 1) : 1;
+	const int32 StepR = (DR > DL) ? (DR - 1) / (DL - 1) : 1;
+	if (StepL * (Coarse - 1) != (DL > DR ? DL - 1 : DR - 1)
+		&& StepR * (Coarse - 1) != (DR > DL ? DR - 1 : DL - 1)
+		&& DL != DR)
+	{
+		return 0;
+	}
+	const int32 Count = (DL == DR) ? DL : Coarse;
+	for (int32 J = 0; J < Count; ++J)
+	{
+		const int32 JL = (DL >= DR) ? J * StepL : J;
+		const int32 JR = (DR >= DL) ? J * StepR : J;
+		N += PairR((DL - 1) + JL * DL, 0 + JR * DR);
+	}
+	if (DL > DR)
+	{
+		for (int32 J = 0; J < DR - 1; ++J)
+		{
+			const int32 A = (DL - 1) + (J * StepL) * DL;
+			const int32 C = (DL - 1) + ((J + 1) * StepL) * DL;
+			const int32 B = (DL - 1) + (J * StepL + 1) * DL;
+			if (Left.LivePos.IsValidIndex(A) && Left.LivePos.IsValidIndex(B) && Left.LivePos.IsValidIndex(C))
+			{
+				Left.LivePos[B] = (Left.LivePos[A] + Left.LivePos[C]) * 0.5f;
+			}
+		}
+	}
+	if (DR > DL)
+	{
+		for (int32 J = 0; J < DL - 1; ++J)
+		{
+			const int32 A = 0 + (J * StepR) * DR;
+			const int32 C = 0 + ((J + 1) * StepR) * DR;
+			const int32 B = 0 + (J * StepR + 1) * DR;
+			if (Right.LivePos.IsValidIndex(A) && Right.LivePos.IsValidIndex(B) && Right.LivePos.IsValidIndex(C))
+			{
+				Right.LivePos[B] = (Right.LivePos[A] + Right.LivePos[C]) * 0.5f;
+			}
+		}
 	}
 	return N;
 }
@@ -854,32 +900,73 @@ int32 FGXCrustTiles::WeldSharedV(FTile& Lo, FTile& Hi)
 {
 	const int32 DL = GridDim(Lo);
 	const int32 DH = GridDim(Hi);
-	if (DL < 2 || DL != DH || Lo.StampDir.Num() != Lo.LivePos.Num()
+	if (DL < 2 || DH < 2 || Lo.StampDir.Num() != Lo.LivePos.Num()
 		|| Hi.StampDir.Num() != Hi.LivePos.Num())
 	{
 		return 0;
 	}
-	int32 N = 0;
-	for (int32 I = 0; I < DL; ++I)
+	auto Snap = [](FTile& T, int32 Idx, const FVector& NewW)
 	{
-		const int32 IL = I + (DL - 1) * DL;
-		const int32 IH = I + 0 * DH;
+		if (T.LivePos.IsValidIndex(Idx))
+		{
+			T.LivePos[Idx] = NewW * 100.0f - T.OriginCm;
+		}
+	};
+	auto PairR = [&](int32 IL, int32 IH) -> int32
+	{
 		const FVector WA = (Lo.OriginCm + Lo.LivePos[IL]) * 0.01f;
 		const FVector WB = (Hi.OriginCm + Hi.LivePos[IH]) * 0.01f;
 		const float RA = WA.Size();
 		const float RB = WB.Size();
 		if (FMath::Abs(RA - RB) < 0.02f)
 		{
-			continue;
+			return 0;
 		}
 		const float NewR = FMath::Min(RA, RB);
 		const FVector Dir = (RA <= RB)
 			? (Lo.StampDir.IsValidIndex(IL) ? Lo.StampDir[IL] : WA.GetSafeNormal())
 			: (Hi.StampDir.IsValidIndex(IH) ? Hi.StampDir[IH] : WB.GetSafeNormal());
 		const FVector NewW = Dir * NewR;
-		Lo.LivePos[IL] = NewW * 100.0f - Lo.OriginCm;
-		Hi.LivePos[IH] = NewW * 100.0f - Hi.OriginCm;
-		++N;
+		Snap(Lo, IL, NewW);
+		Snap(Hi, IH, NewW);
+		return 1;
+	};
+	int32 N = 0;
+	const int32 Coarse = FMath::Min(DL, DH);
+	const int32 StepL = (DL > DH) ? (DL - 1) / (DH - 1) : 1;
+	const int32 StepH = (DH > DL) ? (DH - 1) / (DL - 1) : 1;
+	const int32 Count = (DL == DH) ? DL : Coarse;
+	for (int32 I = 0; I < Count; ++I)
+	{
+		const int32 IL = (DL >= DH) ? I * StepL : I;
+		const int32 IH = (DH >= DL) ? I * StepH : I;
+		N += PairR(IL + (DL - 1) * DL, IH + 0 * DH);
+	}
+	if (DL > DH)
+	{
+		for (int32 I = 0; I < DH - 1; ++I)
+		{
+			const int32 A = (I * StepL) + (DL - 1) * DL;
+			const int32 C = ((I + 1) * StepL) + (DL - 1) * DL;
+			const int32 B = (I * StepL + 1) + (DL - 1) * DL;
+			if (Lo.LivePos.IsValidIndex(A) && Lo.LivePos.IsValidIndex(B) && Lo.LivePos.IsValidIndex(C))
+			{
+				Lo.LivePos[B] = (Lo.LivePos[A] + Lo.LivePos[C]) * 0.5f;
+			}
+		}
+	}
+	if (DH > DL)
+	{
+		for (int32 I = 0; I < DL - 1; ++I)
+		{
+			const int32 A = (I * StepH) + 0 * DH;
+			const int32 C = ((I + 1) * StepH) + 0 * DH;
+			const int32 B = (I * StepH + 1) + 0 * DH;
+			if (Hi.LivePos.IsValidIndex(A) && Hi.LivePos.IsValidIndex(B) && Hi.LivePos.IsValidIndex(C))
+			{
+				Hi.LivePos[B] = (Hi.LivePos[A] + Hi.LivePos[C]) * 0.5f;
+			}
+		}
 	}
 	return N;
 }
@@ -1131,6 +1218,61 @@ int32 FGXCrustTiles::RebuildIndices(FTile& Tile)
 			const int32 D = (I + 1) + (J + 1) * Dim;
 			Emit(A, C, Bv);
 			Emit(Bv, C, D);
+		}
+	}
+	return Flipped;
+}
+
+int32 FGXCrustTiles::RepairWindingWindow(FTile& Tile, int32 I0, int32 I1, int32 J0, int32 J1)
+{
+	const int32 Dim = GridDim(Tile);
+	if (Dim < 2)
+	{
+		return 0;
+	}
+	const int32 Cells = Dim - 1;
+	if (Tile.Indices.Num() != Cells * Cells * 6)
+	{
+		return RebuildIndices(Tile);
+	}
+	I0 = FMath::Clamp(I0, 0, Cells - 1);
+	I1 = FMath::Clamp(I1, 0, Cells - 1);
+	J0 = FMath::Clamp(J0, 0, Cells - 1);
+	J1 = FMath::Clamp(J1, 0, Cells - 1);
+	int32 Flipped = 0;
+	auto WriteTri = [&](int32 Base, int32 IA, int32 IB, int32 IC)
+	{
+		if (!Tile.LivePos.IsValidIndex(IA) || !Tile.LivePos.IsValidIndex(IB)
+			|| !Tile.LivePos.IsValidIndex(IC))
+		{
+			return;
+		}
+		FVector FaceN = FVector::CrossProduct(Tile.LivePos[IB] - Tile.LivePos[IA], Tile.LivePos[IC] - Tile.LivePos[IA]);
+		const FVector Mid = (Tile.LivePos[IA] + Tile.LivePos[IB] + Tile.LivePos[IC]) * (1.0f / 3.0f) + Tile.OriginCm;
+		if (!FaceN.IsNearlyZero() && FVector::DotProduct(FaceN, Mid) > 0.0f)
+		{
+			Swap(IB, IC);
+			++Flipped;
+		}
+		Tile.Indices[Base] = IA;
+		Tile.Indices[Base + 1] = IB;
+		Tile.Indices[Base + 2] = IC;
+	};
+	for (int32 J = J0; J <= J1; ++J)
+	{
+		for (int32 I = I0; I <= I1; ++I)
+		{
+			const int32 Base = (I + J * Cells) * 6;
+			if (!Tile.Indices.IsValidIndex(Base + 5))
+			{
+				continue;
+			}
+			const int32 A = I + J * Dim;
+			const int32 Bv = (I + 1) + J * Dim;
+			const int32 C = I + (J + 1) * Dim;
+			const int32 D = (I + 1) + (J + 1) * Dim;
+			WriteTri(Base, A, C, Bv);
+			WriteTri(Base + 3, Bv, C, D);
 		}
 	}
 	return Flipped;
