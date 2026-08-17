@@ -183,7 +183,7 @@ public:
 	FVector FindSurfaceWorldLocation(FVector RadialDirection) const;
 
 	UFUNCTION(BlueprintCallable, Category = "GX|Edit")
-	FGXDigOutcome DigSphere(FVector WorldCenter, float RadiusM, float DigSpeedMul = 1.0f, float RecoveryMul = 1.0f, float WearMul = 1.0f);
+	FGXDigOutcome DigSphere(FVector WorldCenter, float RadiusM, float DigSpeedMul = 1.0f, float RecoveryMul = 1.0f, float WearMul = 1.0f, FVector HitNormal = FVector::ZeroVector);
 
 	UFUNCTION(BlueprintCallable, Category = "GX|Edit")
 	FGXDigOutcome PlaceSphere(FVector WorldCenter, float RadiusM, int32 MaterialId);

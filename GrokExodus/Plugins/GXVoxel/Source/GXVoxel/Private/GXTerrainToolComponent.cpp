@@ -221,7 +221,7 @@ void UGXTerrainToolComponent::ApplyTool()
 	if (Mode == EGXToolMode::Drill)
 	{
 		const FVector Center = BrushCenterFromHit(Hit, GetTraceDir());
-		const FGXDigOutcome R = World->DigSphere(Center, BrushRadiusM, DigSpeedMul, RecoveryMul, WearMul);
+		const FGXDigOutcome R = World->DigSphere(Center, BrushRadiusM, DigSpeedMul, RecoveryMul, WearMul, Hit.Normal);
 		if (R.bSuccess && R.MaterialId > 0)
 		{
 			MaterialStock.FindOrAdd(R.MaterialId) += R.YieldAmount;

@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.29**  
+Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.30**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.30** Shots 011733–011838: crater **dirt slid every stroke** (world-pos triplanar followed dropping verts) and a **wall hit could not open a cave** (0.10.29 stripped remesh+punch). Tile UV0.y is the stamp surface radius; PBR samples that rest position so the bowl does not swim. A wall aim (hit N vs radial) remeshes two cave chunks and punches only steep quads a cave vertex covers. Floor stays a closed radial bowl. No 3D wall dent.
 - **GX 0.10.29** Shots 010122–010203: **black blades grew**, **undug hills turned dirt**, some clicks did nothing. Cause: 0.10.27 3D wall dent folded tris (backfaces); each fold recomputed slope normals across the Reach window and welded every 64 m edge within 74 m. Dig is **radial-only** again (reseats leftover dents onto StampDir). Per-tick drop capped at 0.85 cell so quads cannot invert. Normals/winding only on verts that moved. Weld only the brush tile's four edges, pairs inside Cover+2 m. Inside-ball clicks that miss THit still drop MaxStep so the stroke is not a no-op. Heightfield cannot tunnel.
 - **GX 0.10.28** Shots 005306 / 005323 / 005337: each dig added **seams** and **dirt on undug hills**. Full-tile winding rebuild flipped stamp tris; PaintSteepDirt painted natural slopes; punch opened black blades. Winding repair is **window-only**. Dirt only on verts the brush moved. No punch/remesh. FineCell 0.5 m welds to 1 m neighbors.
 - **GX 0.10.27** Could only dig **down** — crater walls ignored the brush (radial slump). Steep verts now **recede into the dirt** toward the brush (capped 0.45 R/tick). A steep hit remeshes 2 cave chunks and punches only quads a cave vert covers (1 m). Unbacked cave meshes are hidden (no floating sheets).

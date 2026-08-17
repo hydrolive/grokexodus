@@ -374,10 +374,27 @@ def main():
     slope_b = scalar("SlopeMid", 0.15, x0, 1440)
     slope_c = scalar("SlopeEnd", 0.30, x0, 1560)
 
+    # Lock triplanar to the stamp surface radius (UV0.y). Digging moves
+    # verts inward; WorldPosition then slid the dirt (shots 011733–011815).
+    # Clipmap / MC leave UV0.y at 0 and keep live WorldPosition.
+    radial = node(unreal.MaterialExpressionNormalize, x0 + 280, 200, "radial")
+    connect(wp, "", radial, "")
+    surf_m = mask(tc, "", False, True, False, x0 + 280, 280, "SurfM")
+    c100 = const(100.0, x0 + 280, 360, "100")
+    c1000 = const(1000.0, x0 + 280, 420, "1000")
+    rest_cm = mul(radial, "", mul(surf_m, "", c100, "", x0 + 560, 280), "",
+                  x0 + 820, 280, "restCm")
+    use_rest = sat(sub(surf_m, "", c1000, "", x0 + 560, 360), "",
+                   x0 + 820, 360, "useRest")
+    wp_use = node(unreal.MaterialExpressionLinearInterpolate, x0 + 1080, 200, "WpUse")
+    connect(wp, "", wp_use, "A")
+    connect(rest_cm, "", wp_use, "B")
+    connect(use_rest, "", wp_use, "Alpha")
+
     # Dominant-axis planar UVs so cliffs are not stretched YZ wood grain.
-    px = mask(wp, "", True, False, False, x0 + 280, -120, "Px")
-    py = mask(wp, "", False, True, False, x0 + 280, -40, "Py")
-    pz = mask(wp, "", False, False, True, x0 + 280, 40, "Pz")
+    px = mask(wp_use, "", True, False, False, x0 + 1340, -120, "Px")
+    py = mask(wp_use, "", False, True, False, x0 + 1340, -40, "Py")
+    pz = mask(wp_use, "", False, False, True, x0 + 1340, 40, "Pz")
 
     c_096 = const(0.96, x0 + 280, 200, "0.96")
     c_002 = const(0.02, x0 + 280, 260, "0.02")
@@ -395,9 +412,6 @@ def main():
     connect(c_7, "", id_clamped, "Max")
     row = floor(mul(id_clamped, "", c_025, "", x0 + 1080, 320), "", x0 + 1340, 320, "row")
     col = sub(id_clamped, "", mul(row, "", c_4, "", x0 + 1340, 400), "", x0 + 1600, 320, "col")
-
-    radial = node(unreal.MaterialExpressionNormalize, x0 + 560, 800, "radial")
-    connect(wp, "", radial, "")
 
     # Single rotated YZ. Dual-frame blend in 0.7.35 went black/mirror at
     # corners where both wrap weights were 0. No Atan2 (0.7.33).

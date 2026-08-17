@@ -740,7 +740,7 @@ FVector AGXVoxelWorld::FindSurfaceWorldLocation(FVector RadialDirection) const
 	return GetActorLocation() + Dir * (SurfaceR * GMetersToUU);
 }
 
-FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float DigSpeedMul, float RecoveryMul, float WearMul)
+FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float DigSpeedMul, float RecoveryMul, float WearMul, FVector HitNormal)
 {
 	FGXDigOutcome Out;
 	if (!Volume)
@@ -772,8 +772,66 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); },
 			&Punched, false, &bSteep);
 	}
+	const FVector Radial = L.GetSafeNormal();
+	const bool bWallAim = !HitNormal.IsNearlyZero()
+		&& !Radial.IsNearlyZero()
+		&& FMath::Abs(FVector::DotProduct(HitNormal.GetSafeNormal(), Radial)) < 0.62f;
+	const bool bOpenMouth = bWallAim || bSteep;
+	if (bOpenMouth)
+	{
+		// Heightfield cannot tunnel. Remesh the 3D density cave and punch
+		// only steep quads a cave vertex actually covers (0.10.27). Floor
+		// hits stay a closed bowl so 1 m MC sheets cannot sit in the pit.
+		const int32 SavedCreates = MaxMeshCreatesPerTick;
+		MaxMeshCreatesPerTick = MeshCreatesThisTick + 2;
+		RemeshCaveAt(L, BrushR, false);
+		MaxMeshCreatesPerTick = SavedCreates;
+		TArray<FVector> CavePts;
+		CollectCavePointsNear(L, BrushR + 1.2f, CavePts);
+		auto Covers = [&CavePts](const FVector& P) -> bool
+		{
+			const float Cover2 = 1.00f * 1.00f;
+			for (const FVector& C : CavePts)
+			{
+				if (FVector::DistSquared(C, P) <= Cover2)
+				{
+					return true;
+				}
+			}
+			return false;
+		};
+		if (CrustTiles)
+		{
+			Closed = CrustTiles->CloseUncoveredBrush(L, BrushR * 3.0f + 4.0f, TerrainMaterial.Get(), Covers);
+			if (CavePts.Num() > 0)
+			{
+				Punched = CrustTiles->PunchBrush(L, BrushR, TerrainMaterial.Get(), Covers);
+			}
+		}
+		if (Punched == 0)
+		{
+			const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
+			const float Reach2 = FMath::Square(BrushR + ChunkM + 8.0f);
+			TArray<FGXChunkKey> Drop;
+			for (const FGXChunkKey& K : CaveChunks)
+			{
+				const FVector C((K.X + 0.5f) * ChunkM, (K.Y + 0.5f) * ChunkM, (K.Z + 0.5f) * ChunkM);
+				if (FVector::DistSquared(C, L) <= Reach2)
+				{
+					Drop.Add(K);
+				}
+			}
+			for (const FGXChunkKey& K : Drop)
+			{
+				ReleaseVisual(K);
+				HollowChunks.Add(K);
+				++HiddenCave;
+			}
+		}
+		GX_PERF(1, TEXT("GX-cave mouth wall=%d steep=%d pts=%d punch=%d hide=%d"),
+			bWallAim ? 1 : 0, bSteep ? 1 : 0, CavePts.Num(), Punched, HiddenCave);
+	}
 	(void)bSteep;
-	(void)HiddenCave;
 	{
 		static double LastBoxesAt = -1.0e9;
 		const double Now = FPlatformTime::Seconds();

@@ -13,6 +13,21 @@
 #include "HAL/IConsoleManager.h"
 #include "HAL/PlatformTime.h"
 
+namespace GXCrustUV
+{
+	static FVector2D MatSurf(float MatId, float SurfM)
+	{
+		return FVector2D(MatId, SurfM);
+	}
+	static FVector2D MatSurf(const TArray<float>& StampSurfM, const TArray<FVector2D>& UV0, int32 Idx, float MatId)
+	{
+		const float Surf = StampSurfM.IsValidIndex(Idx)
+			? StampSurfM[Idx]
+			: (UV0.IsValidIndex(Idx) ? UV0[Idx].Y : 0.0f);
+		return FVector2D(MatId, Surf);
+	}
+}
+
 #if WITH_EDITOR
 static TAutoConsoleVariable<int32> CVarGXNaniteTiles(
 	TEXT("gx.nanite.tiles"),
@@ -356,7 +371,7 @@ int32 FGXCrustTiles::NotifyBrush(
 				Tile.LivePos[Idx] = W * 100.0f - Tile.OriginCm;
 				if (Dist3 <= RadiusM && Tile.UV0.IsValidIndex(Idx))
 				{
-					Tile.UV0[Idx] = FVector2D(3.0f, 0.0f);
+					Tile.UV0[Idx] = GXCrustUV::MatSurf(Tile.StampSurfM, Tile.UV0, Idx, 3.0f);
 					if (Tile.Colors.IsValidIndex(Idx))
 					{
 						Tile.Colors[Idx] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f);
@@ -503,7 +518,7 @@ int32 FGXCrustTiles::NotifyBrush(
 			const int32 Mat = (PaintMaterialId > 0) ? PaintMaterialId : 2;
 			if (Tile.UV0.IsValidIndex(I))
 			{
-				Tile.UV0[I] = FVector2D(static_cast<float>(Mat), 0.0f);
+				Tile.UV0[I] = GXCrustUV::MatSurf(Tile.StampSurfM, Tile.UV0, I, static_cast<float>(Mat));
 			}
 			if (Tile.Colors.IsValidIndex(I))
 			{
@@ -705,6 +720,13 @@ void FGXCrustTiles::SubdivideTileInPlace(FTile& Tile, UMaterialInterface* Materi
 		}
 	}
 
+	for (int32 SI = 0; SI < UV.Num(); ++SI)
+	{
+		if (Surf.IsValidIndex(SI))
+		{
+			UV[SI].Y = Surf[SI];
+		}
+	}
 	DropNanite(Tile);
 	Tile.LivePos = MoveTemp(Pos);
 	Tile.LiveN = MoveTemp(Nrm);
@@ -1378,7 +1400,7 @@ int32 FGXCrustTiles::PaintSteepDirt(FTile& Tile, int32 I0, int32 I1, int32 J0, i
 			}
 			if (Tile.UV0.IsValidIndex(Idx) && Tile.UV0[Idx].X < 2.5f)
 			{
-				Tile.UV0[Idx] = FVector2D(3.0f, 0.0f);
+				Tile.UV0[Idx] = GXCrustUV::MatSurf(Tile.StampSurfM, Tile.UV0, Idx, 3.0f);
 				if (Tile.Colors.IsValidIndex(Idx))
 				{
 					Tile.Colors[Idx] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f);
@@ -1940,7 +1962,7 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 			StampDir.Add(Dir);
 			StampSurfM.Add(SurfR);
 			Normals.Add(Dir);
-			UV0.Add(FVector2D(1.0f, 0.0f));
+			UV0.Add(GXCrustUV::MatSurf(1.0f, SurfR));
 			const float Slope = 0.0f;
 			(void)Slope;
 			Colors.Add(FLinearColor(0.58f, 0.66f, 0.38f, 1.0f));
@@ -1980,7 +2002,7 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 		if (Alt > 0.16f)
 		{
 			Colors[VI] = FLinearColor(0.58f, 0.50f, 0.44f);
-			UV0[VI] = FVector2D(2.0f, 0.0f);
+			UV0[VI] = GXCrustUV::MatSurf(2.0f, StampSurfM.IsValidIndex(VI) ? StampSurfM[VI] : 0.0f);
 		}
 	}
 
