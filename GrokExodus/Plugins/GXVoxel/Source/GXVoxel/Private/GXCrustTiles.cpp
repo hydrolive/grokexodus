@@ -229,7 +229,6 @@ int32 FGXCrustTiles::NotifyBrush(
 	{
 		return 0;
 	}
-	(void)DensityAt;
 	const FVector BrushDir = LocalM.GetSafeNormal();
 	if (BrushDir.IsNearlyZero())
 	{
@@ -353,6 +352,30 @@ int32 FGXCrustTiles::NotifyBrush(
 				else if (Dist3 <= RadiusM)
 				{
 					TargetR = CurR - MaxStep;
+				}
+				// Cap follows excavation. CSG can carve metres of air under
+				// a lid that only slumped 0.4 m/tick — then punch deleted
+				// the sheet and the orange ball sat in a black window (0133).
+				if (DensityAt && Dist3 <= Cover)
+				{
+					const float ProbeR = CurR - 0.20f;
+					if (ProbeR > 1.0f && DensityAt(Dir * ProbeR) <= 0.0f)
+					{
+						const float Search = FMath::Max(RadiusM * 2.0f, 2.0f);
+						float FloorR = CurR - Search;
+						for (float R = ProbeR; R > CurR - Search; R -= 0.25f)
+						{
+							if (DensityAt(Dir * R) > 0.0f)
+							{
+								FloorR = R;
+								break;
+							}
+						}
+						if (FloorR < TargetR)
+						{
+							TargetR = FloorR;
+						}
+					}
 				}
 				if (TargetR < CurR)
 				{

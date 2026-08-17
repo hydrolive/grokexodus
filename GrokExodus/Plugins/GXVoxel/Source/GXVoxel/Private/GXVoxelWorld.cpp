@@ -799,7 +799,7 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 		CollectCavePointsNear(L, BrushR + 1.2f, CavePts);
 		auto Covers = [&CavePts](const FVector& P) -> bool
 		{
-			const float Cover2 = 1.40f * 1.40f;
+			const float Cover2 = 0.65f * 0.65f;
 			for (const FVector& C : CavePts)
 			{
 				if (FVector::DistSquared(C, P) <= Cover2)
@@ -809,12 +809,13 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			}
 			return false;
 		};
-		// Invariant: never hide a cave mesh that backs a punched hole
-		// (GX-shot-0130 black blade). Never punch without cave verts.
+		// Invariant: never punch a lid quad unless cave verts actually
+		// sit in the window. 13 punches vs a 0-tris filter showed the
+		// orange ball (GX-shot-0133).
 		const bool bAlreadyOpen = CrustTiles && CrustTiles->HasPunchedNear(L, BrushR * 2.0f);
 		if (CrustTiles)
 		{
-			if (CavePts.Num() == 0)
+			if (CavePts.Num() < 24)
 			{
 				Closed = CrustTiles->CloseUncoveredBrush(
 					L, BrushR * 3.0f + 4.0f, TerrainMaterial.Get(), Covers);
@@ -822,7 +823,7 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			else
 			{
 				Punched = CrustTiles->PunchBrush(
-					L, BrushR + 0.60f, TerrainMaterial.Get(), Covers);
+					L, BrushR, TerrainMaterial.Get(), Covers);
 			}
 		}
 		if (Punched == 0 && CavePts.Num() == 0 && !bAlreadyOpen)
@@ -2368,13 +2369,9 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 			continue;
 		}
 		const FVector Cent = (Mesh.Positions[IA] + Mesh.Positions[IB] + Mesh.Positions[IC]) * (1.0f / 3.0f);
-		if (!(Inside(Cent) || Inside(Mesh.Positions[IA]) || Inside(Mesh.Positions[IB]) || Inside(Mesh.Positions[IC])))
-		{
-			continue;
-		}
-		// Only strip floor-like lid sheets (GX-float-0119). Cave walls
-		// sit next to the punched rim — NearLid on those was 1233→66
-		// tris and the black windows in GX-shot-0131.
+		// Keep the whole excavated MC except floor lid sheets. Requiring
+		// Inside(carve ball) dropped 1990→0 tris so punch windows showed
+		// the orange ball (GX-shot-0133).
 		FVector FaceN = FVector::CrossProduct(
 			Mesh.Positions[IB] - Mesh.Positions[IA],
 			Mesh.Positions[IC] - Mesh.Positions[IA]);
