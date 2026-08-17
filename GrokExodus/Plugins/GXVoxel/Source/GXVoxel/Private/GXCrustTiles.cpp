@@ -265,7 +265,7 @@ int32 FGXCrustTiles::NotifyBrush(
 		{
 			return A.Key < B.Key;
 		});
-		const int32 Take = FMath::Min(4, Near.Num());
+		const int32 Take = FMath::Min(8, Near.Num());
 		for (int32 I = 0; I < Take; ++I)
 		{
 			if (FTile* T = Live.Find(Near[I].Value))
@@ -994,9 +994,10 @@ int32 FGXCrustTiles::SyncAirBackedQuads(
 			};
 			const int32 DiskN = (InDisk(SA) ? 1 : 0) + (InDisk(SB) ? 1 : 0)
 				+ (InDisk(SC) ? 1 : 0) + (InDisk(SD) ? 1 : 0);
-			// 3-corner left rim sheets (0149). FineCell neighbors are 0.5 m
-			// so centroid-or-2-corners is safe (0147 black tris were 1 m).
-			const bool bDisk = InDisk(SCent) || DiskN >= 2;
+			const bool bFine = Cell <= 0.55f;
+			const bool bDisk = bFine
+				? (InDisk(SCent) || DiskN >= 1)
+				: (DiskN >= 3);
 			// 1 m voxels make stamp-0.20 look solid on most 0.5 m quads
 			// (0146 n=11). Geometric disk matches the brush; remesh fills.
 			const bool bHide = bDisk || ColAir(SCent) || bSpan || bDroppedLid;

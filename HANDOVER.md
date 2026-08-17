@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.50**  
+Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.51**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.51** Shot GX-shot-0150: cave works; **grass sheets on unrefined tiles** as the hole grows. FineCell 8 nearest tiles. Fine 0.5 m quads hide if **any** corner is in the disk; 1 m quads still need 3 corners.
 - **GX 0.10.50** Shot GX-shot-0149: cave works, 4 tiles FineCell, but **rim grass sheets** (3-corner hide). Hide if centroid is in the disk **or ≥2 corners**.
 - **GX 0.10.49** Shot GX-shot-0148: FineCell **missed** (reach 37 m, spawn tiles 45 m). Same 0.80×64+8 reach as sculpt. 3-corner disk hide stays.
 - **GX 0.10.48** Shot GX-shot-0147: ball fits the hole; **two black neighbor triangles** — 1 m tiles hid a whole coarse quad. FineCell up to 4 tiles under the brush. Hide a disk only if **≥3 stamp corners** are inside R+0.55.
