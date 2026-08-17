@@ -32,8 +32,9 @@ struct FGXCrustTileKey
 
 /**
  * Unedited crust as non-overlapping tiles.
- * Dig drops verts radially with a wide smoothstep. Shared tile edges are
- * welded (min R) so a FineCell neighbor cannot rip a seam. Never delete tris.
+ * Floor digs drop verts radially with a wide smoothstep. Shared tile edges
+ * are welded (min R). Wall digs punch steep quads only after a cave mesh
+ * exists behind the mouth — heightfield cannot represent a tunnel.
  */
 class GXVOXEL_API FGXCrustTiles
 {
@@ -56,7 +57,11 @@ public:
 		const FGXSphereStamp& Stamp,
 		UMaterialInterface* Material,
 		const TFunction<float(const FVector&)>& DensityAt,
-		int32* OutPunched = nullptr);
+		int32* OutPunched = nullptr,
+		bool bAllowPunch = false,
+		bool* OutSteep = nullptr);
+	/** Punch steep quads whose centroid is inside RadiusM. No extra drop. */
+	int32 PunchBrush(const FVector& LocalM, float RadiusM, UMaterialInterface* Material);
 	bool HasTileAt(const FVector& LocalM) const;
 	/** Closest hit on the live tile mesh (two-sided). World cm. */
 	bool RaycastVisible(
@@ -98,6 +103,8 @@ private:
 		float FineCell = 0.0f;
 		bool bHidden = false;
 		bool bSculpted = false;
+		/** One bit per grid quad (Dim-1)^2. False = punched (ray + draw skip). */
+		TBitArray<> QuadAlive;
 	};
 
 	TMap<FGXCrustTileKey, FTile> Live;
@@ -118,6 +125,9 @@ private:
 	static int32 WeldSharedV(FTile& Lo, FTile& Hi);
 	static void PushTileMesh(FTile& Tile);
 	static void RecomputeNormals(FTile& Tile);
+	static void RecomputeNormalsWindow(FTile& Tile, int32 I0, int32 I1, int32 J0, int32 J1);
+	static void RebuildIndices(FTile& Tile);
+	static int32 PunchSteepQuads(FTile& Tile, const FVector& LocalM, float RadiusM);
 	void ApplyNaniteVisual(FTile& Tile, UMaterialInterface* Material);
 	void DropNanite(FTile& Tile);
 	void DestroyTileVisuals(FTile& Tile);

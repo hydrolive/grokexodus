@@ -345,6 +345,7 @@ protected:
 	bool ShouldPunchClipmap(const FVector& LocalM) const;
 	void RemeshAroundLocal(const FVector& LocalM, float RadiusM);
 	void RemeshCaveAt(const FVector& LocalM, float RadiusM, bool bOnlyExistingCaves);
+	bool HasCaveVisualNear(const FVector& LocalM, float RadiusM) const;
 	void FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const;
 	void MarkPersistDirty();
 };

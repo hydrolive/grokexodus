@@ -197,11 +197,17 @@ int32 FGXCrustTiles::NotifyBrush(
 	const FGXSphereStamp& Stamp,
 	UMaterialInterface* Material,
 	const TFunction<float(const FVector&)>& DensityAt,
-	int32* OutPunched)
+	int32* OutPunched,
+	bool bAllowPunch,
+	bool* OutSteep)
 {
 	if (OutPunched)
 	{
 		*OutPunched = 0;
+	}
+	if (OutSteep)
+	{
+		*OutSteep = false;
 	}
 	if (RadiusM <= 0.0f || Live.Num() == 0)
 	{
@@ -218,6 +224,8 @@ int32 FGXCrustTiles::NotifyBrush(
 	const float R2 = RadiusM * RadiusM;
 	int32 Changed = 0;
 	int32 PunchedAll = 0;
+	int32 SteepCenter = 0;
+	int32 CenterHits = 0;
 	const float TileReach2 = FMath::Square(Cover + TileM * 0.55f + 4.0f);
 	// At most one FineCell cook per stroke. Cooking every nearby 16 k-vert
 	// tile (0.10.14) took longer than the 140 ms hold tick — later digs
@@ -328,10 +336,6 @@ int32 FGXCrustTiles::NotifyBrush(
 					return;
 				}
 				Tile.LivePos[Idx] = Dir * NewR * 100.0f - Tile.OriginCm;
-				if (Tile.LiveN.IsValidIndex(Idx))
-				{
-					Tile.LiveN[Idx] = Dir;
-				}
 				if (Wgt > 0.35f && Tile.UV0.IsValidIndex(Idx))
 				{
 					Tile.UV0[Idx] = FVector2D(3.0f, 0.0f);
@@ -342,12 +346,13 @@ int32 FGXCrustTiles::NotifyBrush(
 				}
 				++N;
 			};
+			int32 I0 = 0, I1 = 0, J0 = 0, J1 = 0;
 			if (Dim >= 2 && Reach > 0)
 			{
-				const int32 I0 = FMath::Clamp(IU - Reach, 0, Dim - 1);
-				const int32 I1 = FMath::Clamp(IU + Reach, 0, Dim - 1);
-				const int32 J0 = FMath::Clamp(IV - Reach, 0, Dim - 1);
-				const int32 J1 = FMath::Clamp(IV + Reach, 0, Dim - 1);
+				I0 = FMath::Clamp(IU - Reach, 0, Dim - 1);
+				I1 = FMath::Clamp(IU + Reach, 0, Dim - 1);
+				J0 = FMath::Clamp(IV - Reach, 0, Dim - 1);
+				J1 = FMath::Clamp(IV + Reach, 0, Dim - 1);
 				for (int32 J = J0; J <= J1; ++J)
 				{
 					for (int32 I = I0; I <= I1; ++I)
@@ -367,8 +372,64 @@ int32 FGXCrustTiles::NotifyBrush(
 			{
 				continue;
 			}
-			Comp->UpdateMeshSection_LinearColor(
-				0, Tile.LivePos, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents);
+			if (Dim >= 2)
+			{
+				RecomputeNormalsWindow(Tile, I0, I1, J0, J1);
+			}
+			else
+			{
+				RecomputeNormals(Tile);
+			}
+			const float CenterR = RadiusM * 0.65f;
+			const float CenterR2 = CenterR * CenterR;
+			if (Dim >= 2)
+			{
+				for (int32 J = J0; J <= J1; ++J)
+				{
+					for (int32 I = I0; I <= I1; ++I)
+					{
+						const int32 Idx = I + J * Dim;
+						if (!Tile.LivePos.IsValidIndex(Idx) || !Tile.LiveN.IsValidIndex(Idx))
+						{
+							continue;
+						}
+						const FVector W = (Tile.OriginCm + Tile.LivePos[Idx]) * 0.01f;
+						if (FVector::DistSquared(W, LocalM) > CenterR2)
+						{
+							continue;
+						}
+						++CenterHits;
+						const FVector Rad = Tile.StampDir.IsValidIndex(Idx)
+							? Tile.StampDir[Idx]
+							: W.GetSafeNormal();
+						if (FMath::Abs(FVector::DotProduct(Tile.LiveN[Idx], Rad)) < 0.58f)
+						{
+							++SteepCenter;
+						}
+					}
+				}
+			}
+			int32 PunchedHere = 0;
+			if (bAllowPunch)
+			{
+				PunchedHere = PunchSteepQuads(Tile, LocalM, RadiusM);
+				PunchedAll += PunchedHere;
+			}
+			if (PunchedHere > 0)
+			{
+				Comp->ClearMeshSection(0);
+				Comp->CreateMeshSection_LinearColor(
+					0, Tile.LivePos, Tile.Indices, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents, true);
+				if (Material)
+				{
+					Comp->SetMaterial(0, Material);
+				}
+			}
+			else
+			{
+				Comp->UpdateMeshSection_LinearColor(
+					0, Tile.LivePos, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents);
+			}
 			Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 			Comp->SetVisibility(true);
 			Comp->UpdateBounds();
@@ -427,18 +488,68 @@ int32 FGXCrustTiles::NotifyBrush(
 	{
 		WeldSeamsNear(LocalM, Cover, Material, Changed);
 	}
-	if (Changed > 0)
+	if (OutSteep && CenterHits > 0 && SteepCenter * 2 > CenterHits)
 	{
-		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles sculpt %s n=%d punch=%d r=%.2f cell=%.2f"),
-			bRemove ? TEXT("dig") : TEXT("place"), Changed, PunchedAll, RadiusM, FineCellM);
-		GX_PERF(1, TEXT("GX-tile sculpt %s n=%d punch=%d r=%.2f"),
-			bRemove ? TEXT("dig") : TEXT("place"), Changed, PunchedAll, RadiusM);
+		*OutSteep = true;
+	}
+	if (Changed > 0 || PunchedAll > 0)
+	{
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles sculpt %s n=%d punch=%d steep=%d/%d r=%.2f cell=%.2f"),
+			bRemove ? TEXT("dig") : TEXT("place"), Changed, PunchedAll, SteepCenter, CenterHits, RadiusM, FineCellM);
+		GX_PERF(1, TEXT("GX-tile sculpt %s n=%d punch=%d steep=%d/%d r=%.2f"),
+			bRemove ? TEXT("dig") : TEXT("place"), Changed, PunchedAll, SteepCenter, CenterHits, RadiusM);
 	}
 	if (OutPunched)
 	{
 		*OutPunched = PunchedAll;
 	}
 	return Changed;
+}
+
+int32 FGXCrustTiles::PunchBrush(const FVector& LocalM, float RadiusM, UMaterialInterface* Material)
+{
+	if (RadiusM <= 0.0f || Live.Num() == 0)
+	{
+		return 0;
+	}
+	int32 Punched = 0;
+	const float TileReach2 = FMath::Square(RadiusM + TileM * 0.55f + 4.0f);
+	for (auto& Pair : Live)
+	{
+		FTile& Tile = Pair.Value;
+		if (FVector::DistSquared(Tile.OriginCm * 0.01f, LocalM) > TileReach2)
+		{
+			continue;
+		}
+		UProceduralMeshComponent* Comp = Tile.Comp.Get();
+		if (!Comp || Tile.LivePos.Num() == 0)
+		{
+			continue;
+		}
+		const int32 N = PunchSteepQuads(Tile, LocalM, RadiusM);
+		if (N == 0)
+		{
+			continue;
+		}
+		DropNanite(Tile);
+		Comp->ClearMeshSection(0);
+		Comp->CreateMeshSection_LinearColor(
+			0, Tile.LivePos, Tile.Indices, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents, true);
+		if (Material)
+		{
+			Comp->SetMaterial(0, Material);
+		}
+		Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		Comp->SetVisibility(true);
+		Comp->UpdateBounds();
+		Punched += N;
+	}
+	if (Punched > 0)
+	{
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles punch-open n=%d r=%.2f"), Punched, RadiusM);
+		GX_PERF(1, TEXT("GX-tile punch-open n=%d r=%.2f"), Punched, RadiusM);
+	}
+	return Punched;
 }
 
 int32 FGXCrustTiles::GridDim(const FTile& Tile)
@@ -634,6 +745,199 @@ void FGXCrustTiles::RecomputeNormals(FTile& Tile)
 		Tan.Normalize();
 		Tile.Tangents[I] = FProcMeshTangent(Tan, false);
 	}
+}
+
+void FGXCrustTiles::RecomputeNormalsWindow(FTile& Tile, int32 I0, int32 I1, int32 J0, int32 J1)
+{
+	const int32 Dim = GridDim(Tile);
+	if (Dim < 2 || Tile.LivePos.Num() != Dim * Dim)
+	{
+		RecomputeNormals(Tile);
+		return;
+	}
+	if (Tile.LiveN.Num() != Tile.LivePos.Num())
+	{
+		Tile.LiveN.SetNum(Tile.LivePos.Num());
+	}
+	if (Tile.Tangents.Num() != Tile.LivePos.Num())
+	{
+		Tile.Tangents.SetNum(Tile.LivePos.Num());
+	}
+	I0 = FMath::Clamp(I0 - 1, 0, Dim - 1);
+	I1 = FMath::Clamp(I1 + 1, 0, Dim - 1);
+	J0 = FMath::Clamp(J0 - 1, 0, Dim - 1);
+	J1 = FMath::Clamp(J1 + 1, 0, Dim - 1);
+	for (int32 J = J0; J <= J1; ++J)
+	{
+		for (int32 I = I0; I <= I1; ++I)
+		{
+			Tile.LiveN[I + J * Dim] = FVector::ZeroVector;
+		}
+	}
+	const int32 Cells = Dim - 1;
+	const bool bMask = Tile.QuadAlive.Num() == Cells * Cells;
+	const int32 CI0 = FMath::Clamp(I0, 0, Cells - 1);
+	const int32 CI1 = FMath::Clamp(I1, 0, Cells - 1);
+	const int32 CJ0 = FMath::Clamp(J0, 0, Cells - 1);
+	const int32 CJ1 = FMath::Clamp(J1, 0, Cells - 1);
+	auto AddFace = [&](int32 IA, int32 IB, int32 IC)
+	{
+		if (!Tile.LivePos.IsValidIndex(IA) || !Tile.LivePos.IsValidIndex(IB) || !Tile.LivePos.IsValidIndex(IC))
+		{
+			return;
+		}
+		const FVector& PA = Tile.LivePos[IA];
+		const FVector& PB = Tile.LivePos[IB];
+		const FVector& PC = Tile.LivePos[IC];
+		FVector FaceN = FVector::CrossProduct(PB - PA, PC - PA);
+		if (FaceN.IsNearlyZero())
+		{
+			return;
+		}
+		const FVector Mid = (PA + PB + PC) * (1.0f / 3.0f) + Tile.OriginCm;
+		if (FVector::DotProduct(FaceN, Mid) < 0.0f)
+		{
+			FaceN = -FaceN;
+		}
+		FaceN.Normalize();
+		Tile.LiveN[IA] += FaceN;
+		Tile.LiveN[IB] += FaceN;
+		Tile.LiveN[IC] += FaceN;
+	};
+	for (int32 J = CJ0; J <= CJ1; ++J)
+	{
+		for (int32 I = CI0; I <= CI1; ++I)
+		{
+			if (bMask && !Tile.QuadAlive[I + J * Cells])
+			{
+				continue;
+			}
+			const int32 A = I + J * Dim;
+			const int32 Bv = (I + 1) + J * Dim;
+			const int32 C = I + (J + 1) * Dim;
+			const int32 D = (I + 1) + (J + 1) * Dim;
+			AddFace(A, C, Bv);
+			AddFace(Bv, C, D);
+		}
+	}
+	for (int32 J = J0; J <= J1; ++J)
+	{
+		for (int32 I = I0; I <= I1; ++I)
+		{
+			const int32 Idx = I + J * Dim;
+			if (!Tile.LiveN[Idx].Normalize())
+			{
+				Tile.LiveN[Idx] = Tile.StampDir.IsValidIndex(Idx) ? Tile.StampDir[Idx] : FVector::UpVector;
+			}
+			FVector Tan = FVector::CrossProduct(Tile.LiveN[Idx], FVector::ZAxisVector);
+			if (Tan.SizeSquared() < 1e-6f)
+			{
+				Tan = FVector::CrossProduct(Tile.LiveN[Idx], FVector::YAxisVector);
+			}
+			Tan.Normalize();
+			Tile.Tangents[Idx] = FProcMeshTangent(Tan, false);
+		}
+	}
+}
+
+void FGXCrustTiles::RebuildIndices(FTile& Tile)
+{
+	const int32 Dim = GridDim(Tile);
+	if (Dim < 2)
+	{
+		return;
+	}
+	const int32 Cells = Dim - 1;
+	const bool bMask = Tile.QuadAlive.Num() == Cells * Cells;
+	Tile.Indices.Reset();
+	Tile.Indices.Reserve(Cells * Cells * 6);
+	for (int32 J = 0; J < Cells; ++J)
+	{
+		for (int32 I = 0; I < Cells; ++I)
+		{
+			if (bMask && !Tile.QuadAlive[I + J * Cells])
+			{
+				continue;
+			}
+			const int32 A = I + J * Dim;
+			const int32 Bv = (I + 1) + J * Dim;
+			const int32 C = I + (J + 1) * Dim;
+			const int32 D = (I + 1) + (J + 1) * Dim;
+			Tile.Indices.Add(A);
+			Tile.Indices.Add(C);
+			Tile.Indices.Add(Bv);
+			Tile.Indices.Add(Bv);
+			Tile.Indices.Add(C);
+			Tile.Indices.Add(D);
+		}
+	}
+}
+
+int32 FGXCrustTiles::PunchSteepQuads(FTile& Tile, const FVector& LocalM, float RadiusM)
+{
+	const int32 Dim = GridDim(Tile);
+	if (Dim < 2 || RadiusM <= 0.0f || Tile.LivePos.Num() != Dim * Dim)
+	{
+		return 0;
+	}
+	const int32 Cells = Dim - 1;
+	if (Tile.QuadAlive.Num() != Cells * Cells)
+	{
+		Tile.QuadAlive.Init(true, Cells * Cells);
+	}
+	const float R2 = RadiusM * RadiusM;
+	const int32 SavedTris = Tile.Indices.Num();
+	int32 N = 0;
+	for (int32 J = 0; J < Cells; ++J)
+	{
+		for (int32 I = 0; I < Cells; ++I)
+		{
+			const int32 Q = I + J * Cells;
+			if (!Tile.QuadAlive[Q])
+			{
+				continue;
+			}
+			const int32 A = I + J * Dim;
+			const int32 Bv = (I + 1) + J * Dim;
+			const int32 C = I + (J + 1) * Dim;
+			const int32 D = (I + 1) + (J + 1) * Dim;
+			const FVector WA = (Tile.OriginCm + Tile.LivePos[A]) * 0.01f;
+			const FVector WB = (Tile.OriginCm + Tile.LivePos[Bv]) * 0.01f;
+			const FVector WC = (Tile.OriginCm + Tile.LivePos[C]) * 0.01f;
+			const FVector WD = (Tile.OriginCm + Tile.LivePos[D]) * 0.01f;
+			const FVector Cent = (WA + WB + WC + WD) * 0.25f;
+			if (FVector::DistSquared(Cent, LocalM) > R2)
+			{
+				continue;
+			}
+			FVector FaceN = FVector::CrossProduct(WC - WA, WB - WA);
+			if (!FaceN.Normalize())
+			{
+				continue;
+			}
+			const FVector Rad = Cent.GetSafeNormal();
+			// Floor / lid stays closed. Only a wall mouth can open.
+			if (FMath::Abs(FVector::DotProduct(FaceN, Rad)) > 0.62f)
+			{
+				continue;
+			}
+			Tile.QuadAlive[Q] = false;
+			++N;
+		}
+	}
+	if (N == 0)
+	{
+		return 0;
+	}
+	RebuildIndices(Tile);
+	if (Tile.Indices.Num() < 3)
+	{
+		Tile.QuadAlive.Init(true, Cells * Cells);
+		RebuildIndices(Tile);
+		return 0;
+	}
+	(void)SavedTris;
+	return N;
 }
 
 void FGXCrustTiles::DropNanite(FTile& Tile)
@@ -899,10 +1203,16 @@ bool FGXCrustTiles::RaycastVisible(
 		{
 			return Tile->LivePos[FMath::Clamp(I, 0, Dim - 1) + FMath::Clamp(J, 0, Dim - 1) * Dim];
 		};
+		const int32 Cells = Dim - 1;
+		const bool bMask = Tile->QuadAlive.Num() == Cells * Cells;
 		for (int32 J = FMath::Max(0, IV - 1); J <= FMath::Min(Dim - 2, IV + 1); ++J)
 		{
 			for (int32 I = FMath::Max(0, IU - 1); I <= FMath::Min(Dim - 2, IU + 1); ++I)
 			{
+				if (bMask && !Tile->QuadAlive[I + J * Cells])
+				{
+					continue;
+				}
 				const FVector A = Vert(I, J);
 				const FVector Bv = Vert(I + 1, J);
 				const FVector C = Vert(I, J + 1);
@@ -1112,6 +1422,7 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 	Tile.Colors = Colors;
 	Tile.Tangents = Tangents;
 	Tile.Indices = Indices;
+	Tile.QuadAlive.Init(true, Cells * Cells);
 
 	Comp->ClearAllMeshSections();
 	if (Positions.Num() >= 3 && Indices.Num() >= 3)

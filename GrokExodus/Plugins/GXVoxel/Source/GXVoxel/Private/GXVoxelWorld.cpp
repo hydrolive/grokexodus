@@ -756,17 +756,31 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	Out.YieldAmount = Brush.VolumeChanged * 0.7f * RecoveryMul;
 	Out.ToolWear = Brush.VolumeChanged * WearMul;
 	if (Jobs) Jobs->BumpStamp();
-	int32 Punched = 0;
-	if (CrustTiles)
-	{
-		CrustTiles->NotifyBrush(
-			L, RadiusM * DigSpeedMul, true, Volume->GetStamp(), TerrainMaterial.Get(),
-			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); },
-			&Punched);
-	}
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
+	}
+	int32 Punched = 0;
+	bool bSteep = false;
+	const float BrushR = RadiusM * DigSpeedMul;
+	const bool bCaveReady = HasCaveVisualNear(L, BrushR);
+	if (CrustTiles)
+	{
+		CrustTiles->NotifyBrush(
+			L, BrushR, true, Volume->GetStamp(), TerrainMaterial.Get(),
+			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); },
+			&Punched, bCaveReady, &bSteep);
+	}
+	if (bSteep)
+	{
+		const int32 SavedCreates = MaxMeshCreatesPerTick;
+		MaxMeshCreatesPerTick = MeshCreatesThisTick + 2;
+		RemeshCaveAt(L, BrushR, false);
+		MaxMeshCreatesPerTick = SavedCreates;
+		if (Punched == 0 && CrustTiles && HasCaveVisualNear(L, BrushR))
+		{
+			Punched = CrustTiles->PunchBrush(L, BrushR, TerrainMaterial.Get());
+		}
 	}
 	{
 		static double LastBoxesAt = -1.0e9;
@@ -793,8 +807,9 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			},
 			true);
 	}
-	GX_PERF(1, TEXT("GX-dig volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d punch=%d boxes=%d"),
-		L.X, L.Y, L.Z, RadiusM * DigSpeedMul, Brush.DirtyChunks.Num(), Punched, EditedPageBoxesM.Num());
+	GX_PERF(1, TEXT("GX-dig volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d punch=%d steep=%d cave=%d boxes=%d"),
+		L.X, L.Y, L.Z, BrushR, Brush.DirtyChunks.Num(), Punched, bSteep ? 1 : 0,
+		HasCaveVisualNear(L, BrushR) ? 1 : 0, EditedPageBoxesM.Num());
 	return Out;
 }
 
@@ -2258,10 +2273,15 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 		}
 		return false;
 	};
-	auto NearLid = [&Rim, LidPad2](const FVector& P) -> bool
+	auto NearLid = [&Rim, &Inside, LidPad2](const FVector& P) -> bool
 	{
 		for (const FVector& R : Rim)
 		{
+			// Rim verts inside a carve ball are the mouth we want to keep.
+			if (Inside(R))
+			{
+				continue;
+			}
 			if (FVector::DistSquared(P, R) <= LidPad2)
 			{
 				return true;
@@ -2312,7 +2332,12 @@ void AGXVoxelWorld::RemeshCaveAt(const FVector& LocalM, float RadiusM, bool bOnl
 	const FGXChunkKey Center = FGXVoxelVolume::VoxelToChunk(
 		FGXVoxelVolume::WorldToVoxel(FVector3d(LocalM.X, LocalM.Y, LocalM.Z), VoxelSize));
 	const FVector4 Ball(LocalM.X, LocalM.Y, LocalM.Z, RadiusM + VoxelSize * 1.35f);
-	int32 N = 0;
+	struct FCand
+	{
+		FGXChunkKey Key;
+		float Ds = 0.0f;
+	};
+	TArray<FCand> Cands;
 	for (int32 Z = -Reach; Z <= Reach; ++Z)
 	{
 		for (int32 Y = -Reach; Y <= Reach; ++Y)
@@ -2321,7 +2346,8 @@ void AGXVoxelWorld::RemeshCaveAt(const FVector& LocalM, float RadiusM, bool bOnl
 			{
 				const FGXChunkKey CC(Center.X + X, Center.Y + Y, Center.Z + Z);
 				const FVector C((CC.X + 0.5f) * ChunkM, (CC.Y + 0.5f) * ChunkM, (CC.Z + 0.5f) * ChunkM);
-				if (FVector::DistSquared(C, LocalM) > FMath::Square(Cover + ChunkM))
+				const float Ds = FVector::DistSquared(C, LocalM);
+				if (Ds > FMath::Square(Cover + ChunkM))
 				{
 					continue;
 				}
@@ -2333,22 +2359,69 @@ void AGXVoxelWorld::RemeshCaveAt(const FVector& LocalM, float RadiusM, bool bOnl
 				{
 					continue;
 				}
-				CaveChunks.Add(CC);
-				TArray<FVector4>& Balls = CarveBalls.FindOrAdd(CC);
-				if (Balls.Num() >= 12)
+				if (AsyncInFlight.Contains(CC))
 				{
-					Balls.RemoveAt(0);
+					continue;
 				}
-				Balls.Add(Ball);
-				HollowChunks.Remove(CC);
-				BrushForceLOD0.Add(CC);
-				EnqueueRemesh(CC, true);
-				++N;
+				FCand& Cand = Cands.AddDefaulted_GetRef();
+				Cand.Key = CC;
+				Cand.Ds = Ds;
 			}
 		}
 	}
-	GX_PERF(1, TEXT("GX-cave remesh n=%d cover=%.1f balls=%d live=%d"),
-		N, Cover, CarveBalls.Num(), CaveChunks.Num());
+	Cands.Sort([](const FCand& A, const FCand& B) { return A.Ds < B.Ds; });
+	const int32 Take = FMath::Min(2, Cands.Num());
+	int32 N = 0;
+	const double Now = FPlatformTime::Seconds();
+	for (int32 I = 0; I < Take; ++I)
+	{
+		const FGXChunkKey CC = Cands[I].Key;
+		CaveChunks.Add(CC);
+		TArray<FVector4>& Balls = CarveBalls.FindOrAdd(CC);
+		if (Balls.Num() >= 12)
+		{
+			Balls.RemoveAt(0);
+		}
+		Balls.Add(Ball);
+		HollowChunks.Remove(CC);
+		BrushForceLOD0.Add(CC);
+		LastRemeshAt.Remove(CC);
+		MeshQueued.Remove(CC);
+		NearMeshQueue.Remove(CC);
+		MeshQueue.Remove(CC);
+		LastRemeshAt.Add(CC, Now);
+		BuildChunkMeshSync(CC);
+		++N;
+	}
+	GX_PERF(1, TEXT("GX-cave remesh n=%d take=%d cover=%.1f balls=%d live=%d"),
+		Cands.Num(), N, Cover, CarveBalls.Num(), CaveChunks.Num());
+}
+
+bool AGXVoxelWorld::HasCaveVisualNear(const FVector& LocalM, float RadiusM) const
+{
+	if (CaveChunks.Num() == 0 || ChunkVisuals.Num() == 0)
+	{
+		return false;
+	}
+	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
+	const float Reach2 = FMath::Square(FMath::Max(RadiusM, 1.0f) + ChunkM);
+	for (const auto& Pair : ChunkVisuals)
+	{
+		if (!CaveChunks.Contains(Pair.Key))
+		{
+			continue;
+		}
+		if (Pair.Value.VertCount < 3 || Pair.Value.IndexCount < 3)
+		{
+			continue;
+		}
+		const FVector C((Pair.Key.X + 0.5f) * ChunkM, (Pair.Key.Y + 0.5f) * ChunkM, (Pair.Key.Z + 0.5f) * ChunkM);
+		if (FVector::DistSquared(C, LocalM) <= Reach2)
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 bool AGXVoxelWorld::ShouldPunchClipmap(const FVector& LocalM) const
