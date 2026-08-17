@@ -389,11 +389,14 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			{
 				return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z));
 			});
-		if (EditedPageBoxesM.Num() > 0 && CrustTiles->IsReady()
-			&& CrustTiles->NumLive() != LastRestoreTileCount)
+		if (EditedPageBoxesM.Num() > 0 && CrustTiles->IsReady())
 		{
-			RestoreEditedSurfaces();
-			LastRestoreTileCount = CrustTiles->NumLive();
+			const int32 LiveN = CrustTiles->NumLive();
+			if (!bRevealedTileEdits || LiveN >= LastRestoreTileCount + 8)
+			{
+				RestoreEditedSurfaces();
+				LastRestoreTileCount = LiveN;
+			}
 		}
 	}
 	if (HorizonClipmap && Volume && bAtlasReady)
@@ -2365,7 +2368,7 @@ void AGXVoxelWorld::RestoreEditedSurfaces()
 	}
 	MaxMeshCreatesPerTick = SavedCreates;
 	bRevealedTileEdits = true;
-	if (Boxes > 0)
+	if (Hidden > 0)
 	{
 		UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s restore-lid boxes=%d hide-air=%d"),
 			GX_VERSION_STRING, Boxes, Hidden);

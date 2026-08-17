@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.37**  
+Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.38**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.38** 0.10.37 restore worked (`hide-air=217`) but remeshed every new tile. Restore runs on first Ready and then every +8 tiles; log only when hide-air > 0.
 - **GX 0.10.37** Shot GX-shot-0137: leftover **save cave** under a closed lid; re-digging cut a triangle mess. Density pages were saved; the lid hole was not. Load now marks surface edit chunks as caves and, when tiles stream in, remeshes then hide-air so the mouth matches the saved volume. Do not re-punch a closed lawn.
 - **GX 0.10.36** Shot GX-shot-0136: cave works; punching the lid left a **mess of stretched triangles** over the ball. Mixed rim quads spanned the pit. Hide-air now also drops 3-corner-air cells and slivers (ΔR > 1 m or edge > 2.4 cell). Next stroke heals the existing fins.
 - **GX 0.10.35** Shot GX-shot-0135: cave works; **sawtooth rim** and **dirt stains** on the remaining lid. Hide-air only removes quads whose **four corners** are air; mixed rim stays as a collar. Flat remaining verts get grass UV back; lip verts stay dirt.
