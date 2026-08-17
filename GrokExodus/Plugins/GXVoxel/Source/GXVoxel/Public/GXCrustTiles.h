@@ -113,6 +113,7 @@ private:
 		float FineCell = 0.0f;
 		bool bHidden = false;
 		bool bSculpted = false;
+		bool bSteepDirtHealed = false;
 		/** One bit per grid quad (Dim-1)^2. False = punched (ray + draw skip). */
 		TBitArray<> QuadAlive;
 	};
@@ -137,6 +138,7 @@ private:
 	static void RecomputeNormals(FTile& Tile);
 	static void RecomputeNormalsWindow(FTile& Tile, int32 I0, int32 I1, int32 J0, int32 J1);
 	static void RebuildIndices(FTile& Tile);
+	static int32 PaintSteepDirt(FTile& Tile, int32 I0, int32 I1, int32 J0, int32 J1);
 	static int32 PunchSteepQuads(
 		FTile& Tile,
 		const FVector& LocalM,

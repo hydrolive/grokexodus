@@ -309,30 +309,30 @@ int32 FGXCrustTiles::NotifyBrush(
 				: 0;
 			auto SculptVert = [&](int32 Idx)
 			{
-				if (!Tile.LivePos.IsValidIndex(Idx) || !Tile.StampDir.IsValidIndex(Idx))
+				if (!Tile.LivePos.IsValidIndex(Idx))
 				{
 					return;
 				}
-				const FVector Dir = Tile.StampDir[Idx];
 				const FVector W = (Tile.OriginCm + Tile.LivePos[Idx]) * 0.01f;
 				const float Dist3 = FVector::Dist(W, LocalM);
 				if (Dist3 > Cover)
 				{
 					return;
 				}
-				const float CurR = W.Size();
-				const float Bcoe = FVector::DotProduct(Dir, LocalM);
-				const float Disc = Bcoe * Bcoe - (LocalM.SizeSquared() - R2);
-				if (Disc < 0.0f)
+				// Radial THit misses a wall sphere (GX-wallgrass-0121) and
+				// reports "no dig". Project onto the 3D brush sphere instead.
+				// Only verts inside R (plus a one-cell rim). Yank-to-center
+				// of outside verts was the 0.10.5 pyramid.
+				FVector Radial = W - LocalM;
+				if (Radial.IsNearlyZero())
+				{
+					Radial = Tile.StampDir.IsValidIndex(Idx) ? Tile.StampDir[Idx] : W.GetSafeNormal();
+				}
+				if (!Radial.Normalize())
 				{
 					return;
 				}
-				const float THit = Bcoe - FMath::Sqrt(Disc);
-				if (THit <= 0.0f || THit >= CurR)
-				{
-					return;
-				}
-				float TargetR = FMath::Max(THit, CurR - MaxStep);
+				const FVector OnSphere = LocalM + Radial * RadiusM;
 				float Wgt = 1.0f;
 				if (Dist3 > RadiusM)
 				{
@@ -340,12 +340,19 @@ int32 FGXCrustTiles::NotifyBrush(
 					Wgt = FMath::Clamp(Wgt, 0.0f, 1.0f);
 					Wgt = Wgt * Wgt * (3.0f - 2.0f * Wgt);
 				}
-				const float NewR = FMath::Lerp(CurR, TargetR, Wgt);
-				if (FMath::Abs(NewR - CurR) < 0.01f)
+				FVector Desired = FMath::Lerp(W, OnSphere, Wgt);
+				FVector Delta = Desired - W;
+				const float MaxCm = MaxStep;
+				if (Delta.Size() > MaxCm)
+				{
+					Delta *= MaxCm / Delta.Size();
+					Desired = W + Delta;
+				}
+				if (FVector::DistSquared(Desired, W) < 1e-4f)
 				{
 					return;
 				}
-				Tile.LivePos[Idx] = Dir * NewR * 100.0f - Tile.OriginCm;
+				Tile.LivePos[Idx] = Desired * 100.0f - Tile.OriginCm;
 				if (Dist3 <= RadiusM && Tile.UV0.IsValidIndex(Idx))
 				{
 					Tile.UV0[Idx] = FVector2D(3.0f, 0.0f);
@@ -380,11 +387,24 @@ int32 FGXCrustTiles::NotifyBrush(
 			}
 			if (N == 0)
 			{
+				if (Tile.bSculpted && !Tile.bSteepDirtHealed && Dim >= 2)
+				{
+					RecomputeNormalsWindow(Tile, 0, Dim - 1, 0, Dim - 1);
+					const int32 Painted = PaintSteepDirt(Tile, 0, Dim - 1, 0, Dim - 1);
+					Tile.bSteepDirtHealed = true;
+					if (Painted > 0)
+					{
+						Comp->UpdateMeshSection_LinearColor(
+							0, Tile.LivePos, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents);
+					}
+				}
 				continue;
 			}
 			if (Dim >= 2)
 			{
 				RecomputeNormalsWindow(Tile, I0, I1, J0, J1);
+				PaintSteepDirt(Tile, I0, I1, J0, J1);
+				Tile.bSteepDirtHealed = true;
 			}
 			else
 			{
@@ -931,6 +951,48 @@ void FGXCrustTiles::RebuildIndices(FTile& Tile)
 			Tile.Indices.Add(D);
 		}
 	}
+}
+
+int32 FGXCrustTiles::PaintSteepDirt(FTile& Tile, int32 I0, int32 I1, int32 J0, int32 J1)
+{
+	const int32 Dim = GridDim(Tile);
+	if (Dim < 2 || Tile.LiveN.Num() != Tile.LivePos.Num())
+	{
+		return 0;
+	}
+	I0 = FMath::Clamp(I0, 0, Dim - 1);
+	I1 = FMath::Clamp(I1, 0, Dim - 1);
+	J0 = FMath::Clamp(J0, 0, Dim - 1);
+	J1 = FMath::Clamp(J1, 0, Dim - 1);
+	int32 N = 0;
+	for (int32 J = J0; J <= J1; ++J)
+	{
+		for (int32 I = I0; I <= I1; ++I)
+		{
+			const int32 Idx = I + J * Dim;
+			if (!Tile.LiveN.IsValidIndex(Idx))
+			{
+				continue;
+			}
+			const FVector Rad = Tile.StampDir.IsValidIndex(Idx)
+				? Tile.StampDir[Idx]
+				: ((Tile.OriginCm + Tile.LivePos[Idx]) * 0.01f).GetSafeNormal();
+			if (FMath::Abs(FVector::DotProduct(Tile.LiveN[Idx], Rad)) >= 0.62f)
+			{
+				continue;
+			}
+			if (Tile.UV0.IsValidIndex(Idx) && Tile.UV0[Idx].X < 2.5f)
+			{
+				Tile.UV0[Idx] = FVector2D(3.0f, 0.0f);
+				if (Tile.Colors.IsValidIndex(Idx))
+				{
+					Tile.Colors[Idx] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f);
+				}
+				++N;
+			}
+		}
+	}
+	return N;
 }
 
 int32 FGXCrustTiles::PunchSteepQuads(

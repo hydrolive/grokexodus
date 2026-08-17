@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.21**  
+Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.22**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.22** Shot GX-wallgrass-0121: radial THit **missed wall** strokes (THit≥CurR / Disc<0) and **grass ran down old crater walls** (steep verts kept grass UV + radial N). Dig projects verts **inside the 3D brush sphere** onto that sphere (walls recede). First touch of a sculpted tile recomputes N and paints dirt on steep faces.
 - **GX 0.10.21** Shot GX-pool-0120: hole was a **rectangular swimming pool** with vertical walls — FlattenLongQuads snapped ΔR>1.75 m quads to min R, and cover was 1.45 R + 2 cell so verts outside the ball still dropped. Dig snaps verts to the **brush-sphere hit** only (one-cell rim). No flatten. Overlay GX 0.10.21.
 - **GX 0.10.20** Shot GX-float-0119: **1 m MC sheets** cut through the orange ball — cave remesh of 23–45 tris sat on the heightfield. Dig no longer remeshes or punches. Nearby cave visuals are dropped. Punched quads restore. Quads with ΔR > 1.75 m snap to min R (no sliver-delete). Density CSG stays 3D; visual is the tile bowl.
 - **GX 0.10.19** Shot GX-holes-0118: wall punch opened **black windows**. Cave filter kept ~17 floor tris; HasCaveVisualNear treated that as “filled.” A quad is punched only if a cave **vertex** is within 0.70 m. Uncovered punches are restored on the next stroke. Lid filter drops only floor-like tris so steep cave walls can back a mouth.
