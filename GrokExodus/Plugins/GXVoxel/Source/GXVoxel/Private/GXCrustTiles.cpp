@@ -1713,6 +1713,62 @@ bool FGXCrustTiles::HasTileAt(const FVector& LocalM) const
 	return Live.Contains(KeyAt(LocalM, 0));
 }
 
+bool FGXCrustTiles::HasPunchedNear(const FVector& LocalM, float RadiusM) const
+{
+	if (Live.Num() == 0 || RadiusM <= 0.0f)
+	{
+		return false;
+	}
+	const float Reach2 = FMath::Square(RadiusM + TileM * 0.80f + 8.0f);
+	const float R2 = FMath::Square(FMath::Max(RadiusM, 1.0f));
+	for (const auto& Pair : Live)
+	{
+		const FTile& Tile = Pair.Value;
+		if (FVector::DistSquared(Tile.OriginCm * 0.01f, LocalM) > Reach2)
+		{
+			continue;
+		}
+		const int32 Dim = GridDim(Tile);
+		if (Dim < 2)
+		{
+			continue;
+		}
+		const int32 Cells = Dim - 1;
+		if (Tile.QuadAlive.Num() != Cells * Cells)
+		{
+			continue;
+		}
+		for (int32 J = 0; J < Cells; ++J)
+		{
+			for (int32 I = 0; I < Cells; ++I)
+			{
+				const int32 Q = I + J * Cells;
+				if (Tile.QuadAlive[Q])
+				{
+					continue;
+				}
+				const int32 A = I + J * Dim;
+				const int32 Bv = (I + 1) + J * Dim;
+				const int32 C = I + (J + 1) * Dim;
+				if (!Tile.LivePos.IsValidIndex(A) || !Tile.LivePos.IsValidIndex(Bv)
+					|| !Tile.LivePos.IsValidIndex(C))
+				{
+					continue;
+				}
+				const FVector WA = (Tile.OriginCm + Tile.LivePos[A]) * 0.01f;
+				const FVector WB = (Tile.OriginCm + Tile.LivePos[Bv]) * 0.01f;
+				const FVector WC = (Tile.OriginCm + Tile.LivePos[C]) * 0.01f;
+				const FVector Cent = (WA + WB + WC) * (1.0f / 3.0f);
+				if (FVector::DistSquared(Cent, LocalM) <= R2)
+				{
+					return true;
+				}
+			}
+		}
+	}
+	return false;
+}
+
 bool FGXCrustTiles::RaycastVisible(
 	const FVector& WorldOriginCm,
 	const FVector& WorldDir,

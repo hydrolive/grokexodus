@@ -790,7 +790,7 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 		CollectCavePointsNear(L, BrushR + 1.2f, CavePts);
 		auto Covers = [&CavePts](const FVector& P) -> bool
 		{
-			const float Cover2 = 1.00f * 1.00f;
+			const float Cover2 = 1.40f * 1.40f;
 			for (const FVector& C : CavePts)
 			{
 				if (FVector::DistSquared(C, P) <= Cover2)
@@ -800,15 +800,23 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			}
 			return false;
 		};
+		// Invariant: never hide a cave mesh that backs a punched hole
+		// (GX-shot-0130 black blade). Never punch without cave verts.
+		const bool bAlreadyOpen = CrustTiles && CrustTiles->HasPunchedNear(L, BrushR * 2.0f);
 		if (CrustTiles)
 		{
-			Closed = CrustTiles->CloseUncoveredBrush(L, BrushR * 3.0f + 4.0f, TerrainMaterial.Get(), Covers);
-			if (CavePts.Num() > 0)
+			if (CavePts.Num() == 0)
 			{
-				Punched = CrustTiles->PunchBrush(L, BrushR, TerrainMaterial.Get(), Covers);
+				Closed = CrustTiles->CloseUncoveredBrush(
+					L, BrushR * 3.0f + 4.0f, TerrainMaterial.Get(), Covers);
+			}
+			else
+			{
+				Punched = CrustTiles->PunchBrush(
+					L, BrushR + 0.60f, TerrainMaterial.Get(), Covers);
 			}
 		}
-		if (Punched == 0)
+		if (Punched == 0 && CavePts.Num() == 0 && !bAlreadyOpen)
 		{
 			const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
 			const float Reach2 = FMath::Square(BrushR + ChunkM + 8.0f);

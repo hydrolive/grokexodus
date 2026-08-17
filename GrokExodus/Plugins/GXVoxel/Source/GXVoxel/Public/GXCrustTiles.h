@@ -74,6 +74,8 @@ public:
 		UMaterialInterface* Material,
 		const TFunction<bool(const FVector&)>& CaveCovers);
 	bool HasTileAt(const FVector& LocalM) const;
+	/** True if any heightfield quad near LocalM is already punched. */
+	bool HasPunchedNear(const FVector& LocalM, float RadiusM) const;
 	/** Closest hit on the live tile mesh (two-sided). World cm. */
 	bool RaycastVisible(
 		const FVector& WorldOriginCm,

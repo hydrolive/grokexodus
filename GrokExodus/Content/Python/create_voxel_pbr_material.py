@@ -384,12 +384,28 @@ def main():
     c1000 = const(1000.0, x0 + 280, 420, "1000")
     rest_cm = mul(radial, "", mul(surf_m, "", c100, "", x0 + 560, 280), "",
                   x0 + 820, 280, "restCm")
-    use_rest = sat(sub(surf_m, "", c1000, "", x0 + 560, 360), "",
-                   x0 + 820, 360, "useRest")
-    wp_use = node(unreal.MaterialExpressionLinearInterpolate, x0 + 1080, 200, "WpUse")
+    has_rest = sat(sub(surf_m, "", c1000, "", x0 + 560, 360), "",
+                   x0 + 820, 360, "hasRest")
+    # Floor keeps rest pos (no crack swim). Steep walls use live WorldPos
+    # or rest-pos smears the ground photo down the cliff (GX-shot-0130).
+    ndot_early = node(unreal.MaterialExpressionDotProduct, x0 + 560, 440, "NdotRad")
+    connect(vn, "", ndot_early, "A")
+    connect(radial, "", ndot_early, "B")
+    one_uv = const(1.0, x0 + 560, 520, "1uv")
+    slope_uv = sub(one_uv, "", sat(ndot_early, "", x0 + 820, 440), "",
+                   x0 + 1080, 440, "slopeUv")
+    wall_w = sat(div(sub(slope_uv, "", const(0.15, x0 + 1080, 520, "swA"), "",
+                         x0 + 1340, 440), "",
+                     const(0.20, x0 + 1080, 580, "swB"), "", x0 + 1600, 440),
+                 "", x0 + 1860, 440, "wallW")
+    rest_or_live = node(unreal.MaterialExpressionLinearInterpolate, x0 + 2120, 280, "RestOrLive")
+    connect(rest_cm, "", rest_or_live, "A")
+    connect(wp, "", rest_or_live, "B")
+    connect(wall_w, "", rest_or_live, "Alpha")
+    wp_use = node(unreal.MaterialExpressionLinearInterpolate, x0 + 2380, 200, "WpUse")
     connect(wp, "", wp_use, "A")
-    connect(rest_cm, "", wp_use, "B")
-    connect(use_rest, "", wp_use, "Alpha")
+    connect(rest_or_live, "", wp_use, "B")
+    connect(has_rest, "", wp_use, "Alpha")
 
     # Dominant-axis planar UVs so cliffs are not stretched YZ wood grain.
     px = mask(wp_use, "", True, False, False, x0 + 1340, -120, "Px")
