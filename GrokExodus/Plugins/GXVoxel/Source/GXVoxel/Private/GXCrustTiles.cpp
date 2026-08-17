@@ -353,28 +353,19 @@ int32 FGXCrustTiles::NotifyBrush(
 				{
 					TargetR = CurR - MaxStep;
 				}
-				// Cap follows excavation. CSG can carve metres of air under
-				// a lid that only slumped 0.4 m/tick — then punch deleted
-				// the sheet and the orange ball sat in a black window (0133).
-				if (DensityAt && Dist3 <= Cover)
+				// Do not walk the density floor. That yanked lid verts
+				// metres onto the cave wall and stretched rim quads
+				// across the mouth (GX-shot-0143). Excavated lids are
+				// hidden, not slumped. Skip verts whose stamp column
+				// is already air — hide-air opens them.
+				if (DensityAt && Tile.StampSurfM.IsValidIndex(Idx))
 				{
-					const float ProbeR = CurR - 0.20f;
-					if (ProbeR > 1.0f && DensityAt(Dir * ProbeR) <= 0.0f)
+					const float Surf = Tile.StampSurfM[Idx];
+					if (Surf > 1.0f
+						&& DensityAt(Dir * (Surf - 0.30f)) <= 0.0f
+						&& DensityAt(Dir * (Surf - 0.85f)) <= 0.0f)
 					{
-						const float Search = FMath::Max(RadiusM * 2.0f, 2.0f);
-						float FloorR = CurR - Search;
-						for (float R = ProbeR; R > CurR - Search; R -= 0.25f)
-						{
-							if (DensityAt(Dir * R) > 0.0f)
-							{
-								FloorR = R;
-								break;
-							}
-						}
-						if (FloorR < TargetR)
-						{
-							TargetR = FloorR;
-						}
+						return;
 					}
 				}
 				if (TargetR < CurR)
@@ -947,14 +938,34 @@ int32 FGXCrustTiles::SyncAirBackedQuads(
 			const FVector SC = StampAt(C, WC);
 			const FVector SD = StampAt(D, WD);
 			const FVector SCent = (SA + SB + SC + SD) * 0.25f;
-			if (FVector::DistSquared(SCent, LocalM) > Cover2)
+			const FVector LiveCent = (WA + WB + WC + WD) * 0.25f;
+			if (FVector::DistSquared(SCent, LocalM) > Cover2
+				&& FVector::DistSquared(LiveCent, LocalM) > Cover2)
 			{
 				continue;
 			}
-			const int32 AirN = (ColAir(SA) ? 1 : 0) + (ColAir(SB) ? 1 : 0)
-				+ (ColAir(SC) ? 1 : 0) + (ColAir(SD) ? 1 : 0);
-			const bool bHide = ColAir(SCent) || AirN >= 3;
-			const bool bSolid = ColSolid(SA) && ColSolid(SB) && ColSolid(SC) && ColSolid(SD);
+			const float Cell = (Tile.FineCell > 0.1f) ? Tile.FineCell : CellM;
+			const float MaxR = FMath::Max(FMath::Max(WA.Size(), WB.Size()),
+				FMath::Max(WC.Size(), WD.Size()));
+			const float MinR = FMath::Min(FMath::Min(WA.Size(), WB.Size()),
+				FMath::Min(WC.Size(), WD.Size()));
+			const float MaxE2 = FMath::Max(
+				FMath::Max(FVector::DistSquared(WA, WB), FVector::DistSquared(WA, WC)),
+				FMath::Max(FVector::DistSquared(WB, WD), FVector::DistSquared(WC, WD)));
+			auto Dropped = [&](const FVector& Live, const FVector& Stamp) -> bool
+			{
+				return Live.Size() + 0.40f < Stamp.Size();
+			};
+			const bool bDropped = Dropped(WA, SA) || Dropped(WB, SB)
+				|| Dropped(WC, SC) || Dropped(WD, SD);
+			// Spans stay after stamp-air hide: rim-to-floor quads become
+			// steep walls so a lid test skips them (GX-shot-0143).
+			const bool bSpan = bDropped
+				&& ((MaxR - MinR) > 0.70f || MaxE2 > FMath::Square(Cell * 1.85f));
+			const bool bDroppedLid = (SCent.Size() - LiveCent.Size()) > 0.55f;
+			const bool bHide = ColAir(SCent) || bSpan || bDroppedLid;
+			const bool bSolid = ColSolid(SA) && ColSolid(SB) && ColSolid(SC) && ColSolid(SD)
+				&& !bSpan && !bDroppedLid;
 			if (Tile.QuadAlive[Q])
 			{
 				if (!bHide)

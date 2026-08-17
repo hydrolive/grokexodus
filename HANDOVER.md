@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.42**  
+Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.43**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.43** Shot GX-shot-0143: stamp-air hid 131 quads but **rim-to-floor spans** stayed (they are steep after slump, so a lid test skips them). Hide those spans (ΔR>0.70 m or long edge) and whole dropped lids. **Stop the density-floor walk** that yanked lid verts onto the cave wall. Skip slump when the stamp column is already air. Place still never hides. Keep the cave save.
 - **GX 0.10.42** Shot GX-shot-0142: cave works; mouth still a **mess of grass lids + black tris**. Sliver hide caught 1 quad — leftover patches are whole lids that slumped onto the wall (live density solid). Hide now tests the **stamp-surface column** (air at stamp−0.30 and −0.85 m), cover 14 m. Restore solid stamp columns (heals black windows). Place still never hides. Keep the cave save.
 - **GX 0.10.41** Shot GX-shot-0141: cave works; mouth still had **grass slivers** spanning the pit. Centroid-air missed them because slumped lid verts sit on the dirt wall (solid). Hide also drops **lid-like slivers** (ΔR>0.85 m or edge>2.2 cell) whose verts dropped from the stamp. Steep cave walls stay. Place still never hides. Keep the cave save.
 - **GX 0.10.40** Shot GX-shot-0140: **place punched far hills** (`hide-air n=14–31` after each teal click) and **dig left grass sheets** over the mouth (4-corner-only + r=1.7 missed mixed rim). Place never hides lid. Dig hide is brush-local (r=R+2) when the quad **centroid is air** and ≥2 corners are air; restore only 4-corner surface-solid. Clipmap punch is surface-air only (no 0.5/0.9 m under-cap). Keep the cave save.

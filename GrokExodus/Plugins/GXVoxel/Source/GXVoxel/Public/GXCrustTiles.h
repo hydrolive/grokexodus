@@ -73,7 +73,7 @@ public:
 		float RadiusM,
 		UMaterialInterface* Material,
 		const TFunction<bool(const FVector&)>& CaveCovers);
-	/** Hide quads whose stamp-surface column is excavated; restore solid stamp columns. */
+	/** Hide excavated stamp columns and pit-spanning slumped lids. */
 	int32 HideAirBackedQuads(
 		const FVector& LocalM,
 		float RadiusM,
