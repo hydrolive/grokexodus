@@ -60,7 +60,8 @@ public:
 		int32* OutPunched = nullptr,
 		bool bAllowPunch = false,
 		bool* OutSteep = nullptr,
-		int32 PaintMaterialId = 0);
+		int32 PaintMaterialId = 0,
+		bool bMoveVerts = true);
 	/** Punch steep quads only when CaveCovers(centroid) is true. */
 	int32 PunchBrush(
 		const FVector& LocalM,
@@ -78,7 +79,8 @@ public:
 		const FVector& LocalM,
 		float RadiusM,
 		UMaterialInterface* Material,
-		const TFunction<float(const FVector&)>& DensityAt);
+		const TFunction<float(const FVector&)>& DensityAt,
+		float DiskR = 0.0f);
 	/** Alive (drawn) quad centroids in metres, for cave-lid filtering. */
 	void CollectAliveQuadCentroidsNear(const FVector& LocalM, float RadiusM, TArray<FVector>& Out) const;
 	bool HasTileAt(const FVector& LocalM) const;
@@ -156,7 +158,8 @@ private:
 		FTile& Tile,
 		const FVector& LocalM,
 		float RadiusM,
-		const TFunction<float(const FVector&)>& DensityAt);
+		const TFunction<float(const FVector&)>& DensityAt,
+		float DiskR);
 	static int32 PunchSteepQuads(
 		FTile& Tile,
 		const FVector& LocalM,

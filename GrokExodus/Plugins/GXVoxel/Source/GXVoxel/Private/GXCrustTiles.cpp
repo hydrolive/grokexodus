@@ -215,7 +215,8 @@ int32 FGXCrustTiles::NotifyBrush(
 	int32* OutPunched,
 	bool bAllowPunch,
 	bool* OutSteep,
-	int32 PaintMaterialId)
+	int32 PaintMaterialId,
+	bool bMoveVerts)
 {
 	if (OutPunched)
 	{
@@ -274,6 +275,12 @@ int32 FGXCrustTiles::NotifyBrush(
 		}
 		if (bRemove)
 		{
+			// Remesh owns the hole. Slump stretched lids across the mouth
+			// (GX-shot-0144). FineCell already ran; do not move verts.
+			if (!bMoveVerts)
+			{
+				continue;
+			}
 			// Heightfield only: stay on StampDir. The 0.10.27 3D wall dent
 			// folded tris into growing black blades (shots 010122–010203)
 			// and each fold rewrote slope normals so undug grass turned dirt.
@@ -870,7 +877,8 @@ int32 FGXCrustTiles::SyncAirBackedQuads(
 	FTile& Tile,
 	const FVector& LocalM,
 	float RadiusM,
-	const TFunction<float(const FVector&)>& DensityAt)
+	const TFunction<float(const FVector&)>& DensityAt,
+	float DiskR)
 {
 	const int32 Dim = GridDim(Tile);
 	if (Dim < 2 || RadiusM <= 0.0f || !DensityAt || Tile.LivePos.Num() != Dim * Dim)
@@ -963,9 +971,11 @@ int32 FGXCrustTiles::SyncAirBackedQuads(
 			const bool bSpan = bDropped
 				&& ((MaxR - MinR) > 0.70f || MaxE2 > FMath::Square(Cell * 1.85f));
 			const bool bDroppedLid = (SCent.Size() - LiveCent.Size()) > 0.55f;
-			const bool bHide = ColAir(SCent) || bSpan || bDroppedLid;
+			const bool bDisk = DiskR > 0.05f
+				&& FVector::DistSquared(SCent, LocalM) <= DiskR * DiskR;
+			const bool bHide = ColAir(SCent) || bDisk || bSpan || bDroppedLid;
 			const bool bSolid = ColSolid(SA) && ColSolid(SB) && ColSolid(SC) && ColSolid(SD)
-				&& !bSpan && !bDroppedLid;
+				&& !bSpan && !bDroppedLid && !bDisk;
 			if (Tile.QuadAlive[Q])
 			{
 				if (!bHide)
@@ -1068,7 +1078,8 @@ int32 FGXCrustTiles::HideAirBackedQuads(
 	const FVector& LocalM,
 	float RadiusM,
 	UMaterialInterface* Material,
-	const TFunction<float(const FVector&)>& DensityAt)
+	const TFunction<float(const FVector&)>& DensityAt,
+	float DiskR)
 {
 	if (RadiusM <= 0.0f || Live.Num() == 0 || !DensityAt)
 	{
@@ -1088,7 +1099,7 @@ int32 FGXCrustTiles::HideAirBackedQuads(
 		{
 			continue;
 		}
-		const int32 N = SyncAirBackedQuads(Tile, LocalM, RadiusM, DensityAt);
+		const int32 N = SyncAirBackedQuads(Tile, LocalM, RadiusM, DensityAt, DiskR);
 		if (N == 0)
 		{
 			continue;

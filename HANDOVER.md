@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.43**  
+Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.44**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.44** Shot GX-shot-0144: still a **mess of spanning grass lids**. Slump and remesh were fighting — NotifyBrush still moved 5–25 verts while hide only opened 5–20 quads. Dig **no longer slumps** (FineCell only); remesh + hide own the hole. Hide a **brush disk** (R+1.25 m) plus stamp-air. **Reset `earth_default.gxsav`** (bak_pre_0144) — leftover pages no longer match the lid.
 - **GX 0.10.43** Shot GX-shot-0143: stamp-air hid 131 quads but **rim-to-floor spans** stayed (they are steep after slump, so a lid test skips them). Hide those spans (ΔR>0.70 m or long edge) and whole dropped lids. **Stop the density-floor walk** that yanked lid verts onto the cave wall. Skip slump when the stamp column is already air. Place still never hides. Keep the cave save.
 - **GX 0.10.42** Shot GX-shot-0142: cave works; mouth still a **mess of grass lids + black tris**. Sliver hide caught 1 quad — leftover patches are whole lids that slumped onto the wall (live density solid). Hide now tests the **stamp-surface column** (air at stamp−0.30 and −0.85 m), cover 14 m. Restore solid stamp columns (heals black windows). Place still never hides. Keep the cave save.
 - **GX 0.10.41** Shot GX-shot-0141: cave works; mouth still had **grass slivers** spanning the pit. Centroid-air missed them because slumped lid verts sit on the dirt wall (solid). Hide also drops **lid-like slivers** (ΔR>0.85 m or edge>2.2 cell) whose verts dropped from the stamp. Steep cave walls stay. Place still never hides. Keep the cave save.

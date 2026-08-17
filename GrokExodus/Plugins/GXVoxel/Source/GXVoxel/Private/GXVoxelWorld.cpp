@@ -881,7 +881,7 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	{
 		CrustTiles->NotifyBrush(
 			L, BrushR, true, Volume->GetStamp(), TerrainMaterial.Get(),
-			DensityAt, &Punched, false, &bSteep);
+			DensityAt, &Punched, false, &bSteep, 0, false);
 	}
 	// Edited patch: remesh first, then hide air-backed lid only if MC exists
 	// (plan D / GX-shot-0134). Floor and wall both remesh.
@@ -912,10 +912,11 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	{
 		if (CaveTris >= 12)
 		{
-			// Stamp-column hide. 14 m covers this cave mouth; undug lawn
-			// stays solid so it is not a 6 m page-box punch (0139).
+			// Stamp-air + a tight brush disk. 14 m cover only walks tiles;
+			// the disk is the brush, not a lawn punch (0139).
 			Punched = CrustTiles->HideAirBackedQuads(
-				L, FMath::Max(BrushR + 2.00f, 14.0f), TerrainMaterial.Get(), DensityAt);
+				L, FMath::Max(BrushR + 2.00f, 14.0f), TerrainMaterial.Get(), DensityAt,
+				BrushR + 1.25f);
 		}
 		else
 		{
