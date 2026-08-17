@@ -218,6 +218,44 @@ void FGXVoxelVolume::GetEditedPageBoxes(TArray<FBox>& Out, float PadM) const
 	}
 }
 
+void FGXVoxelVolume::ForEachAuthoritativeCell(
+	TFunctionRef<void(const FIntVector& VoxelCoord, const FGXVoxelPacked& Cell)> Fn) const
+{
+	for (const auto& Pair : Pages)
+	{
+		const FGXChunkKey& K = Pair.Key;
+		for (int32 I = 0; I < Pair.Value.Num(); ++I)
+		{
+			if (!Pair.Value[I].IsValid())
+			{
+				continue;
+			}
+			const int32 PX = I % FGXVoxelConstants::PagesPerAxis;
+			const int32 PY = (I / FGXVoxelConstants::PagesPerAxis) % FGXVoxelConstants::PagesPerAxis;
+			const int32 PZ = I / (FGXVoxelConstants::PagesPerAxis * FGXVoxelConstants::PagesPerAxis);
+			for (int32 Z = 0; Z < FGXVoxelConstants::PageSize; ++Z)
+			{
+				for (int32 Y = 0; Y < FGXVoxelConstants::PageSize; ++Y)
+				{
+					for (int32 X = 0; X < FGXVoxelConstants::PageSize; ++X)
+					{
+						const FGXVoxelPacked Cell = Pair.Value[I]->Get(X, Y, Z);
+						if (!Cell.IsAuthoritative())
+						{
+							continue;
+						}
+						const FIntVector VC(
+							K.X * FGXVoxelConstants::ChunkSize + PX * FGXVoxelConstants::PageSize + X,
+							K.Y * FGXVoxelConstants::ChunkSize + PY * FGXVoxelConstants::PageSize + Y,
+							K.Z * FGXVoxelConstants::ChunkSize + PZ * FGXVoxelConstants::PageSize + Z);
+						Fn(VC, Cell);
+					}
+				}
+			}
+		}
+	}
+}
+
 FGXVoxelVolume::FBrushResult FGXVoxelVolume::ApplySphereBrush(
 	const FVector3d& CenterM,
 	float RadiusM,

@@ -24,5 +24,7 @@ struct FGXEditIsland
 	bool OverlapsBox(const FBox& Box) const;
 	void Add(const FVector& Center, float RadiusM);
 	FBox Bounds() const;
+	/** True when every sphere sits on the crust (rejects LWC 4-byte garbage). */
+	bool LooksValid(float PlanetRadiusM, float MaxReliefM) const;
 	void Serialize(FArchive& Ar);
 };

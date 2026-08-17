@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Templates/Function.h"
 #include "GXSnapshot.h"
 #include "GXVoxelStamps.h"
 #include "GXVoxelTypes.h"
@@ -96,6 +97,9 @@ public:
 
 	/** Planet-local metre AABBs of every allocated 8³ page (padded). Clipmap punch. */
 	void GetEditedPageBoxes(TArray<FBox>& Out, float PadM = 1.5f) const;
+
+	/** Visit every brush-authored cell (dirty pages only). */
+	void ForEachAuthoritativeCell(TFunctionRef<void(const FIntVector& VoxelCoord, const FGXVoxelPacked& Cell)> Fn) const;
 
 	/** Copy-on-write snapshot for workers. */
 	TSharedRef<FGXVoxelSnapshot, ESPMode::ThreadSafe> PublishSnapshot() const;

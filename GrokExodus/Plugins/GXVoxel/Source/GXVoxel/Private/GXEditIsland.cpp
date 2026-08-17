@@ -94,6 +94,33 @@ FBox FGXEditIsland::Bounds() const
 	return B;
 }
 
+bool FGXEditIsland::LooksValid(float PlanetRadiusM, float MaxReliefM) const
+{
+	if (Spheres.Num() == 0)
+	{
+		return false;
+	}
+	const float MinR = FMath::Max(1.0f, PlanetRadiusM - MaxReliefM - 80.0f);
+	const float MaxR = PlanetRadiusM + MaxReliefM + 80.0f;
+	for (const FGXEditSphere& S : Spheres)
+	{
+		if (!FMath::IsFinite(S.R) || S.R < 0.25f || S.R > 200.0f)
+		{
+			return false;
+		}
+		if (!FMath::IsFinite(S.C.X) || !FMath::IsFinite(S.C.Y) || !FMath::IsFinite(S.C.Z))
+		{
+			return false;
+		}
+		const float Mag = static_cast<float>(S.C.Size());
+		if (Mag < MinR || Mag > MaxR)
+		{
+			return false;
+		}
+	}
+	return true;
+}
+
 void FGXEditIsland::Serialize(FArchive& Ar)
 {
 	int32 N = Spheres.Num();

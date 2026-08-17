@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-disk build stamp: **GX 0.11.0**  
+Last updated: **2026-08-17** · On-screen build stamp: **GX 0.11.1**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.11.1** Reload left you under a closed lid (cap + missing faces). Save v2 wrote 4 bytes of each `FVector` (doubles in UE 5.8) so the island reloaded at the origin; consume=0; `SnapToSurface` then sat you on the cave floor. Save **v3** writes explicit floats; invalid/v2 islands rebuild from near-surface air cells; spawn stays on the stamp crust. Keep the cave save (reconstruct on load).
 - **GX 0.11.0** Shot GX-shot-0151: rim still leftover tile sheets — hide predicates cannot join 0.5 m lawn to 1 m MC. **Edit island:** brush+2 m is one voxel mesh (collar+cave). Tiles consume stamp centroids inside the union of spheres. Save v2 stores island spheres. Wipe `earth_default.gxsav` (bak_pre_0152).
 - **GX 0.10.51** Shot GX-shot-0150: cave works; **grass sheets on unrefined tiles** as the hole grows. FineCell 8 nearest tiles. Fine 0.5 m quads hide if **any** corner is in the disk; 1 m quads still need 3 corners.
 - **GX 0.10.50** Shot GX-shot-0149: cave works, 4 tiles FineCell, but **rim grass sheets** (3-corner hide). Hide if centroid is in the disk **or ≥2 corners**.

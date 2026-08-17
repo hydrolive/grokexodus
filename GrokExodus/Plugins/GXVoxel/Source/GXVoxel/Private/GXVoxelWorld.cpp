@@ -37,7 +37,8 @@ static constexpr float GUUToMeters = 0.01f;
 namespace GXPersist
 {
 	static constexpr uint32 Magic = 0x31565847; // GXV1
-	static constexpr uint32 Version = 2;
+	/** 3 = island as explicit float xyzr (v2 wrote 4 bytes of FVector doubles). */
+	static constexpr uint32 Version = 3;
 }
 
 AGXVoxelWorld::AGXVoxelWorld()
@@ -1917,7 +1918,8 @@ bool AGXVoxelWorld::PlacePawnOnSurface(APawn* Pawn, FVector RadialHint)
 		if (UGXBodyMovement* Move = Cast<UGXBodyMovement>(Char->GetCharacterMovement()))
 		{
 			Move->TryFindField();
-			Move->SnapToSurface(true);
+			// Stamp crust only. SnapToSurface uses density — a saved cave
+			// under a closed lid yanks the pawn underground (0.11.0 reload).
 			Move->NotifyJustSpawned();
 		}
 		else if (UCharacterMovementComponent* CMC = Char->GetCharacterMovement())
@@ -2213,7 +2215,11 @@ bool AGXVoxelWorld::SaveWorld()
 	Write(&IslandN, 4);
 	for (const FGXEditSphere& S : EditIsland.Spheres)
 	{
-		Write(&S.C.X, 4); Write(&S.C.Y, 4); Write(&S.C.Z, 4); Write(&S.R, 4);
+		const float X = static_cast<float>(S.C.X);
+		const float Y = static_cast<float>(S.C.Y);
+		const float Z = static_cast<float>(S.C.Z);
+		const float R = S.R;
+		Write(&X, 4); Write(&Y, 4); Write(&Z, 4); Write(&R, 4);
 	}
 	const FString Path = GetSavePath();
 	IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
@@ -2225,9 +2231,9 @@ bool AGXVoxelWorld::SaveWorld()
 	LastSaveToast = FString::Printf(TEXT("Saved %s"), *FDateTime::Now().ToString(TEXT("%H:%M")));
 	bPersistDirty = false;
 	AutoSaveAccum = 0.0f;
-	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s saved %d pages -> %s (%s)"),
-		GX_VERSION_STRING, PageCount, *Path, *LastSaveToast);
-	GX_PERF(1, TEXT("GX-save pages=%d path=%s"), PageCount, *Path);
+	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s saved %d pages island=%s -> %s (%s)"),
+		GX_VERSION_STRING, PageCount, *IslandDebugString(), *Path, *LastSaveToast);
+	GX_PERF(1, TEXT("GX-save pages=%d island=%s path=%s"), PageCount, *IslandDebugString(), *Path);
 	return true;
 }
 
@@ -2321,16 +2327,29 @@ bool AGXVoxelWorld::LoadWorld()
 			IslandN = FMath::Clamp(IslandN, 0, FGXEditIsland::MaxSpheres);
 			for (int32 I = 0; I < IslandN; ++I)
 			{
-				FGXEditSphere S;
-				if (!Read(&S.C.X, 4) || !Read(&S.C.Y, 4) || !Read(&S.C.Z, 4) || !Read(&S.R, 4))
+				float X = 0.f, Y = 0.f, Z = 0.f, Rad = 0.f;
+				if (!Read(&X, 4) || !Read(&Y, 4) || !Read(&Z, 4) || !Read(&Rad, 4))
 				{
 					break;
 				}
-				EditIsland.Spheres.Add(S);
+				if (Ver >= 3)
+				{
+					FGXEditSphere S;
+					S.C = FVector(X, Y, Z);
+					S.R = Rad;
+					EditIsland.Spheres.Add(S);
+				}
 			}
 		}
 	}
 	RebuildEditedPageBoxes();
+	if (!EditIsland.LooksValid(PlanetRadius, MaxRelief) && PageCount > 0)
+	{
+		UE_LOG(LogGXVoxel, Warning,
+			TEXT("GX-%s load island invalid (ver=%u n=%d) — rebuild from air cells"),
+			GX_VERSION_STRING, Ver, EditIsland.Spheres.Num());
+		ReconstructIslandFromEdits();
+	}
 	if (HorizonClipmap)
 	{
 		HorizonClipmap->NotifyEdits();
@@ -2341,25 +2360,97 @@ bool AGXVoxelWorld::LoadWorld()
 	{
 		bRevealedTileEdits = true;
 	}
-	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s loaded %d dirty pages from %s boxes=%d"),
-		GX_VERSION_STRING, PageCount, *GetSavePath(), EditedPageBoxesM.Num());
-	GX_PERF(1, TEXT("GX-load pages=%d boxes=%d"), PageCount, EditedPageBoxesM.Num());
+	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s loaded %d dirty pages from %s boxes=%d island=%s ver=%u"),
+		GX_VERSION_STRING, PageCount, *GetSavePath(), EditedPageBoxesM.Num(),
+		*IslandDebugString(), Ver);
+	GX_PERF(1, TEXT("GX-load pages=%d boxes=%d island=%s ver=%u"),
+		PageCount, EditedPageBoxesM.Num(), *IslandDebugString(), Ver);
 	return true;
+}
+
+FString AGXVoxelWorld::IslandDebugString() const
+{
+	if (EditIsland.IsEmpty())
+	{
+		return TEXT("n=0");
+	}
+	const FGXEditSphere& S = EditIsland.Spheres[0];
+	return FString::Printf(TEXT("n=%d r0=%.2f |c0|=%.1f"),
+		EditIsland.Spheres.Num(), S.R, S.C.Size());
+}
+
+void AGXVoxelWorld::ReconstructIslandFromEdits()
+{
+	EditIsland.Reset();
+	if (!Volume)
+	{
+		return;
+	}
+	const float VS = VoxelSize;
+	const FGXSphereStamp& Stamp = Volume->GetStamp();
+	int32 AirN = 0;
+	Volume->ForEachAuthoritativeCell([&](const FIntVector& VC, const FGXVoxelPacked& Cell)
+	{
+		if (Cell.IsSolid())
+		{
+			return;
+		}
+		const FVector P(
+			(VC.X + 0.5f) * VS,
+			(VC.Y + 0.5f) * VS,
+			(VC.Z + 0.5f) * VS);
+		const FVector Dir = P.GetSafeNormal();
+		if (Dir.IsNearlyZero())
+		{
+			return;
+		}
+		const float Surf = Stamp.SampleSurfaceRadius(FVector3f(Dir.X, Dir.Y, Dir.Z));
+		if (P.Size() < Surf - 8.0f)
+		{
+			return;
+		}
+		EditIsland.Add(P, VS * 1.5f + FGXEditIsland::CollarM);
+		++AirN;
+	});
+	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s rebuild-island air=%d %s"),
+		GX_VERSION_STRING, AirN, *IslandDebugString());
+	GX_PERF(1, TEXT("GX-rebuild-island air=%d %s"), AirN, *IslandDebugString());
 }
 
 void AGXVoxelWorld::RestoreEditedSurfaces()
 {
-	if (!CrustTiles || !CrustTiles->IsReady() || EditIsland.IsEmpty())
+	if (!CrustTiles || !CrustTiles->IsReady())
 	{
-		if (EditIsland.IsEmpty())
-		{
-			bLoadRestorePending = false;
-			bRevealedTileEdits = true;
-		}
+		return;
+	}
+	if (!EditIsland.LooksValid(PlanetRadius, MaxRelief) && Volume && Volume->GetAllocatedPageCount() > 0)
+	{
+		ReconstructIslandFromEdits();
+	}
+	if (EditIsland.IsEmpty())
+	{
+		bLoadRestorePending = false;
+		bRevealedTileEdits = true;
 		return;
 	}
 	const FBox IB = EditIsland.Bounds();
-	if (!IB.IsValid || !CrustTiles->HasTileAt(IB.GetCenter()))
+	if (!IB.IsValid)
+	{
+		return;
+	}
+	bool bTile = CrustTiles->HasTileAt(IB.GetCenter());
+	if (!bTile)
+	{
+		for (const FGXEditSphere& S : EditIsland.Spheres)
+		{
+			if (CrustTiles->HasTileAt(S.C))
+			{
+				bTile = true;
+				break;
+			}
+		}
+	}
+	if (!bTile)
 	{
 		return;
 	}
@@ -2367,15 +2458,15 @@ void AGXVoxelWorld::RestoreEditedSurfaces()
 	MaxMeshCreatesPerTick = MeshCreatesThisTick + 8;
 	RemeshIsland();
 	int32 Hidden = CrustTiles->ConsumeWhere(
-		IB.GetCenter(), IB.GetExtent().GetMax(),
+		IB.GetCenter(), FMath::Max(IB.GetExtent().GetMax(), 4.0f),
 		[this](const FVector& P) { return EditIsland.Contains(P); },
 		TerrainMaterial.Get());
 	MaxMeshCreatesPerTick = SavedCreates;
 	bLoadRestorePending = false;
 	bRevealedTileEdits = true;
-	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s restore-island consume=%d spheres=%d"),
-		GX_VERSION_STRING, Hidden, EditIsland.Spheres.Num());
-	GX_PERF(1, TEXT("GX-restore-island consume=%d spheres=%d"), Hidden, EditIsland.Spheres.Num());
+	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s restore-island consume=%d %s"),
+		GX_VERSION_STRING, Hidden, *IslandDebugString());
+	GX_PERF(1, TEXT("GX-restore-island consume=%d %s"), Hidden, *IslandDebugString());
 }
 
 void AGXVoxelWorld::RebuildEditedPageBoxes()
