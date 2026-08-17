@@ -124,6 +124,14 @@ After a successful link, **actually launch** the editor (see **Launch the editor
 
 Skip the **close/rebuild** for docs-only or Python-only changes that do not touch C++. Still leave the editor running (launch it if it is not).
 
+### Reset voxel save after major gen / handling changes
+
+`Saved/VoxelWorld/earth_default.gxsav` auto-loads on PIE. Leftover density
+pages sit under a new lid and show as black windows into an old cave
+(GX-shot-0132). After changing CSG, tile sculpt, punch, remesh, or cave
+filter: **stop PIE**, copy the save to `earth_default.gxsav.bak_pre_<ver>`,
+**delete** `earth_default.gxsav`, then start PIE. Never commit `Saved/`.
+
 ---
 
 ## Mandatory: leave the editor running so the user can test

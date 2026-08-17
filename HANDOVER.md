@@ -14,10 +14,26 @@ reintroduce a bug we already paid for.
 4. **Texture:** floor uses rest-position triplanar (no crack swim). Steep walls use live WorldPosition (rest-pos smears the ground photo down the cliff).
 5. **Floor digs stay a closed bowl.** Do not remesh/punch on a radial hit.
 
+## Reset the voxel save on major gen / handling changes
+
+PIE auto-loads `Saved/VoxelWorld/earth_default.gxsav` (F5 / EndPlay / 180 s
+autosave). Old CSG pages stay under a fresh heightfield lid — black windows
+look into a leftover cave (GX-shot-0132). After any change to density CSG,
+tile sculpt, punch, remesh, or cave filter:
+
+1. Stop PIE (EndPlay rewrites the save).
+2. Copy `earth_default.gxsav` → `earth_default.gxsav.bak_pre_<ver>`.
+3. Delete `earth_default.gxsav`.
+4. Start PIE. Overlay should not show a stale `Saved HH:MM` from the old pages.
+
+Do **not** skip this because “the player already has a crater.” That crater’s
+density no longer matches the new lid.
+
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.32** Shot GX-shot-0132: rectangular **black windows** looked into a **leftover underground cave** from `earth_default.gxsav` (9 dirty pages). Save backed up to `bak_pre_0132` and deleted. Fresh PIE is stamp crust only. Reset that save after any major voxel gen/handling change.
 - **GX 0.10.32** Shot GX-shot-0131: cave **started**, then **black missing faces** and the tunnel **stopped**. Cave filter dropped walls next to the punched rim (`1233→66` tris). NearLid now only strips floor-like lid sheets. Remesh 6 chunks / 8 m so the pocket can grow. A punched mouth keeps remeshing even if the hit is not steep. Tile ray skips a face with air behind it so the ball sits on the next solid, not a leftover sliver.
 - **GX 0.10.31** Editor shot GX-shot-0130: **black triangle hole**, **stretched wall dirt**, no cave. 0.10.30 punched one quad then hid the cave on the next click (`punch=0 hide=2`). Hide only when there is no punch nearby; empty remesh closes punches. Walls sample live WorldPos so dirt is not a smeared ground photo.
 - **GX 0.10.30** Shots 011733–011838: crater **dirt slid every stroke** (world-pos triplanar followed dropping verts) and a **wall hit could not open a cave** (0.10.29 stripped remesh+punch). Tile UV0.y is the stamp surface radius; PBR samples that rest position so the bowl does not swim. A wall aim (hit N vs radial) remeshes two cave chunks and punches only steep quads a cave vertex covers. Floor stays a closed radial bowl. No 3D wall dent.
