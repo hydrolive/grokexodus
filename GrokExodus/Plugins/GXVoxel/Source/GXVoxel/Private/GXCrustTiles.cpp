@@ -277,69 +277,19 @@ int32 FGXCrustTiles::NotifyBrush(
 				}
 				++N;
 			}
-			int32 Slivers = 0;
-			if (Tile.Indices.Num() >= 3)
-			{
-				const float Sliver2 = FMath::Square(FineCellM * 2.80f);
-				TArray<int32> Kept;
-				Kept.Reserve(Tile.Indices.Num());
-				for (int32 T = 0; T + 2 < Tile.Indices.Num(); T += 3)
-				{
-					const int32 IA = Tile.Indices[T];
-					const int32 IB = Tile.Indices[T + 1];
-					const int32 IC = Tile.Indices[T + 2];
-					if (!Tile.LivePos.IsValidIndex(IA) || !Tile.LivePos.IsValidIndex(IB)
-						|| !Tile.LivePos.IsValidIndex(IC))
-					{
-						continue;
-					}
-					const FVector WA = (Tile.OriginCm + Tile.LivePos[IA]) * 0.01f;
-					const FVector WB = (Tile.OriginCm + Tile.LivePos[IB]) * 0.01f;
-					const FVector WC = (Tile.OriginCm + Tile.LivePos[IC]) * 0.01f;
-					const bool bNear = FVector::DistSquared(WA, LocalM) <= Cover2
-						|| FVector::DistSquared(WB, LocalM) <= Cover2
-						|| FVector::DistSquared(WC, LocalM) <= Cover2;
-					const bool bLong = FVector::DistSquared(WA, WB) > Sliver2
-						|| FVector::DistSquared(WB, WC) > Sliver2
-						|| FVector::DistSquared(WC, WA) > Sliver2;
-					if (bNear && bLong)
-					{
-						++Slivers;
-						continue;
-					}
-					Kept.Add(IA);
-					Kept.Add(IB);
-					Kept.Add(IC);
-				}
-				if (Slivers > 0 && Kept.Num() >= 3)
-				{
-					Tile.Indices = MoveTemp(Kept);
-				}
-			}
-			if (N == 0 && Slivers == 0)
+			if (N == 0)
 			{
 				continue;
 			}
+			// Never delete tris — sliver strip ate the steep walls
+			// (GX-lowpoly-0109 black windows). Radial drop stays watertight.
 			RecomputeNormals(Tile);
-			if (Slivers > 0)
-			{
-				Comp->ClearMeshSection(0);
-				Comp->CreateMeshSection_LinearColor(
-					0, Tile.LivePos, Tile.Indices, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents, true);
-				if (Material)
-				{
-					Comp->SetMaterial(0, Material);
-				}
-			}
-			else
-			{
-				Comp->UpdateMeshSection_LinearColor(
-					0, Tile.LivePos, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents);
-			}
+			Comp->UpdateMeshSection_LinearColor(
+				0, Tile.LivePos, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents);
 			Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 			Comp->SetVisibility(true);
 			Comp->UpdateBounds();
-			Changed += N + Slivers;
+			Changed += N;
 			continue;
 		}
 

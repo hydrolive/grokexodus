@@ -32,8 +32,8 @@ struct FGXCrustTileKey
 
 /**
  * Unedited crust as non-overlapping tiles.
- * Dig drops tile verts radially (bowl) and strips stretched leftover
- * sheets. No per-click voxel remesh. First stroke refines to 0.5 m.
+ * Dig drops tile verts radially (closed bowl). Never delete tris — that
+ * opened black windows in the wall. First stroke refines to 0.35 m.
  */
 class GXVOXEL_API FGXCrustTiles
 {
@@ -66,8 +66,8 @@ public:
 
 	static constexpr float TileM = 64.0f;
 	static constexpr float CellM = 1.0f;
-	/** First sculpt rebuilds this tile at 0.5 m so a 1.2 m brush is a round crater, not 1 m pyramids. */
-	static constexpr float FineCellM = 0.5f;
+	/** First sculpt rebuilds this tile at 0.35 m so a crater wall is not 1 m pyramids. */
+	static constexpr float FineCellM = 0.35f;
 	static constexpr float StreamM = 256.0f;
 	static constexpr int32 ReadyMin = 9;
 
