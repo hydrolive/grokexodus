@@ -376,6 +376,7 @@ int32 FGXCrustTiles::NotifyBrush(
 			}
 			if (Dim >= 2)
 			{
+				FlattenLongQuads(Tile, I0, I1, J0, J1);
 				RecomputeNormalsWindow(Tile, I0, I1, J0, J1);
 			}
 			else
@@ -923,6 +924,72 @@ void FGXCrustTiles::RebuildIndices(FTile& Tile)
 			Tile.Indices.Add(D);
 		}
 	}
+}
+
+int32 FGXCrustTiles::FlattenLongQuads(FTile& Tile, int32 I0, int32 I1, int32 J0, int32 J1)
+{
+	const int32 Dim = GridDim(Tile);
+	if (Dim < 2 || Tile.LivePos.Num() != Dim * Dim || Tile.StampDir.Num() != Tile.LivePos.Num())
+	{
+		return 0;
+	}
+	const int32 Cells = Dim - 1;
+	const bool bMask = Tile.QuadAlive.Num() == Cells * Cells;
+	const float Cell = (Tile.FineCell > 0.1f) ? Tile.FineCell : CellM;
+	const float MaxDeltaR = FMath::Max(1.75f, Cell * 3.0f);
+	I0 = FMath::Clamp(I0, 0, Cells - 1);
+	I1 = FMath::Clamp(I1, 0, Cells - 1);
+	J0 = FMath::Clamp(J0, 0, Cells - 1);
+	J1 = FMath::Clamp(J1, 0, Cells - 1);
+	int32 N = 0;
+	auto WorldR = [&Tile](int32 Idx) -> float
+	{
+		return ((Tile.OriginCm + Tile.LivePos[Idx]) * 0.01f).Size();
+	};
+	auto SnapR = [&Tile](int32 Idx, float NewR)
+	{
+		if (!Tile.LivePos.IsValidIndex(Idx) || !Tile.StampDir.IsValidIndex(Idx))
+		{
+			return;
+		}
+		const FVector Dir = Tile.StampDir[Idx];
+		Tile.LivePos[Idx] = Dir * NewR * 100.0f - Tile.OriginCm;
+	};
+	for (int32 J = J0; J <= J1; ++J)
+	{
+		for (int32 I = I0; I <= I1; ++I)
+		{
+			if (bMask && !Tile.QuadAlive[I + J * Cells])
+			{
+				continue;
+			}
+			const int32 A = I + J * Dim;
+			const int32 Bv = (I + 1) + J * Dim;
+			const int32 C = I + (J + 1) * Dim;
+			const int32 D = (I + 1) + (J + 1) * Dim;
+			if (!Tile.LivePos.IsValidIndex(A) || !Tile.LivePos.IsValidIndex(Bv)
+				|| !Tile.LivePos.IsValidIndex(C) || !Tile.LivePos.IsValidIndex(D))
+			{
+				continue;
+			}
+			const float RA = WorldR(A);
+			const float RB = WorldR(Bv);
+			const float RC = WorldR(C);
+			const float RD = WorldR(D);
+			const float MinR = FMath::Min(FMath::Min(RA, RB), FMath::Min(RC, RD));
+			const float MaxR = FMath::Max(FMath::Max(RA, RB), FMath::Max(RC, RD));
+			if ((MaxR - MinR) <= MaxDeltaR)
+			{
+				continue;
+			}
+			SnapR(A, MinR);
+			SnapR(Bv, MinR);
+			SnapR(C, MinR);
+			SnapR(D, MinR);
+			++N;
+		}
+	}
+	return N;
 }
 
 int32 FGXCrustTiles::PunchSteepQuads(

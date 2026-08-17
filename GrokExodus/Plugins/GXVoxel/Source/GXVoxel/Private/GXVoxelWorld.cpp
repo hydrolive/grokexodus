@@ -762,6 +762,7 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	}
 	int32 Punched = 0;
 	int32 Closed = 0;
+	int32 HiddenCave = 0;
 	bool bSteep = false;
 	const float BrushR = RadiusM * DigSpeedMul;
 	if (CrustTiles)
@@ -771,34 +772,34 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); },
 			&Punched, false, &bSteep);
 	}
-	if (bSteep)
+	// 0.10.19 remesh+punch left 1 m MC sheets through the bowl
+	// (GX-float-0119). Heightfield is the visual. Density stays 3D.
+	if (CaveChunks.Num() > 0)
 	{
-		const int32 SavedCreates = MaxMeshCreatesPerTick;
-		MaxMeshCreatesPerTick = MeshCreatesThisTick + 2;
-		RemeshCaveAt(L, BrushR, false);
-		MaxMeshCreatesPerTick = SavedCreates;
+		const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
+		const float Reach2 = FMath::Square(BrushR + ChunkM + 8.0f);
+		TArray<FGXChunkKey> Drop;
+		for (const FGXChunkKey& K : CaveChunks)
+		{
+			const FVector C((K.X + 0.5f) * ChunkM, (K.Y + 0.5f) * ChunkM, (K.Z + 0.5f) * ChunkM);
+			if (FVector::DistSquared(C, L) <= Reach2)
+			{
+				Drop.Add(K);
+			}
+		}
+		for (const FGXChunkKey& K : Drop)
+		{
+			ReleaseVisual(K);
+			CaveChunks.Remove(K);
+			CarveBalls.Remove(K);
+			HollowChunks.Add(K);
+			++HiddenCave;
+		}
 	}
 	if (CrustTiles)
 	{
-		TArray<FVector> CavePts;
-		CollectCavePointsNear(L, BrushR + 2.5f, CavePts);
-		auto Covers = [&CavePts](const FVector& P) -> bool
-		{
-			const float Cover2 = FMath::Square(0.70f);
-			for (const FVector& C : CavePts)
-			{
-				if (FVector::DistSquared(C, P) <= Cover2)
-				{
-					return true;
-				}
-			}
-			return false;
-		};
-		Closed = CrustTiles->CloseUncoveredBrush(L, BrushR * 3.0f + 4.0f, TerrainMaterial.Get(), Covers);
-		if (bSteep && CavePts.Num() > 0)
-		{
-			Punched = CrustTiles->PunchBrush(L, BrushR, TerrainMaterial.Get(), Covers);
-		}
+		Closed = CrustTiles->CloseUncoveredBrush(
+			L, BrushR * 4.0f + 8.0f, TerrainMaterial.Get(), TFunction<bool(const FVector&)>());
 	}
 	{
 		static double LastBoxesAt = -1.0e9;
@@ -825,9 +826,9 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			},
 			true);
 	}
-	GX_PERF(1, TEXT("GX-dig volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d punch=%d close=%d steep=%d cave=%d boxes=%d"),
-		L.X, L.Y, L.Z, BrushR, Brush.DirtyChunks.Num(), Punched, Closed, bSteep ? 1 : 0,
-		HasCaveVisualNear(L, BrushR) ? 1 : 0, EditedPageBoxesM.Num());
+	GX_PERF(1, TEXT("GX-dig volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d punch=%d close=%d hideCave=%d steep=%d boxes=%d"),
+		L.X, L.Y, L.Z, BrushR, Brush.DirtyChunks.Num(), Punched, Closed, HiddenCave, bSteep ? 1 : 0,
+		EditedPageBoxesM.Num());
 	return Out;
 }
 
@@ -2322,16 +2323,8 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 		{
 			continue;
 		}
-		FVector FaceN = FVector::CrossProduct(
-			Mesh.Positions[IB] - Mesh.Positions[IA], Mesh.Positions[IC] - Mesh.Positions[IA]);
-		if (!FaceN.Normalize())
-		{
-			continue;
-		}
-		const FVector Rad = Cent.GetSafeNormal();
-		// Drop only the grass/floor lid. Keep steep cave walls even near the rim
-		// so a punch has something to sit on (0.10.18 kept 17 floor tris).
-		if (NearLid(Cent) && FMath::Abs(FVector::DotProduct(FaceN, Rad)) > 0.65f)
+		// 1 m MC on the crater rim was the GX-float-0119 sheet through the ball.
+		if (NearLid(Cent))
 		{
 			continue;
 		}
