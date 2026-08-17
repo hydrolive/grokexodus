@@ -761,15 +761,15 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
 	}
 	int32 Punched = 0;
+	int32 Closed = 0;
 	bool bSteep = false;
 	const float BrushR = RadiusM * DigSpeedMul;
-	const bool bCaveReady = HasCaveVisualNear(L, BrushR);
 	if (CrustTiles)
 	{
 		CrustTiles->NotifyBrush(
 			L, BrushR, true, Volume->GetStamp(), TerrainMaterial.Get(),
 			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); },
-			&Punched, bCaveReady, &bSteep);
+			&Punched, false, &bSteep);
 	}
 	if (bSteep)
 	{
@@ -777,9 +777,27 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 		MaxMeshCreatesPerTick = MeshCreatesThisTick + 2;
 		RemeshCaveAt(L, BrushR, false);
 		MaxMeshCreatesPerTick = SavedCreates;
-		if (Punched == 0 && CrustTiles && HasCaveVisualNear(L, BrushR))
+	}
+	if (CrustTiles)
+	{
+		TArray<FVector> CavePts;
+		CollectCavePointsNear(L, BrushR + 2.5f, CavePts);
+		auto Covers = [&CavePts](const FVector& P) -> bool
 		{
-			Punched = CrustTiles->PunchBrush(L, BrushR, TerrainMaterial.Get());
+			const float Cover2 = FMath::Square(0.70f);
+			for (const FVector& C : CavePts)
+			{
+				if (FVector::DistSquared(C, P) <= Cover2)
+				{
+					return true;
+				}
+			}
+			return false;
+		};
+		Closed = CrustTiles->CloseUncoveredBrush(L, BrushR * 3.0f + 4.0f, TerrainMaterial.Get(), Covers);
+		if (bSteep && CavePts.Num() > 0)
+		{
+			Punched = CrustTiles->PunchBrush(L, BrushR, TerrainMaterial.Get(), Covers);
 		}
 	}
 	{
@@ -807,8 +825,8 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			},
 			true);
 	}
-	GX_PERF(1, TEXT("GX-dig volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d punch=%d steep=%d cave=%d boxes=%d"),
-		L.X, L.Y, L.Z, BrushR, Brush.DirtyChunks.Num(), Punched, bSteep ? 1 : 0,
+	GX_PERF(1, TEXT("GX-dig volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d punch=%d close=%d steep=%d cave=%d boxes=%d"),
+		L.X, L.Y, L.Z, BrushR, Brush.DirtyChunks.Num(), Punched, Closed, bSteep ? 1 : 0,
 		HasCaveVisualNear(L, BrushR) ? 1 : 0, EditedPageBoxesM.Num());
 	return Out;
 }
@@ -2304,8 +2322,16 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 		{
 			continue;
 		}
-		// 1 m MC on the punched grass rim was the GX-spikes-0107 sawtooth.
-		if (NearLid(Cent))
+		FVector FaceN = FVector::CrossProduct(
+			Mesh.Positions[IB] - Mesh.Positions[IA], Mesh.Positions[IC] - Mesh.Positions[IA]);
+		if (!FaceN.Normalize())
+		{
+			continue;
+		}
+		const FVector Rad = Cent.GetSafeNormal();
+		// Drop only the grass/floor lid. Keep steep cave walls even near the rim
+		// so a punch has something to sit on (0.10.18 kept 17 floor tris).
+		if (NearLid(Cent) && FMath::Abs(FVector::DotProduct(FaceN, Rad)) > 0.65f)
 		{
 			continue;
 		}
@@ -2422,6 +2448,52 @@ bool AGXVoxelWorld::HasCaveVisualNear(const FVector& LocalM, float RadiusM) cons
 		}
 	}
 	return false;
+}
+
+void AGXVoxelWorld::CollectCavePointsNear(const FVector& LocalM, float RadiusM, TArray<FVector>& Out) const
+{
+	if (CaveChunks.Num() == 0 || ChunkVisuals.Num() == 0 || RadiusM <= 0.0f)
+	{
+		return;
+	}
+	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
+	const float R2 = RadiusM * RadiusM;
+	const float Reach2 = FMath::Square(RadiusM + ChunkM);
+	for (const auto& Pair : ChunkVisuals)
+	{
+		if (!CaveChunks.Contains(Pair.Key) || Pair.Value.VertCount < 3)
+		{
+			continue;
+		}
+		const FVector Center(
+			(Pair.Key.X + 0.5f) * ChunkM,
+			(Pair.Key.Y + 0.5f) * ChunkM,
+			(Pair.Key.Z + 0.5f) * ChunkM);
+		if (FVector::DistSquared(Center, LocalM) > Reach2)
+		{
+			continue;
+		}
+		UProceduralMeshComponent* PMC = MeshBanks.IsValidIndex(Pair.Value.Bank)
+			? const_cast<UProceduralMeshComponent*>(MeshBanks[Pair.Value.Bank].Get())
+			: nullptr;
+		if (!PMC)
+		{
+			continue;
+		}
+		const FProcMeshSection* Sec = PMC->GetProcMeshSection(Pair.Value.Section);
+		if (!Sec)
+		{
+			continue;
+		}
+		for (const FProcMeshVertex& V : Sec->ProcVertexBuffer)
+		{
+			const FVector P = V.Position * 0.01f;
+			if (FVector::DistSquared(P, LocalM) <= R2)
+			{
+				Out.Add(P);
+			}
+		}
+	}
 }
 
 bool AGXVoxelWorld::ShouldPunchClipmap(const FVector& LocalM) const

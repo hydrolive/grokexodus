@@ -412,11 +412,7 @@ int32 FGXCrustTiles::NotifyBrush(
 				}
 			}
 			int32 PunchedHere = 0;
-			if (bAllowPunch)
-			{
-				PunchedHere = PunchSteepQuads(Tile, LocalM, RadiusM);
-				PunchedAll += PunchedHere;
-			}
+			(void)bAllowPunch;
 			if (PunchedHere > 0)
 			{
 				Comp->ClearMeshSection(0);
@@ -508,9 +504,13 @@ int32 FGXCrustTiles::NotifyBrush(
 	return Changed;
 }
 
-int32 FGXCrustTiles::PunchBrush(const FVector& LocalM, float RadiusM, UMaterialInterface* Material)
+int32 FGXCrustTiles::PunchBrush(
+	const FVector& LocalM,
+	float RadiusM,
+	UMaterialInterface* Material,
+	const TFunction<bool(const FVector&)>& CaveCovers)
 {
-	if (RadiusM <= 0.0f || Live.Num() == 0)
+	if (RadiusM <= 0.0f || Live.Num() == 0 || !CaveCovers)
 	{
 		return 0;
 	}
@@ -528,7 +528,7 @@ int32 FGXCrustTiles::PunchBrush(const FVector& LocalM, float RadiusM, UMaterialI
 		{
 			continue;
 		}
-		const int32 N = PunchSteepQuads(Tile, LocalM, RadiusM);
+		const int32 N = PunchSteepQuads(Tile, LocalM, RadiusM, CaveCovers);
 		if (N == 0)
 		{
 			continue;
@@ -552,6 +552,56 @@ int32 FGXCrustTiles::PunchBrush(const FVector& LocalM, float RadiusM, UMaterialI
 		GX_PERF(1, TEXT("GX-tile punch-open n=%d r=%.2f"), Punched, RadiusM);
 	}
 	return Punched;
+}
+
+int32 FGXCrustTiles::CloseUncoveredBrush(
+	const FVector& LocalM,
+	float RadiusM,
+	UMaterialInterface* Material,
+	const TFunction<bool(const FVector&)>& CaveCovers)
+{
+	if (RadiusM <= 0.0f || Live.Num() == 0)
+	{
+		return 0;
+	}
+	int32 Closed = 0;
+	const float TileReach2 = FMath::Square(RadiusM + TileM * 0.80f + 8.0f);
+	for (auto& Pair : Live)
+	{
+		FTile& Tile = Pair.Value;
+		if (FVector::DistSquared(Tile.OriginCm * 0.01f, LocalM) > TileReach2)
+		{
+			continue;
+		}
+		UProceduralMeshComponent* Comp = Tile.Comp.Get();
+		if (!Comp || Tile.LivePos.Num() == 0)
+		{
+			continue;
+		}
+		const int32 N = RestoreUncoveredQuads(Tile, LocalM, RadiusM, CaveCovers);
+		if (N == 0)
+		{
+			continue;
+		}
+		DropNanite(Tile);
+		Comp->ClearMeshSection(0);
+		Comp->CreateMeshSection_LinearColor(
+			0, Tile.LivePos, Tile.Indices, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents, true);
+		if (Material)
+		{
+			Comp->SetMaterial(0, Material);
+		}
+		Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		Comp->SetVisibility(true);
+		Comp->UpdateBounds();
+		Closed += N;
+	}
+	if (Closed > 0)
+	{
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles close-uncovered n=%d r=%.2f"), Closed, RadiusM);
+		GX_PERF(1, TEXT("GX-tile close-uncovered n=%d r=%.2f"), Closed, RadiusM);
+	}
+	return Closed;
 }
 
 int32 FGXCrustTiles::GridDim(const FTile& Tile)
@@ -875,10 +925,14 @@ void FGXCrustTiles::RebuildIndices(FTile& Tile)
 	}
 }
 
-int32 FGXCrustTiles::PunchSteepQuads(FTile& Tile, const FVector& LocalM, float RadiusM)
+int32 FGXCrustTiles::PunchSteepQuads(
+	FTile& Tile,
+	const FVector& LocalM,
+	float RadiusM,
+	const TFunction<bool(const FVector&)>& CaveCovers)
 {
 	const int32 Dim = GridDim(Tile);
-	if (Dim < 2 || RadiusM <= 0.0f || Tile.LivePos.Num() != Dim * Dim)
+	if (Dim < 2 || RadiusM <= 0.0f || Tile.LivePos.Num() != Dim * Dim || !CaveCovers)
 	{
 		return 0;
 	}
@@ -888,7 +942,6 @@ int32 FGXCrustTiles::PunchSteepQuads(FTile& Tile, const FVector& LocalM, float R
 		Tile.QuadAlive.Init(true, Cells * Cells);
 	}
 	const float R2 = RadiusM * RadiusM;
-	const int32 SavedTris = Tile.Indices.Num();
 	int32 N = 0;
 	for (int32 J = 0; J < Cells; ++J)
 	{
@@ -923,6 +976,12 @@ int32 FGXCrustTiles::PunchSteepQuads(FTile& Tile, const FVector& LocalM, float R
 			{
 				continue;
 			}
+			// 0.10.18 punched any steep quad once a cave chunk existed —
+			// 17 floor tris cannot fill a wall window (GX-holes-0118).
+			if (!CaveCovers(Cent))
+			{
+				continue;
+			}
 			Tile.QuadAlive[Q] = false;
 			++N;
 		}
@@ -938,7 +997,61 @@ int32 FGXCrustTiles::PunchSteepQuads(FTile& Tile, const FVector& LocalM, float R
 		RebuildIndices(Tile);
 		return 0;
 	}
-	(void)SavedTris;
+	return N;
+}
+
+int32 FGXCrustTiles::RestoreUncoveredQuads(
+	FTile& Tile,
+	const FVector& LocalM,
+	float RadiusM,
+	const TFunction<bool(const FVector&)>& CaveCovers)
+{
+	const int32 Dim = GridDim(Tile);
+	if (Dim < 2 || Tile.LivePos.Num() != Dim * Dim)
+	{
+		return 0;
+	}
+	const int32 Cells = Dim - 1;
+	if (Tile.QuadAlive.Num() != Cells * Cells)
+	{
+		return 0;
+	}
+	const float R2 = FMath::Square(FMath::Max(RadiusM, 1.0f));
+	int32 N = 0;
+	for (int32 J = 0; J < Cells; ++J)
+	{
+		for (int32 I = 0; I < Cells; ++I)
+		{
+			const int32 Q = I + J * Cells;
+			if (Tile.QuadAlive[Q])
+			{
+				continue;
+			}
+			const int32 A = I + J * Dim;
+			const int32 Bv = (I + 1) + J * Dim;
+			const int32 C = I + (J + 1) * Dim;
+			const int32 D = (I + 1) + (J + 1) * Dim;
+			const FVector WA = (Tile.OriginCm + Tile.LivePos[A]) * 0.01f;
+			const FVector WB = (Tile.OriginCm + Tile.LivePos[Bv]) * 0.01f;
+			const FVector WC = (Tile.OriginCm + Tile.LivePos[C]) * 0.01f;
+			const FVector WD = (Tile.OriginCm + Tile.LivePos[D]) * 0.01f;
+			const FVector Cent = (WA + WB + WC + WD) * 0.25f;
+			if (FVector::DistSquared(Cent, LocalM) > R2)
+			{
+				continue;
+			}
+			if (CaveCovers && CaveCovers(Cent))
+			{
+				continue;
+			}
+			Tile.QuadAlive[Q] = true;
+			++N;
+		}
+	}
+	if (N > 0)
+	{
+		RebuildIndices(Tile);
+	}
 	return N;
 }
 

@@ -346,6 +346,7 @@ protected:
 	void RemeshAroundLocal(const FVector& LocalM, float RadiusM);
 	void RemeshCaveAt(const FVector& LocalM, float RadiusM, bool bOnlyExistingCaves);
 	bool HasCaveVisualNear(const FVector& LocalM, float RadiusM) const;
+	void CollectCavePointsNear(const FVector& LocalM, float RadiusM, TArray<FVector>& Out) const;
 	void FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const;
 	void MarkPersistDirty();
 };

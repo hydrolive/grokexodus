@@ -60,8 +60,18 @@ public:
 		int32* OutPunched = nullptr,
 		bool bAllowPunch = false,
 		bool* OutSteep = nullptr);
-	/** Punch steep quads whose centroid is inside RadiusM. No extra drop. */
-	int32 PunchBrush(const FVector& LocalM, float RadiusM, UMaterialInterface* Material);
+	/** Punch steep quads only when CaveCovers(centroid) is true. */
+	int32 PunchBrush(
+		const FVector& LocalM,
+		float RadiusM,
+		UMaterialInterface* Material,
+		const TFunction<bool(const FVector&)>& CaveCovers);
+	/** Revive punched quads that have no cave mesh behind them. */
+	int32 CloseUncoveredBrush(
+		const FVector& LocalM,
+		float RadiusM,
+		UMaterialInterface* Material,
+		const TFunction<bool(const FVector&)>& CaveCovers);
 	bool HasTileAt(const FVector& LocalM) const;
 	/** Closest hit on the live tile mesh (two-sided). World cm. */
 	bool RaycastVisible(
@@ -127,7 +137,16 @@ private:
 	static void RecomputeNormals(FTile& Tile);
 	static void RecomputeNormalsWindow(FTile& Tile, int32 I0, int32 I1, int32 J0, int32 J1);
 	static void RebuildIndices(FTile& Tile);
-	static int32 PunchSteepQuads(FTile& Tile, const FVector& LocalM, float RadiusM);
+	static int32 PunchSteepQuads(
+		FTile& Tile,
+		const FVector& LocalM,
+		float RadiusM,
+		const TFunction<bool(const FVector&)>& CaveCovers);
+	static int32 RestoreUncoveredQuads(
+		FTile& Tile,
+		const FVector& LocalM,
+		float RadiusM,
+		const TFunction<bool(const FVector&)>& CaveCovers);
 	void ApplyNaniteVisual(FTile& Tile, UMaterialInterface* Material);
 	void DropNanite(FTile& Tile);
 	void DestroyTileVisuals(FTile& Tile);

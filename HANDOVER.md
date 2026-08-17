@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.18**  
+Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.19**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.19** Shot GX-holes-0118: wall punch opened **black windows**. Cave filter kept ~17 floor tris; HasCaveVisualNear treated that as “filled.” A quad is punched only if a cave **vertex** is within 0.70 m. Uncovered punches are restored on the next stroke. Lid filter drops only floor-like tris so steep cave walls can back a mouth.
 - **GX 0.10.18** Spawn sits on a four-tile corner. Brush reach was `0.55*64+4=39 m`; tile centers are 45 m away so **no verts moved**. Reach is `0.80*64+8`. 0.10.17 tunnel/normal work is in this binary.
 - **GX 0.10.17** Shot GX-stretch-0116: could only dig **down** (heightfield) and crater walls had **vertically stretched dirt** (`LiveN = radial`). Floor still drops radially. After each window drop we **recompute face normals** (triplanar uses the wall plane). A steep hit remeshes the **2 closest** cave chunks sync, then **punches steep quads** only if that cave mesh exists. Ray skips punched quads. Lid filter ignores rim verts inside the carve ball so the mouth is not emptied.
 - **GX 0.10.16** Shot GX-through-0115: orange ball went **through the visible wall** — ray used carved voxel density (air) so it sat below the tile mesh. Tool ray hits the **live tile triangles** first (two-sided). Sit-into is 0.18 R.
