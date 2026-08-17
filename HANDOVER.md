@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.38**  
+Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.39**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.39** Shot GX-shot-0139: cave works; **square lawn punch** from `RestoreEditedSurfaces` mid-dig (`hide-air r=6.04` on the 8 m page box). Restore is **load-only**. Load hide walks a 1.5 m grid at brush radius 1.7 m. Live hide-air is **4-corner air only** (no sliver / 3-corner). Wipe leftover trench save.
 - **GX 0.10.38** Shot GX-shot-0138: load restored the **old experimental cave** as a blocky trench with black windows. That `earth_default.gxsav` is not a good test (bak_pre_0138, deleted). Fresh PIE is stamp grass. New digs still save; wipe only when leftover pages are junk.
 - **GX 0.10.37** Shot GX-shot-0137: leftover **save cave** under a closed lid; re-digging cut a triangle mess. Density pages were saved; the lid hole was not. Load now marks surface edit chunks as caves and, when tiles stream in, remeshes then hide-air so the mouth matches the saved volume. Do not re-punch a closed lawn.
 - **GX 0.10.36** Shot GX-shot-0136: cave works; punching the lid left a **mess of stretched triangles** over the ball. Mixed rim quads spanned the pit. Hide-air now also drops 3-corner-air cells and slivers (ΔR > 1 m or edge > 2.4 cell). Next stroke heals the existing fins.

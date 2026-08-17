@@ -299,6 +299,7 @@ protected:
 	bool bAtlasBuildInFlight = false;
 	bool bWorldReady = false;
 	bool bRevealedTileEdits = false;
+	bool bLoadRestorePending = false;
 	int32 LastRestoreTileCount = 0;
 	float LoadProgress = 0.0f;
 	FString LoadStatus = TEXT("Booting planet…");

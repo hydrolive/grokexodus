@@ -132,6 +132,7 @@ void AGXVoxelWorld::ResetStreamingState()
 	WarmupTimeRemaining = WarmupSeconds;
 	bWorldReady = false;
 	bRevealedTileEdits = false;
+	bLoadRestorePending = false;
 	LastRestoreTileCount = 0;
 	LoadProgress = 0.0f;
 	LoadStatus = TEXT("Rebuilding planet…");
@@ -389,14 +390,11 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			{
 				return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z));
 			});
-		if (EditedPageBoxesM.Num() > 0 && CrustTiles->IsReady())
+		// Load-only. A live dig must not restore the whole 8 m page box
+		// (GX-shot-0139 hide-air r=6.04 punched the lawn).
+		if (bLoadRestorePending && EditedPageBoxesM.Num() > 0 && CrustTiles->IsReady())
 		{
-			const int32 LiveN = CrustTiles->NumLive();
-			if (!bRevealedTileEdits || LiveN >= LastRestoreTileCount + 8)
-			{
-				RestoreEditedSurfaces();
-				LastRestoreTileCount = LiveN;
-			}
+			RestoreEditedSurfaces();
 		}
 	}
 	if (HorizonClipmap && Volume && bAtlasReady)
@@ -2316,6 +2314,11 @@ bool AGXVoxelWorld::LoadWorld()
 		HorizonClipmap->NotifyEdits();
 	}
 	bPersistDirty = false;
+	bLoadRestorePending = PageCount > 0;
+	if (PageCount == 0)
+	{
+		bRevealedTileEdits = true;
+	}
 	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s loaded %d dirty pages from %s boxes=%d"),
 		GX_VERSION_STRING, PageCount, *GetSavePath(), EditedPageBoxesM.Num());
 	GX_PERF(1, TEXT("GX-load pages=%d boxes=%d"), PageCount, EditedPageBoxesM.Num());
@@ -2336,18 +2339,21 @@ void AGXVoxelWorld::RestoreEditedSurfaces()
 	MaxMeshCreatesPerTick = MeshCreatesThisTick + 8;
 	int32 Boxes = 0;
 	int32 Hidden = 0;
+	int32 Need = 0;
+	int32 Have = 0;
 	for (const FBox& B : EditedPageBoxesM)
 	{
+		++Need;
 		const FVector C = B.GetCenter();
 		if (!CrustTiles->HasTileAt(C))
 		{
 			continue;
 		}
-		const float R = FMath::Max(B.GetExtent().GetMax(), 2.0f);
-		RemeshCaveAt(C, R, false);
+		++Have;
+		RemeshCaveAt(C, 2.0f, false);
 		int32 CaveTris = 0;
 		const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
-		const float Reach2 = FMath::Square(R + ChunkM);
+		const float Reach2 = FMath::Square(8.0f + ChunkM);
 		for (const FGXChunkKey& K : CaveChunks)
 		{
 			const FVector KC((K.X + 0.5f) * ChunkM, (K.Y + 0.5f) * ChunkM, (K.Z + 0.5f) * ChunkM);
@@ -2360,14 +2366,37 @@ void AGXVoxelWorld::RestoreEditedSurfaces()
 				CaveTris += V->IndexCount / 3;
 			}
 		}
-		if (CaveTris >= 12)
+		if (CaveTris < 12)
 		{
-			Hidden += CrustTiles->HideAirBackedQuads(C, R + 0.50f, TerrainMaterial.Get(), DensityAt);
+			++Boxes;
+			continue;
+		}
+		const FVector Ext = B.GetExtent();
+		const float CrustR = C.Size();
+		for (float Dz = -Ext.Z; Dz <= Ext.Z + 0.01f; Dz += 1.50f)
+		{
+			for (float Dy = -Ext.Y; Dy <= Ext.Y + 0.01f; Dy += 1.50f)
+			{
+				for (float Dx = -Ext.X; Dx <= Ext.X + 0.01f; Dx += 1.50f)
+				{
+					const FVector P = C + FVector(Dx, Dy, Dz);
+					if (FMath::Abs(P.Size() - CrustR) > 4.0f)
+					{
+						continue;
+					}
+					Hidden += CrustTiles->HideAirBackedQuads(
+						P, 1.70f, TerrainMaterial.Get(), DensityAt);
+				}
+			}
 		}
 		++Boxes;
 	}
 	MaxMeshCreatesPerTick = SavedCreates;
-	bRevealedTileEdits = true;
+	if (Need == 0 || Have == Need)
+	{
+		bLoadRestorePending = false;
+		bRevealedTileEdits = true;
+	}
 	if (Hidden > 0)
 	{
 		UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s restore-lid boxes=%d hide-air=%d"),
