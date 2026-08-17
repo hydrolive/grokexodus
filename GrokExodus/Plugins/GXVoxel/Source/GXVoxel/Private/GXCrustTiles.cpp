@@ -807,6 +807,136 @@ bool FGXCrustTiles::HasTileAt(const FVector& LocalM) const
 	return Live.Contains(KeyAt(LocalM, 0));
 }
 
+bool FGXCrustTiles::RaycastVisible(
+	const FVector& WorldOriginCm,
+	const FVector& WorldDir,
+	float MaxCm,
+	FVector& OutHitCm,
+	FVector& OutNormal) const
+{
+	const FVector Dir = WorldDir.GetSafeNormal();
+	if (Dir.IsNearlyZero() || MaxCm <= 0.0f || Live.Num() == 0)
+	{
+		return false;
+	}
+	auto RayTri = [](const FVector& Orig, const FVector& D, const FVector& A, const FVector& B, const FVector& C,
+		float MaxT, float& OutT, FVector& OutN) -> bool
+	{
+		const FVector E1 = B - A;
+		const FVector E2 = C - A;
+		const FVector P = FVector::CrossProduct(D, E2);
+		const float Det = FVector::DotProduct(E1, P);
+		if (FMath::Abs(Det) < 1.0e-10f)
+		{
+			return false;
+		}
+		const float Inv = 1.0f / Det;
+		const FVector TV = Orig - A;
+		const float U = FVector::DotProduct(TV, P) * Inv;
+		if (U < 0.0f || U > 1.0f)
+		{
+			return false;
+		}
+		const FVector Q = FVector::CrossProduct(TV, E1);
+		const float V = FVector::DotProduct(D, Q) * Inv;
+		if (V < 0.0f || U + V > 1.0f)
+		{
+			return false;
+		}
+		const float T = FVector::DotProduct(E2, Q) * Inv;
+		if (T < 1.0f || T > MaxT)
+		{
+			return false;
+		}
+		OutT = T;
+		OutN = FVector::CrossProduct(E1, E2);
+		if (!OutN.Normalize())
+		{
+			return false;
+		}
+		if (FVector::DotProduct(OutN, D) > 0.0f)
+		{
+			OutN = -OutN;
+		}
+		return true;
+	};
+
+	float BestT = MaxCm;
+	FVector BestN = FVector::ZeroVector;
+	bool bHit = false;
+	const FVector ActorLoc = OwnerCached ? OwnerCached->GetActorLocation() : FVector::ZeroVector;
+	const float StepCm = 35.0f;
+	for (float Ts = 0.0f; Ts <= MaxCm; Ts += StepCm)
+	{
+		const FVector WorldP = WorldOriginCm + Dir * Ts;
+		const FVector LocalM = (WorldP - ActorLoc) * 0.01f;
+		const FTile* Tile = Live.Find(KeyAt(LocalM, 0));
+		if (!Tile)
+		{
+			continue;
+		}
+		UProceduralMeshComponent* Comp = Tile->Comp.Get();
+		const int32 Dim = GridDim(*Tile);
+		if (!Comp || Dim < 2 || Tile->LivePos.Num() != Dim * Dim)
+		{
+			continue;
+		}
+		const float Cell = (Tile->FineCell > 0.1f) ? Tile->FineCell : CellM;
+		FVector FaceN, AxisT, AxisB;
+		FaceAxes(Tile->Key.Face, FaceN, AxisT, AxisB);
+		const float OriginU = static_cast<float>(Tile->Key.U) * TileM;
+		const float OriginV = static_cast<float>(Tile->Key.V) * TileM;
+		const int32 IU = FMath::FloorToInt((FVector::DotProduct(LocalM, AxisT) - OriginU) / Cell);
+		const int32 IV = FMath::FloorToInt((FVector::DotProduct(LocalM, AxisB) - OriginV) / Cell);
+		const FTransform Xf = Comp->GetComponentTransform();
+		const FVector LO = Xf.InverseTransformPosition(WorldOriginCm);
+		FVector LD = Xf.InverseTransformVectorNoScale(Dir);
+		if (!LD.Normalize())
+		{
+			continue;
+		}
+		auto Vert = [&](int32 I, int32 J) -> FVector
+		{
+			return Tile->LivePos[FMath::Clamp(I, 0, Dim - 1) + FMath::Clamp(J, 0, Dim - 1) * Dim];
+		};
+		for (int32 J = FMath::Max(0, IV - 1); J <= FMath::Min(Dim - 2, IV + 1); ++J)
+		{
+			for (int32 I = FMath::Max(0, IU - 1); I <= FMath::Min(Dim - 2, IU + 1); ++I)
+			{
+				const FVector A = Vert(I, J);
+				const FVector Bv = Vert(I + 1, J);
+				const FVector C = Vert(I, J + 1);
+				const FVector D = Vert(I + 1, J + 1);
+				float T = 0.0f;
+				FVector N = FVector::ZeroVector;
+				if (RayTri(LO, LD, A, C, Bv, BestT, T, N) && T < BestT)
+				{
+					BestT = T;
+					BestN = Xf.TransformVectorNoScale(N).GetSafeNormal();
+					bHit = true;
+				}
+				if (RayTri(LO, LD, Bv, C, D, BestT, T, N) && T < BestT)
+				{
+					BestT = T;
+					BestN = Xf.TransformVectorNoScale(N).GetSafeNormal();
+					bHit = true;
+				}
+			}
+		}
+		if (bHit && BestT < Ts + StepCm)
+		{
+			break;
+		}
+	}
+	if (!bHit)
+	{
+		return false;
+	}
+	OutHitCm = WorldOriginCm + Dir * BestT;
+	OutNormal = BestN.IsNearlyZero() ? -Dir : BestN;
+	return true;
+}
+
 void FGXCrustTiles::CollectLivePointsNear(const FVector& LocalM, float RadiusM, TArray<FVector>& Out) const
 {
 	if (RadiusM <= 0.0f || Live.Num() == 0)

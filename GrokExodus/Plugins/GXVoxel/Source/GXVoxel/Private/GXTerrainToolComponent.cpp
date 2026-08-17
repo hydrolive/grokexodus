@@ -138,7 +138,9 @@ FVector UGXTerrainToolComponent::BrushCenterFromHit(const FGXVoxelHit& Hit, cons
 	}
 	// Sit the ball into the hit so one click matches the preview
 	// hemisphere. The walk disk now opens with the volume (0.8.20).
-	return Hit.Location + Into * (BrushRadiusM * 0.35f * 100.0f);
+	// 0.35 R sat the ball through the visible wall once density was air
+	// behind it (GX-through-0115). Sit just into the visible hit.
+	return Hit.Location + Into * (BrushRadiusM * 0.18f * 100.0f);
 }
 
 void UGXTerrainToolComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)

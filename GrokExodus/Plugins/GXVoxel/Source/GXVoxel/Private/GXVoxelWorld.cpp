@@ -667,6 +667,25 @@ FGXVoxelHit AGXVoxelWorld::RaycastVoxels(FVector WorldOrigin, FVector WorldDirec
 	};
 
 	const FVector Dir = WorldDirection.GetSafeNormal();
+	if (CrustTiles && CrustTiles->IsReady())
+	{
+		FVector HitPos = FVector::ZeroVector;
+		FVector HitN = FVector::ZeroVector;
+		if (CrustTiles->RaycastVisible(WorldOrigin, Dir, MaxDistance, HitPos, HitN))
+		{
+			const FVector Local = WorldToLocalMeters(HitPos);
+			Hit.bHit = true;
+			Hit.Location = HitPos;
+			Hit.Distance = FVector::Dist(WorldOrigin, HitPos);
+			Hit.MaterialId = SampleMaterial(FVector3d(Local.X, Local.Y, Local.Z));
+			Hit.Normal = HitN.IsNearlyZero() ? Local.GetSafeNormal() : HitN;
+			if (Hit.Normal.IsNearlyZero())
+			{
+				Hit.Normal = -Dir;
+			}
+			return Hit;
+		}
+	}
 	const float StepCm = 12.0f;
 	bool bPrevAbove = AboveVisual(WorldOrigin);
 	for (float T = StepCm; T <= MaxDistance; T += StepCm)

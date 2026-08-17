@@ -58,6 +58,13 @@ public:
 		const TFunction<float(const FVector&)>& DensityAt,
 		int32* OutPunched = nullptr);
 	bool HasTileAt(const FVector& LocalM) const;
+	/** Closest hit on the live tile mesh (two-sided). World cm. */
+	bool RaycastVisible(
+		const FVector& WorldOriginCm,
+		const FVector& WorldDir,
+		float MaxCm,
+		FVector& OutHitCm,
+		FVector& OutNormal) const;
 	/** Live tile verts inside RadiusM of LocalM (planet-local metres). */
 	void CollectLivePointsNear(const FVector& LocalM, float RadiusM, TArray<FVector>& Out) const;
 	/** True when the (2*Half+1)^2 block around the pawn is live. */
