@@ -251,12 +251,26 @@ int32 FGXCrustTiles::NotifyBrush(
 	// stamp resampled the whole 64 m hill and textures swam on undug ground
 	// (Downloads 224544 → 224558).
 	{
-		const FGXCrustTileKey Prefer = KeyAt(LocalM, 0);
-		if (FTile* Pref = Live.Find(Prefer))
+		TArray<TPair<float, FGXCrustTileKey>> Near;
+		const float Reach2 = FMath::Square(Cover + TileM * 0.55f);
+		for (const auto& Pair : Live)
 		{
-			if (FMath::Abs(Pref->FineCell - FineCellM) > 0.01f)
+			const float D2 = FVector::DistSquared(Pair.Value.OriginCm * 0.01f, LocalM);
+			if (D2 <= Reach2 && FMath::Abs(Pair.Value.FineCell - FineCellM) > 0.01f)
 			{
-				SubdivideTileInPlace(*Pref, Material);
+				Near.Emplace(D2, Pair.Key);
+			}
+		}
+		Near.Sort([](const TPair<float, FGXCrustTileKey>& A, const TPair<float, FGXCrustTileKey>& B)
+		{
+			return A.Key < B.Key;
+		});
+		const int32 Take = FMath::Min(4, Near.Num());
+		for (int32 I = 0; I < Take; ++I)
+		{
+			if (FTile* T = Live.Find(Near[I].Value))
+			{
+				SubdivideTileInPlace(*T, Material);
 			}
 		}
 	}
@@ -972,8 +986,15 @@ int32 FGXCrustTiles::SyncAirBackedQuads(
 				&& ((MaxR - MinR) > 0.70f || MaxE2 > FMath::Square(Cell * 1.85f));
 			const bool bDroppedLid = (SCent.Size() - LiveCent.Size()) > 0.55f;
 			const FVector BrushSurf = LocalM.GetSafeNormal() * SCent.Size();
-			const bool bDisk = DiskR > 0.05f && !BrushSurf.IsNearlyZero()
-				&& FVector::DistSquared(SCent, BrushSurf) <= DiskR * DiskR;
+			const float Disk2 = (DiskR > 0.05f) ? (DiskR * DiskR) : 0.0f;
+			auto InDisk = [&](const FVector& S) -> bool
+			{
+				return Disk2 > 0.0f && !BrushSurf.IsNearlyZero()
+					&& FVector::DistSquared(S, BrushSurf) <= Disk2;
+			};
+			const int32 DiskN = (InDisk(SA) ? 1 : 0) + (InDisk(SB) ? 1 : 0)
+				+ (InDisk(SC) ? 1 : 0) + (InDisk(SD) ? 1 : 0);
+			const bool bDisk = DiskN >= 3;
 			// 1 m voxels make stamp-0.20 look solid on most 0.5 m quads
 			// (0146 n=11). Geometric disk matches the brush; remesh fills.
 			const bool bHide = bDisk || ColAir(SCent) || bSpan || bDroppedLid;
