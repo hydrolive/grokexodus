@@ -219,7 +219,9 @@ int32 FGXCrustTiles::NotifyBrush(
 	{
 		return 0;
 	}
-	const float Cover = RadiusM * 1.45f + FineCellM * 2.0f;
+	// Influence is the brush sphere plus one cell of rim. 1.45 R + 2 cell
+	// plus FlattenLongQuads was the GX-pool-0120 swimming-pool shaft.
+	const float Cover = RadiusM + FineCellM + 0.25f;
 	const float Cover2 = Cover * Cover;
 	const float R2 = RadiusM * RadiusM;
 	int32 Changed = 0;
@@ -289,12 +291,13 @@ int32 FGXCrustTiles::NotifyBrush(
 
 		if (bRemove)
 		{
-			// Never delete tris. Wide cover + smoothstep so a hard R cutoff
-			// cannot leave a leftover fin (GX-leftover-0112).
-			const float MaxStep = RadiusM * 0.90f;
+			// Snap verts to the brush sphere. A wide cover + min-R flatten
+			// cut a rectangular pool (GX-pool-0120). Rim is one cell only.
 			int32 N = 0;
 			const int32 Dim = GridDim(Tile);
 			const float Cell = (Tile.FineCell > 0.1f) ? Tile.FineCell : CellM;
+			const float Rim = Cell;
+			const float MaxStep = RadiusM * 2.0f;
 			FVector FaceN, AxisT, AxisB;
 			FaceAxes(Tile.Key.Face, FaceN, AxisT, AxisB);
 			const float OriginU = static_cast<float>(Tile.Key.U) * TileM;
@@ -317,20 +320,25 @@ int32 FGXCrustTiles::NotifyBrush(
 				{
 					return;
 				}
-				float Wgt = 1.0f - Dist3 / Cover;
-				Wgt = Wgt * Wgt * (3.0f - 2.0f * Wgt);
 				const float CurR = W.Size();
 				const float Bcoe = FVector::DotProduct(Dir, LocalM);
 				const float Disc = Bcoe * Bcoe - (LocalM.SizeSquared() - R2);
-				float TargetR = CurR - MaxStep * 0.20f;
-				if (Disc >= 0.0f)
+				if (Disc < 0.0f)
 				{
-					const float THit = Bcoe - FMath::Sqrt(Disc);
-					if (THit > 0.0f)
-					{
-						TargetR = FMath::Max(THit, CurR - MaxStep);
-						TargetR = FMath::Min(CurR, TargetR);
-					}
+					return;
+				}
+				const float THit = Bcoe - FMath::Sqrt(Disc);
+				if (THit <= 0.0f || THit >= CurR)
+				{
+					return;
+				}
+				float TargetR = FMath::Max(THit, CurR - MaxStep);
+				float Wgt = 1.0f;
+				if (Dist3 > RadiusM)
+				{
+					Wgt = 1.0f - (Dist3 - RadiusM) / FMath::Max(Rim, 0.05f);
+					Wgt = FMath::Clamp(Wgt, 0.0f, 1.0f);
+					Wgt = Wgt * Wgt * (3.0f - 2.0f * Wgt);
 				}
 				const float NewR = FMath::Lerp(CurR, TargetR, Wgt);
 				if (FMath::Abs(NewR - CurR) < 0.01f)
@@ -338,7 +346,7 @@ int32 FGXCrustTiles::NotifyBrush(
 					return;
 				}
 				Tile.LivePos[Idx] = Dir * NewR * 100.0f - Tile.OriginCm;
-				if (Wgt > 0.35f && Tile.UV0.IsValidIndex(Idx))
+				if (Dist3 <= RadiusM && Tile.UV0.IsValidIndex(Idx))
 				{
 					Tile.UV0[Idx] = FVector2D(3.0f, 0.0f);
 					if (Tile.Colors.IsValidIndex(Idx))
@@ -376,7 +384,6 @@ int32 FGXCrustTiles::NotifyBrush(
 			}
 			if (Dim >= 2)
 			{
-				FlattenLongQuads(Tile, I0, I1, J0, J1);
 				RecomputeNormalsWindow(Tile, I0, I1, J0, J1);
 			}
 			else
@@ -924,72 +931,6 @@ void FGXCrustTiles::RebuildIndices(FTile& Tile)
 			Tile.Indices.Add(D);
 		}
 	}
-}
-
-int32 FGXCrustTiles::FlattenLongQuads(FTile& Tile, int32 I0, int32 I1, int32 J0, int32 J1)
-{
-	const int32 Dim = GridDim(Tile);
-	if (Dim < 2 || Tile.LivePos.Num() != Dim * Dim || Tile.StampDir.Num() != Tile.LivePos.Num())
-	{
-		return 0;
-	}
-	const int32 Cells = Dim - 1;
-	const bool bMask = Tile.QuadAlive.Num() == Cells * Cells;
-	const float Cell = (Tile.FineCell > 0.1f) ? Tile.FineCell : CellM;
-	const float MaxDeltaR = FMath::Max(1.75f, Cell * 3.0f);
-	I0 = FMath::Clamp(I0, 0, Cells - 1);
-	I1 = FMath::Clamp(I1, 0, Cells - 1);
-	J0 = FMath::Clamp(J0, 0, Cells - 1);
-	J1 = FMath::Clamp(J1, 0, Cells - 1);
-	int32 N = 0;
-	auto WorldR = [&Tile](int32 Idx) -> float
-	{
-		return ((Tile.OriginCm + Tile.LivePos[Idx]) * 0.01f).Size();
-	};
-	auto SnapR = [&Tile](int32 Idx, float NewR)
-	{
-		if (!Tile.LivePos.IsValidIndex(Idx) || !Tile.StampDir.IsValidIndex(Idx))
-		{
-			return;
-		}
-		const FVector Dir = Tile.StampDir[Idx];
-		Tile.LivePos[Idx] = Dir * NewR * 100.0f - Tile.OriginCm;
-	};
-	for (int32 J = J0; J <= J1; ++J)
-	{
-		for (int32 I = I0; I <= I1; ++I)
-		{
-			if (bMask && !Tile.QuadAlive[I + J * Cells])
-			{
-				continue;
-			}
-			const int32 A = I + J * Dim;
-			const int32 Bv = (I + 1) + J * Dim;
-			const int32 C = I + (J + 1) * Dim;
-			const int32 D = (I + 1) + (J + 1) * Dim;
-			if (!Tile.LivePos.IsValidIndex(A) || !Tile.LivePos.IsValidIndex(Bv)
-				|| !Tile.LivePos.IsValidIndex(C) || !Tile.LivePos.IsValidIndex(D))
-			{
-				continue;
-			}
-			const float RA = WorldR(A);
-			const float RB = WorldR(Bv);
-			const float RC = WorldR(C);
-			const float RD = WorldR(D);
-			const float MinR = FMath::Min(FMath::Min(RA, RB), FMath::Min(RC, RD));
-			const float MaxR = FMath::Max(FMath::Max(RA, RB), FMath::Max(RC, RD));
-			if ((MaxR - MinR) <= MaxDeltaR)
-			{
-				continue;
-			}
-			SnapR(A, MinR);
-			SnapR(Bv, MinR);
-			SnapR(C, MinR);
-			SnapR(D, MinR);
-			++N;
-		}
-	}
-	return N;
 }
 
 int32 FGXCrustTiles::PunchSteepQuads(
