@@ -1,12 +1,13 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.24**  
+Last updated: **2026-08-16** · On-disk build stamp: **GX 0.10.25**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Current player-facing state
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.25** Shots 224544 → 224558: a dig **slid grass/dirt on undug hills**. First stroke FineCell-rebuilt the whole 64 m tile from the stamp (and a full-tile normal heal). Refine is now **in-place subdivide** (old verts stay put). Normals/dirt paint stay in the brush window.
 - **GX 0.10.24** Shot GX-print-0123: 0.10.23 antipode yank pulled a few verts ~1 m down — **impact print + dirt slivers**, no bowl. Dig is radial again: snap to the near sphere hit (THit). If the radial misses but the vert is inside the ball (wall), slump by `R-dist`. Place still paints rock.
 - **GX 0.10.23** Shot GX-tools-0122: orange **dig raised a stone cap** (projected to the outer hemisphere). Teal place raised verts but never painted UV so it stayed **grass**. Dig now moves verts to the **inner** side of the brush sphere (subtract). Place paints `PlaceMaterialId` (default rock=2).
 - **GX 0.10.22** Shot GX-wallgrass-0121: radial THit **missed wall** strokes (THit≥CurR / Disc<0) and **grass ran down old crater walls** (steep verts kept grass UV + radial N). Dig projects verts **inside the 3D brush sphere** onto that sphere (walls recede). First touch of a sculpted tile recomputes N and paints dirt on steep faces.

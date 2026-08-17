@@ -232,45 +232,16 @@ int32 FGXCrustTiles::NotifyBrush(
 	// Half-diagonal of a 64 m tile is 45.3 m. 0.55*Tile+4 was 39 m and
 	// skipped every tile when the brush sat on a four-tile corner (spawn).
 	const float TileReach2 = FMath::Square(Cover + TileM * 0.80f + 8.0f);
-	// At most one FineCell cook per stroke. Cooking every nearby 16 k-vert
-	// tile (0.10.14) took longer than the 140 ms hold tick — later digs
-	// never ran their visual drop.
+	// Refine only the tile under the brush, in place. BuildTile from the
+	// stamp resampled the whole 64 m hill and textures swam on undug ground
+	// (Downloads 224544 → 224558).
 	{
-		FGXCrustTileKey BestKey;
-		float BestDs = TileReach2;
-		bool bNeed = false;
 		const FGXCrustTileKey Prefer = KeyAt(LocalM, 0);
 		if (FTile* Pref = Live.Find(Prefer))
 		{
 			if (FMath::Abs(Pref->FineCell - FineCellM) > 0.01f)
 			{
-				BestKey = Prefer;
-				bNeed = true;
-			}
-		}
-		if (!bNeed)
-		{
-			for (auto& Pair : Live)
-			{
-				if (FMath::Abs(Pair.Value.FineCell - FineCellM) <= 0.01f)
-				{
-					continue;
-				}
-				const float Ds = FVector::DistSquared(Pair.Value.OriginCm * 0.01f, LocalM);
-				if (Ds < BestDs)
-				{
-					BestDs = Ds;
-					BestKey = Pair.Key;
-					bNeed = true;
-				}
-			}
-		}
-		if (bNeed)
-		{
-			if (FTile* T = Live.Find(BestKey))
-			{
-				T->FineCell = FineCellM;
-				BuildTile(*T, Stamp, Material, nullptr);
+				SubdivideTileInPlace(*Pref, Material);
 			}
 		}
 	}
@@ -393,17 +364,6 @@ int32 FGXCrustTiles::NotifyBrush(
 			}
 			if (N == 0)
 			{
-				if (Tile.bSculpted && !Tile.bSteepDirtHealed && Dim >= 2)
-				{
-					RecomputeNormalsWindow(Tile, 0, Dim - 1, 0, Dim - 1);
-					const int32 Painted = PaintSteepDirt(Tile, 0, Dim - 1, 0, Dim - 1);
-					Tile.bSteepDirtHealed = true;
-					if (Painted > 0)
-					{
-						Comp->UpdateMeshSection_LinearColor(
-							0, Tile.LivePos, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents);
-					}
-				}
 				continue;
 			}
 			if (Dim >= 2)
@@ -547,6 +507,171 @@ int32 FGXCrustTiles::NotifyBrush(
 		*OutPunched = PunchedAll;
 	}
 	return Changed;
+}
+
+void FGXCrustTiles::SubdivideTileInPlace(FTile& Tile, UMaterialInterface* Material)
+{
+	const int32 OldDim = GridDim(Tile);
+	if (OldDim < 2 || Tile.LivePos.Num() != OldDim * OldDim)
+	{
+		return;
+	}
+	UProceduralMeshComponent* Comp = Tile.Comp.Get();
+	if (!Comp)
+	{
+		return;
+	}
+	const int32 NewDim = (OldDim - 1) * 2 + 1;
+	const int32 NewN = NewDim * NewDim;
+	TArray<FVector> Pos;
+	TArray<FVector> Nrm;
+	TArray<FVector> SDir;
+	TArray<float> Surf;
+	TArray<FVector2D> UV;
+	TArray<FLinearColor> Col;
+	Pos.SetNum(NewN);
+	Nrm.SetNum(NewN);
+	SDir.SetNum(NewN);
+	Surf.SetNum(NewN);
+	UV.SetNum(NewN);
+	Col.SetNum(NewN);
+
+	auto Old = [OldDim](int32 I, int32 J) { return I + J * OldDim; };
+	auto Nw = [NewDim](int32 I, int32 J) { return I + J * NewDim; };
+	auto Take = [&](int32 OI, int32 OJ, FVector& P, FVector& N, FVector& D, float& S, FVector2D& U, FLinearColor& C)
+	{
+		const int32 O = Old(OI, OJ);
+		P = Tile.LivePos[O];
+		N = Tile.LiveN.IsValidIndex(O) ? Tile.LiveN[O] : FVector::UpVector;
+		D = Tile.StampDir.IsValidIndex(O) ? Tile.StampDir[O] : N;
+		S = Tile.StampSurfM.IsValidIndex(O) ? Tile.StampSurfM[O] : 0.0f;
+		U = Tile.UV0.IsValidIndex(O) ? Tile.UV0[O] : FVector2D(1.0f, 0.0f);
+		C = Tile.Colors.IsValidIndex(O) ? Tile.Colors[O] : FLinearColor::White;
+	};
+	auto Mix = [](const FVector& A, const FVector& B) { return (A + B) * 0.5f; };
+
+	for (int32 J = 0; J < NewDim; ++J)
+	{
+		for (int32 I = 0; I < NewDim; ++I)
+		{
+			const int32 Dst = Nw(I, J);
+			if ((I % 2) == 0 && (J % 2) == 0)
+			{
+				Take(I / 2, J / 2, Pos[Dst], Nrm[Dst], SDir[Dst], Surf[Dst], UV[Dst], Col[Dst]);
+				continue;
+			}
+			FVector P0, N0, D0, P1, N1, D1;
+			float S0 = 0.0f, S1 = 0.0f;
+			FVector2D U0, U1;
+			FLinearColor C0, C1;
+			if ((I % 2) == 1 && (J % 2) == 0)
+			{
+				Take(I / 2, J / 2, P0, N0, D0, S0, U0, C0);
+				Take(I / 2 + 1, J / 2, P1, N1, D1, S1, U1, C1);
+			}
+			else if ((I % 2) == 0 && (J % 2) == 1)
+			{
+				Take(I / 2, J / 2, P0, N0, D0, S0, U0, C0);
+				Take(I / 2, J / 2 + 1, P1, N1, D1, S1, U1, C1);
+			}
+			else
+			{
+				FVector P2, N2, D2, P3, N3, D3;
+				float S2 = 0.0f, S3 = 0.0f;
+				FVector2D U2, U3;
+				FLinearColor C2, C3;
+				Take(I / 2, J / 2, P0, N0, D0, S0, U0, C0);
+				Take(I / 2 + 1, J / 2, P1, N1, D1, S1, U1, C1);
+				Take(I / 2, J / 2 + 1, P2, N2, D2, S2, U2, C2);
+				Take(I / 2 + 1, J / 2 + 1, P3, N3, D3, S3, U3, C3);
+				Pos[Dst] = (P0 + P1 + P2 + P3) * 0.25f;
+				Nrm[Dst] = (N0 + N1 + N2 + N3);
+				if (!Nrm[Dst].Normalize())
+				{
+					Nrm[Dst] = N0;
+				}
+				SDir[Dst] = (D0 + D1 + D2 + D3);
+				if (!SDir[Dst].Normalize())
+				{
+					SDir[Dst] = D0;
+				}
+				Surf[Dst] = (S0 + S1 + S2 + S3) * 0.25f;
+				UV[Dst] = U0;
+				Col[Dst] = (C0 + C1 + C2 + C3) * 0.25f;
+				continue;
+			}
+			Pos[Dst] = Mix(P0, P1);
+			Nrm[Dst] = Mix(N0, N1);
+			if (!Nrm[Dst].Normalize())
+			{
+				Nrm[Dst] = N0;
+			}
+			SDir[Dst] = Mix(D0, D1);
+			if (!SDir[Dst].Normalize())
+			{
+				SDir[Dst] = D0;
+			}
+			Surf[Dst] = (S0 + S1) * 0.5f;
+			UV[Dst] = U0;
+			Col[Dst] = (C0 + C1) * 0.5f;
+		}
+	}
+
+	TArray<FProcMeshTangent> Tan;
+	Tan.SetNum(NewN);
+	for (int32 I = 0; I < NewN; ++I)
+	{
+		FVector T = FVector::CrossProduct(Nrm[I], FVector::ZAxisVector);
+		if (T.SizeSquared() < 1e-6f)
+		{
+			T = FVector::CrossProduct(Nrm[I], FVector::YAxisVector);
+		}
+		T.Normalize();
+		Tan[I] = FProcMeshTangent(T, false);
+	}
+	TArray<int32> Idx;
+	const int32 Cells = NewDim - 1;
+	Idx.Reserve(Cells * Cells * 6);
+	for (int32 J = 0; J < Cells; ++J)
+	{
+		for (int32 I = 0; I < Cells; ++I)
+		{
+			const int32 A = Nw(I, J);
+			const int32 Bv = Nw(I + 1, J);
+			const int32 C = Nw(I, J + 1);
+			const int32 D = Nw(I + 1, J + 1);
+			Idx.Add(A);
+			Idx.Add(C);
+			Idx.Add(Bv);
+			Idx.Add(Bv);
+			Idx.Add(C);
+			Idx.Add(D);
+		}
+	}
+
+	DropNanite(Tile);
+	Tile.LivePos = MoveTemp(Pos);
+	Tile.LiveN = MoveTemp(Nrm);
+	Tile.StampDir = MoveTemp(SDir);
+	Tile.StampSurfM = MoveTemp(Surf);
+	Tile.UV0 = MoveTemp(UV);
+	Tile.Colors = MoveTemp(Col);
+	Tile.Tangents = MoveTemp(Tan);
+	Tile.Indices = MoveTemp(Idx);
+	Tile.FineCell = FineCellM;
+	Tile.QuadAlive.Init(true, Cells * Cells);
+
+	Comp->ClearMeshSection(0);
+	Comp->CreateMeshSection_LinearColor(
+		0, Tile.LivePos, Tile.Indices, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents, true);
+	if (Material)
+	{
+		Comp->SetMaterial(0, Material);
+	}
+	Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	Comp->SetVisibility(true);
+	Comp->UpdateBounds();
+	GX_PERF(1, TEXT("GX-tile subdivide in-place verts=%d"), Tile.LivePos.Num());
 }
 
 int32 FGXCrustTiles::PunchBrush(

@@ -131,6 +131,7 @@ private:
 	static void FaceAxes(int8 Face, FVector& OutN, FVector& OutT, FVector& OutB);
 	void BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMaterialInterface* Material,
 		const TFunction<float(const FVector&)>& DensityAt);
+	void SubdivideTileInPlace(FTile& Tile, UMaterialInterface* Material);
 	static int32 GridDim(const FTile& Tile);
 	void WeldSeamsNear(const FVector& LocalM, float CoverM, UMaterialInterface* Material, int32& InOutChanged);
 	static int32 WeldSharedU(FTile& Left, FTile& Right);
