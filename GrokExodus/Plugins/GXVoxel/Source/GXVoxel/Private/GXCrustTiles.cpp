@@ -892,7 +892,10 @@ int32 FGXCrustTiles::SyncAirBackedQuads(
 		Tile.QuadAlive.Init(true, Cells * Cells);
 	}
 	const float R2 = RadiusM * RadiusM;
+	const float Cell = (Tile.FineCell > 0.1f) ? Tile.FineCell : CellM;
+	const float EdgeLim2 = FMath::Square(Cell * 2.20f);
 	int32 N = 0;
+	int32 NSliver = 0;
 	for (int32 J = 0; J < Cells; ++J)
 	{
 		for (int32 I = 0; I < Cells; ++I)
@@ -912,7 +915,23 @@ int32 FGXCrustTiles::SyncAirBackedQuads(
 			const FVector WC = (Tile.OriginCm + Tile.LivePos[C]) * 0.01f;
 			const FVector WD = (Tile.OriginCm + Tile.LivePos[D]) * 0.01f;
 			const FVector Cent = (WA + WB + WC + WD) * 0.25f;
-			if (FVector::DistSquared(Cent, LocalM) > R2)
+			const bool bNear = FVector::DistSquared(Cent, LocalM) <= R2;
+			auto Dropped = [&](int32 Idx, const FVector& W) -> bool
+			{
+				return Tile.StampSurfM.IsValidIndex(Idx)
+					&& W.Size() + 0.45f < Tile.StampSurfM[Idx];
+			};
+			const bool bDropped = Dropped(A, WA) || Dropped(Bv, WB)
+				|| Dropped(C, WC) || Dropped(D, WD);
+			const float MaxR = FMath::Max(FMath::Max(WA.Size(), WB.Size()),
+				FMath::Max(WC.Size(), WD.Size()));
+			const float MinR = FMath::Min(FMath::Min(WA.Size(), WB.Size()),
+				FMath::Min(WC.Size(), WD.Size()));
+			const float MaxE2 = FMath::Max(
+				FMath::Max(FVector::DistSquared(WA, WB), FVector::DistSquared(WA, WC)),
+				FMath::Max(FVector::DistSquared(WB, WD), FVector::DistSquared(WC, WD)));
+			const bool bSliver = (MaxR - MinR) > 0.85f || MaxE2 > EdgeLim2;
+			if (!bNear && !(bSliver && bDropped))
 			{
 				continue;
 			}
@@ -934,11 +953,18 @@ int32 FGXCrustTiles::SyncAirBackedQuads(
 				&& (DensityAt(Cent) <= 0.0f || DensityAt(Cent - RadC * 0.40f) <= 0.0f);
 			const int32 AirN = (CornerAir(WA) ? 1 : 0) + (CornerAir(WB) ? 1 : 0)
 				+ (CornerAir(WC) ? 1 : 0) + (CornerAir(WD) ? 1 : 0);
-			// 4-corner-only left mixed rim sheets over the mouth (0140).
-			// Hide a leftover face when its center sits on air. Restore
-			// only a fully solid surface — never unhide because 0.4 m
-			// under is still a cave (place must not punch hills).
-			const bool bHide = bCentAir && AirN >= 2;
+			FVector N1 = FVector::CrossProduct(WC - WA, WB - WA);
+			FVector N2 = FVector::CrossProduct(WC - WB, WD - WB);
+			const bool bLidLike = (!N1.IsNearlyZero()
+					&& FMath::Abs(FVector::DotProduct(N1.GetSafeNormal(), RadC)) > 0.42f)
+				|| (!N2.IsNearlyZero()
+					&& FMath::Abs(FVector::DotProduct(N2.GetSafeNormal(), RadC)) > 0.42f);
+			// Centroid-air still opens the mouth under the ball. Slumped
+			// lid slivers sit on the dirt wall so air-at-center misses
+			// them (GX-shot-0141). Hide those only — walls stay steep.
+			const bool bHideAir = bNear && bCentAir && AirN >= 2;
+			const bool bHideSliver = bSliver && bDropped && bLidLike;
+			const bool bHide = bHideAir || bHideSliver;
 			const bool bSolid = CornerSolid(WA) && CornerSolid(WB)
 				&& CornerSolid(WC) && CornerSolid(WD);
 			if (Tile.QuadAlive[Q])
@@ -948,10 +974,14 @@ int32 FGXCrustTiles::SyncAirBackedQuads(
 					continue;
 				}
 				Tile.QuadAlive[Q] = false;
+				if (bHideSliver)
+				{
+					++NSliver;
+				}
 			}
 			else
 			{
-				if (!bSolid)
+				if (!bSolid || bHideSliver)
 				{
 					continue;
 				}
@@ -959,6 +989,10 @@ int32 FGXCrustTiles::SyncAirBackedQuads(
 			}
 			++N;
 		}
+	}
+	if (NSliver > 0)
+	{
+		GX_PERF(1, TEXT("GX-tile hide-sliver n=%d of %d"), NSliver, N);
 	}
 	if (N == 0)
 	{

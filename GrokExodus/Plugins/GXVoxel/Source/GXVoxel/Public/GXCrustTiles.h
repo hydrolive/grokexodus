@@ -73,7 +73,7 @@ public:
 		float RadiusM,
 		UMaterialInterface* Material,
 		const TFunction<bool(const FVector&)>& CaveCovers);
-	/** Hide brush-local quads whose centroid sits on air; restore only 4-corner solid. */
+	/** Hide air-backed lid + pit-spanning slumped slivers; restore only 4-corner solid. */
 	int32 HideAirBackedQuads(
 		const FVector& LocalM,
 		float RadiusM,
