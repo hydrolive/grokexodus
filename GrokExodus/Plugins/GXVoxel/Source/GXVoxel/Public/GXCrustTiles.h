@@ -59,7 +59,8 @@ public:
 		const TFunction<float(const FVector&)>& DensityAt,
 		int32* OutPunched = nullptr,
 		bool bAllowPunch = false,
-		bool* OutSteep = nullptr);
+		bool* OutSteep = nullptr,
+		int32 PaintMaterialId = 0);
 	/** Punch steep quads only when CaveCovers(centroid) is true. */
 	int32 PunchBrush(
 		const FVector& LocalM,

@@ -849,7 +849,8 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	{
 		CrustTiles->NotifyBrush(
 			L, RadiusM, false, Volume->GetStamp(), TerrainMaterial.Get(),
-			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); });
+			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); },
+			nullptr, false, nullptr, MaterialId);
 	}
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{

@@ -199,7 +199,8 @@ int32 FGXCrustTiles::NotifyBrush(
 	const TFunction<float(const FVector&)>& DensityAt,
 	int32* OutPunched,
 	bool bAllowPunch,
-	bool* OutSteep)
+	bool* OutSteep,
+	int32 PaintMaterialId)
 {
 	if (OutPunched)
 	{
@@ -297,7 +298,6 @@ int32 FGXCrustTiles::NotifyBrush(
 			const int32 Dim = GridDim(Tile);
 			const float Cell = (Tile.FineCell > 0.1f) ? Tile.FineCell : CellM;
 			const float Rim = Cell;
-			const float MaxStep = RadiusM * 2.0f;
 			FVector FaceN, AxisT, AxisB;
 			FaceAxes(Tile.Key.Face, FaceN, AxisT, AxisB);
 			const float OriginU = static_cast<float>(Tile.Key.U) * TileM;
@@ -323,16 +323,18 @@ int32 FGXCrustTiles::NotifyBrush(
 				// reports "no dig". Project onto the 3D brush sphere instead.
 				// Only verts inside R (plus a one-cell rim). Yank-to-center
 				// of outside verts was the 0.10.5 pyramid.
-				FVector Radial = W - LocalM;
-				if (Radial.IsNearlyZero())
+				FVector OutDir = W - LocalM;
+				if (OutDir.IsNearlyZero())
 				{
-					Radial = Tile.StampDir.IsValidIndex(Idx) ? Tile.StampDir[Idx] : W.GetSafeNormal();
+					OutDir = Tile.StampDir.IsValidIndex(Idx) ? Tile.StampDir[Idx] : W.GetSafeNormal();
 				}
-				if (!Radial.Normalize())
+				if (!OutDir.Normalize())
 				{
 					return;
 				}
-				const FVector OnSphere = LocalM + Radial * RadiusM;
+				// Outer hemisphere (LocalM+Out*R) was a stone cap (GX-tools-0122).
+				// Subtract uses the far side of the sphere (through the center).
+				const FVector OnSphere = LocalM - OutDir * RadiusM;
 				float Wgt = 1.0f;
 				if (Dist3 > RadiusM)
 				{
@@ -342,10 +344,10 @@ int32 FGXCrustTiles::NotifyBrush(
 				}
 				FVector Desired = FMath::Lerp(W, OnSphere, Wgt);
 				FVector Delta = Desired - W;
-				const float MaxCm = MaxStep;
-				if (Delta.Size() > MaxCm)
+				const float MaxM = RadiusM * 0.90f;
+				if (Delta.Size() > MaxM)
 				{
-					Delta *= MaxCm / Delta.Size();
+					Delta *= MaxM / Delta.Size();
 					Desired = W + Delta;
 				}
 				if (FVector::DistSquared(Desired, W) < 1e-4f)
@@ -496,6 +498,17 @@ int32 FGXCrustTiles::NotifyBrush(
 				continue;
 			}
 			Tile.LivePos[I] = Dir * NewR * 100.0f - Tile.OriginCm;
+			const int32 Mat = (PaintMaterialId > 0) ? PaintMaterialId : 2;
+			if (Tile.UV0.IsValidIndex(I))
+			{
+				Tile.UV0[I] = FVector2D(static_cast<float>(Mat), 0.0f);
+			}
+			if (Tile.Colors.IsValidIndex(I))
+			{
+				Tile.Colors[I] = (Mat == 1)
+					? FLinearColor(0.58f, 0.66f, 0.38f, 1.0f)
+					: FLinearColor(0.50f, 0.48f, 0.44f, 1.0f);
+			}
 			++N;
 		}
 		if (N == 0)
