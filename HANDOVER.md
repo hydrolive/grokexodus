@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.48**  
+Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.49**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.49** Shot GX-shot-0148: FineCell **missed** (reach 37 m, spawn tiles 45 m). Same 0.80×64+8 reach as sculpt. 3-corner disk hide stays.
 - **GX 0.10.48** Shot GX-shot-0147: ball fits the hole; **two black neighbor triangles** — 1 m tiles hid a whole coarse quad. FineCell up to 4 tiles under the brush. Hide a disk only if **≥3 stamp corners** are inside R+0.55.
 - **GX 0.10.47** Shot GX-shot-0146: air-gated disk still hid only 8–11 quads — 1 m voxels make stamp-0.20 look solid. Hide is a **geometric surface disk R+0.55** (remesh fills). Dig still does not slump.
 - **GX 0.10.46** Shot GX-shot-0146: hole opens, **too small** (hide-air n=11) so the ball sits on the rim. Hide is an air-gated **surface disk R+0.40** plus stamp-air. Dig still does not slump; remesh after hide.

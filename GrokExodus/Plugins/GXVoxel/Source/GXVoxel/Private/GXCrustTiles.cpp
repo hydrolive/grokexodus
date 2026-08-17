@@ -252,7 +252,7 @@ int32 FGXCrustTiles::NotifyBrush(
 	// (Downloads 224544 → 224558).
 	{
 		TArray<TPair<float, FGXCrustTileKey>> Near;
-		const float Reach2 = FMath::Square(Cover + TileM * 0.55f);
+		const float Reach2 = FMath::Square(Cover + TileM * 0.80f + 8.0f);
 		for (const auto& Pair : Live)
 		{
 			const float D2 = FVector::DistSquared(Pair.Value.OriginCm * 0.01f, LocalM);
