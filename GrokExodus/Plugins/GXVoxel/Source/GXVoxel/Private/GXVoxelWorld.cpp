@@ -737,11 +737,13 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	Out.YieldAmount = Brush.VolumeChanged * 0.7f * RecoveryMul;
 	Out.ToolWear = Brush.VolumeChanged * WearMul;
 	if (Jobs) Jobs->BumpStamp();
+	int32 Punched = 0;
 	if (CrustTiles)
 	{
 		CrustTiles->NotifyBrush(
 			L, RadiusM * DigSpeedMul, true, Volume->GetStamp(), TerrainMaterial.Get(),
-			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); });
+			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); },
+			&Punched);
 	}
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
@@ -749,6 +751,10 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	}
 	RebuildEditedPageBoxes();
 	MarkPersistDirty();
+	if (Punched > 0)
+	{
+		RemeshCaveAt(L, RadiusM * DigSpeedMul, false);
+	}
 	if (HorizonClipmap && !(CrustTiles && CrustTiles->HasTileAt(L)))
 	{
 		HorizonClipmap->NotifyBrush(
@@ -764,8 +770,8 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			},
 			true);
 	}
-	GX_PERF(1, TEXT("GX-dig volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d boxes=%d"),
-		L.X, L.Y, L.Z, RadiusM * DigSpeedMul, Brush.DirtyChunks.Num(), EditedPageBoxesM.Num());
+	GX_PERF(1, TEXT("GX-dig volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d punch=%d boxes=%d"),
+		L.X, L.Y, L.Z, RadiusM * DigSpeedMul, Brush.DirtyChunks.Num(), Punched, EditedPageBoxesM.Num());
 	return Out;
 }
 
@@ -2206,7 +2212,7 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 			CrustTiles->CollectLivePointsNear(FVector(B.X, B.Y, B.Z), B.W + 1.5f, Rim);
 		}
 	}
-	const float LidPad2 = FMath::Square(FMath::Max(1.50f, VoxelSize * 1.50f));
+	const float LidPad2 = FMath::Square(FMath::Max(1.00f, VoxelSize * 1.00f));
 	TArray<int32> Kept;
 	Kept.Reserve(Mesh.Indices.Num());
 	auto Inside = [Balls](const FVector& P) -> bool
@@ -2298,31 +2304,18 @@ void AGXVoxelWorld::RemeshCaveAt(const FVector& LocalM, float RadiusM, bool bOnl
 				}
 				CaveChunks.Add(CC);
 				TArray<FVector4>& Balls = CarveBalls.FindOrAdd(CC);
-				if (Balls.Num() >= 48)
+				if (Balls.Num() >= 12)
 				{
 					Balls.RemoveAt(0);
 				}
 				Balls.Add(Ball);
-				LastRemeshAt.Remove(CC);
-				MeshQueued.Remove(CC);
+				HollowChunks.Remove(CC);
 				BrushForceLOD0.Add(CC);
 				EnqueueRemesh(CC, true);
 				++N;
 			}
 		}
 	}
-
-	const bool bWasAsync = bAsyncMeshing;
-	const int32 SavedCreates = MaxMeshCreatesPerTick;
-	const float SavedBudget = MeshTimeBudgetMs;
-	bAsyncMeshing = false;
-	MaxMeshCreatesPerTick = 24;
-	MeshTimeBudgetMs = 200.0f;
-	MeshCreatesThisTick = 0;
-	FlushMeshQueue(FMath::Max(8, N + 4));
-	bAsyncMeshing = bWasAsync;
-	MaxMeshCreatesPerTick = SavedCreates;
-	MeshTimeBudgetMs = SavedBudget;
 	GX_PERF(1, TEXT("GX-cave remesh n=%d cover=%.1f balls=%d live=%d"),
 		N, Cover, CarveBalls.Num(), CaveChunks.Num());
 }

@@ -196,8 +196,13 @@ int32 FGXCrustTiles::NotifyBrush(
 	bool bRemove,
 	const FGXSphereStamp& Stamp,
 	UMaterialInterface* Material,
-	const TFunction<float(const FVector&)>& DensityAt)
+	const TFunction<float(const FVector&)>& DensityAt,
+	int32* OutPunched)
 {
+	if (OutPunched)
+	{
+		*OutPunched = 0;
+	}
 	if (RadiusM <= 0.0f || Live.Num() == 0)
 	{
 		return 0;
@@ -208,12 +213,14 @@ int32 FGXCrustTiles::NotifyBrush(
 	{
 		return 0;
 	}
-	// Remove stays watertight (radial bowl + 3D sphere dent). Place raises.
+	// Floor: radial bowl. Wall: punch the brush so a cave can open.
 	// Do not FineCell-rebuild an already-sculpted tile — that restores the lid.
 	const float Cover = RadiusM + FineCellM;
 	const float Cover2 = Cover * Cover;
 	const float R2 = RadiusM * RadiusM;
+	const float PunchR2 = FMath::Square(RadiusM + FineCellM * 0.35f);
 	int32 Changed = 0;
+	int32 PunchedAll = 0;
 	for (auto& Pair : Live)
 	{
 		FTile& Tile = Pair.Value;
@@ -237,8 +244,61 @@ int32 FGXCrustTiles::NotifyBrush(
 
 		if (bRemove)
 		{
-			// Radial bowl only. 3D yank stretched leftover sheets across the
-			// pit (GX-faces-0108). Sync voxel remesh was 312 ms/click.
+			bool bSteep = false;
+			for (int32 I = 0; I < Tile.LivePos.Num() && !bSteep; ++I)
+			{
+				const FVector W = (Tile.OriginCm + Tile.LivePos[I]) * 0.01f;
+				if (FVector::DistSquared(W, LocalM) > Cover2)
+				{
+					continue;
+				}
+				const FVector Radial = Tile.StampDir.IsValidIndex(I) ? Tile.StampDir[I] : BrushDir;
+				const FVector Nrm = Tile.LiveN.IsValidIndex(I) ? Tile.LiveN[I] : Radial;
+				if (FMath::Abs(FVector::DotProduct(Nrm.GetSafeNormal(), Radial)) < 0.72f)
+				{
+					bSteep = true;
+				}
+			}
+
+			int32 Cut = 0;
+			if (bSteep && Tile.Indices.Num() >= 3)
+			{
+				TArray<int32> Kept;
+				Kept.Reserve(Tile.Indices.Num());
+				for (int32 T = 0; T + 2 < Tile.Indices.Num(); T += 3)
+				{
+					const int32 IA = Tile.Indices[T];
+					const int32 IB = Tile.Indices[T + 1];
+					const int32 IC = Tile.Indices[T + 2];
+					if (!Tile.LivePos.IsValidIndex(IA) || !Tile.LivePos.IsValidIndex(IB)
+						|| !Tile.LivePos.IsValidIndex(IC))
+					{
+						continue;
+					}
+					const FVector WA = (Tile.OriginCm + Tile.LivePos[IA]) * 0.01f;
+					const FVector WB = (Tile.OriginCm + Tile.LivePos[IB]) * 0.01f;
+					const FVector WC = (Tile.OriginCm + Tile.LivePos[IC]) * 0.01f;
+					const FVector Cent = (WA + WB + WC) * (1.0f / 3.0f);
+					if (FVector::DistSquared(Cent, LocalM) <= PunchR2)
+					{
+						++Cut;
+						continue;
+					}
+					Kept.Add(IA);
+					Kept.Add(IB);
+					Kept.Add(IC);
+				}
+				if (Cut > 0 && Kept.Num() >= 3)
+				{
+					Tile.Indices = MoveTemp(Kept);
+					PunchedAll += Cut;
+				}
+				else
+				{
+					Cut = 0;
+				}
+			}
+
 			const float MaxStep = RadiusM * 0.90f;
 			int32 N = 0;
 			for (int32 I = 0; I < Tile.LivePos.Num(); ++I)
@@ -246,6 +306,13 @@ int32 FGXCrustTiles::NotifyBrush(
 				const FVector Dir = Tile.StampDir[I];
 				const FVector W = (Tile.OriginCm + Tile.LivePos[I]) * 0.01f;
 				if (FVector::DistSquared(W, LocalM) > Cover2)
+				{
+					continue;
+				}
+				const FVector Nrm = Tile.LiveN.IsValidIndex(I) ? Tile.LiveN[I] : Dir;
+				// Leave steep wall verts for the punch hole — radial drop
+				// turned a cave mouth into a deeper bowl (GX-nocave-0110).
+				if (FMath::Abs(FVector::DotProduct(Nrm.GetSafeNormal(), Dir)) < 0.72f)
 				{
 					continue;
 				}
@@ -277,19 +344,30 @@ int32 FGXCrustTiles::NotifyBrush(
 				}
 				++N;
 			}
-			if (N == 0)
+			if (N == 0 && Cut == 0)
 			{
 				continue;
 			}
-			// Never delete tris — sliver strip ate the steep walls
-			// (GX-lowpoly-0109 black windows). Radial drop stays watertight.
 			RecomputeNormals(Tile);
-			Comp->UpdateMeshSection_LinearColor(
-				0, Tile.LivePos, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents);
+			if (Cut > 0)
+			{
+				Comp->ClearMeshSection(0);
+				Comp->CreateMeshSection_LinearColor(
+					0, Tile.LivePos, Tile.Indices, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents, true);
+				if (Material)
+				{
+					Comp->SetMaterial(0, Material);
+				}
+			}
+			else
+			{
+				Comp->UpdateMeshSection_LinearColor(
+					0, Tile.LivePos, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents);
+			}
 			Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 			Comp->SetVisibility(true);
 			Comp->UpdateBounds();
-			Changed += N;
+			Changed += N + Cut;
 			continue;
 		}
 
@@ -342,10 +420,14 @@ int32 FGXCrustTiles::NotifyBrush(
 	}
 	if (Changed > 0)
 	{
-		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles sculpt %s n=%d r=%.2f cell=%.2f"),
-			bRemove ? TEXT("dig") : TEXT("place"), Changed, RadiusM, FineCellM);
-		GX_PERF(1, TEXT("GX-tile sculpt %s n=%d r=%.2f"),
-			bRemove ? TEXT("dig") : TEXT("place"), Changed, RadiusM);
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles sculpt %s n=%d punch=%d r=%.2f cell=%.2f"),
+			bRemove ? TEXT("dig") : TEXT("place"), Changed, PunchedAll, RadiusM, FineCellM);
+		GX_PERF(1, TEXT("GX-tile sculpt %s n=%d punch=%d r=%.2f"),
+			bRemove ? TEXT("dig") : TEXT("place"), Changed, PunchedAll, RadiusM);
+	}
+	if (OutPunched)
+	{
+		*OutPunched = PunchedAll;
 	}
 	return Changed;
 }

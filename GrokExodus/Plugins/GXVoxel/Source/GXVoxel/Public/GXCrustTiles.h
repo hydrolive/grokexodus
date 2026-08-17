@@ -32,8 +32,8 @@ struct FGXCrustTileKey
 
 /**
  * Unedited crust as non-overlapping tiles.
- * Dig drops tile verts radially (closed bowl). Never delete tris — that
- * opened black windows in the wall. First stroke refines to 0.35 m.
+ * Floor digs drop verts radially. Wall digs punch tris inside the brush
+ * so a cave can open; voxels remesh the interior. First stroke 0.35 m.
  */
 class GXVOXEL_API FGXCrustTiles
 {
@@ -55,7 +55,8 @@ public:
 		bool bRemove,
 		const FGXSphereStamp& Stamp,
 		UMaterialInterface* Material,
-		const TFunction<float(const FVector&)>& DensityAt);
+		const TFunction<float(const FVector&)>& DensityAt,
+		int32* OutPunched = nullptr);
 	bool HasTileAt(const FVector& LocalM) const;
 	/** Live tile verts inside RadiusM of LocalM (planet-local metres). */
 	void CollectLivePointsNear(const FVector& LocalM, float RadiusM, TArray<FVector>& Out) const;
