@@ -15,6 +15,7 @@
 #include "GXCrustCache.h"
 #include "GXHorizonClipmap.h"
 #include "GXCrustTiles.h"
+#include "GXEditIsland.h"
 #include "GXVoxelWorld.generated.h"
 
 class AGXVoxelChunkProxy;
@@ -265,6 +266,8 @@ protected:
 	TSet<FGXChunkKey> BrushForceLOD0;
 	/** Surface chunks remeshed for a cave this session. Stream must not drop them. */
 	TSet<FGXChunkKey> CaveChunks;
+	/** Growing voxel-owned mouth (brush + 2 m collar). */
+	FGXEditIsland EditIsland;
 	/** Union of dig spheres (xyz local m, w radius+pad) used to clip MC to the hole. */
 	TMap<FGXChunkKey, TArray<FVector4>> CarveBalls;
 	TMap<FGXChunkKey, int32> EmptyRetries;
@@ -347,6 +350,7 @@ protected:
 	bool ShouldPunchClipmap(const FVector& LocalM) const;
 	void RemeshAroundLocal(const FVector& LocalM, float RadiusM);
 	void RemeshCaveAt(const FVector& LocalM, float RadiusM, bool bOnlyExistingCaves);
+	void RemeshIsland();
 	void RestoreEditedSurfaces();
 	bool HasCaveVisualNear(const FVector& LocalM, float RadiusM) const;
 	void CollectCavePointsNear(const FVector& LocalM, float RadiusM, TArray<FVector>& Out) const;

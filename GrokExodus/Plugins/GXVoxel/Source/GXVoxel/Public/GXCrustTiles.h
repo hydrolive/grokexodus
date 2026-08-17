@@ -81,6 +81,12 @@ public:
 		UMaterialInterface* Material,
 		const TFunction<float(const FVector&)>& DensityAt,
 		float DiskR = 0.0f);
+	/** Hide every stamp-centroid quad inside the edit island. */
+	int32 ConsumeWhere(
+		const FVector& ApproxCenter,
+		float ApproxR,
+		const TFunction<bool(const FVector&)>& Inside,
+		UMaterialInterface* Material);
 	/** Alive (drawn) quad centroids in metres, for cave-lid filtering. */
 	void CollectAliveQuadCentroidsNear(const FVector& LocalM, float RadiusM, TArray<FVector>& Out) const;
 	bool HasTileAt(const FVector& LocalM) const;

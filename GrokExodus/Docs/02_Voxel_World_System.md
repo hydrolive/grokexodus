@@ -84,6 +84,10 @@ uint8 Flags     (PlayerPlaced, Deformed, Ore, Scar, Liquid)
 
 Unedited space is **not stored**. Mesh jobs sample the stamp + overlay.
 
+### Edit island (0.11.0)
+
+Unedited crust is 64 m tiles. A dig **promotes** brush + 2 m into an `FGXEditIsland` (union of spheres). That region is one marching-cubes mesh (collar, lip, cave). Tile quads whose stamp centroid is inside the island are consumed. Expansion unions more spheres and consumes more lawn. The mouth is saved as those spheres plus density pages.
+
 ### Edits, caves, persist (0.7.58)
 
 - The **clipmap is the unedited crust**. It cannot have a roof.

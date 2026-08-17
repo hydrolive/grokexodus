@@ -1152,6 +1152,109 @@ int32 FGXCrustTiles::HideAirBackedQuads(
 	return Changed;
 }
 
+int32 FGXCrustTiles::ConsumeWhere(
+	const FVector& ApproxCenter,
+	float ApproxR,
+	const TFunction<bool(const FVector&)>& Inside,
+	UMaterialInterface* Material)
+{
+	if (ApproxR <= 0.0f || Live.Num() == 0 || !Inside)
+	{
+		return 0;
+	}
+	int32 Changed = 0;
+	const float TileReach2 = FMath::Square(ApproxR + TileM * 0.80f + 8.0f);
+	for (auto& Pair : Live)
+	{
+		FTile& Tile = Pair.Value;
+		if (FVector::DistSquared(Tile.OriginCm * 0.01f, ApproxCenter) > TileReach2)
+		{
+			continue;
+		}
+		UProceduralMeshComponent* Comp = Tile.Comp.Get();
+		if (!Comp || Tile.LivePos.Num() == 0)
+		{
+			continue;
+		}
+		const int32 Dim = GridDim(Tile);
+		if (Dim < 2)
+		{
+			continue;
+		}
+		const int32 Cells = Dim - 1;
+		if (Tile.QuadAlive.Num() != Cells * Cells)
+		{
+			Tile.QuadAlive.Init(true, Cells * Cells);
+		}
+		int32 N = 0;
+		for (int32 J = 0; J < Cells; ++J)
+		{
+			for (int32 I = 0; I < Cells; ++I)
+			{
+				const int32 Q = I + J * Cells;
+				if (!Tile.QuadAlive[Q])
+				{
+					continue;
+				}
+				const int32 A = I + J * Dim;
+				const int32 Bv = (I + 1) + J * Dim;
+				const int32 C = I + (J + 1) * Dim;
+				const int32 D = (I + 1) + (J + 1) * Dim;
+				if (!Tile.LivePos.IsValidIndex(A) || !Tile.LivePos.IsValidIndex(Bv)
+					|| !Tile.LivePos.IsValidIndex(C) || !Tile.LivePos.IsValidIndex(D))
+				{
+					continue;
+				}
+				auto StampAt = [&](int32 Idx) -> FVector
+				{
+					const FVector LiveW = (Tile.OriginCm + Tile.LivePos[Idx]) * 0.01f;
+					const FVector Dir = (Tile.StampDir.IsValidIndex(Idx) && !Tile.StampDir[Idx].IsNearlyZero())
+						? Tile.StampDir[Idx] : LiveW.GetSafeNormal();
+					const float S = (Tile.StampSurfM.IsValidIndex(Idx) && Tile.StampSurfM[Idx] > 1.0f)
+						? Tile.StampSurfM[Idx] : LiveW.Size();
+					return Dir * S;
+				};
+				const FVector SCent = (StampAt(A) + StampAt(Bv) + StampAt(C) + StampAt(D)) * 0.25f;
+				if (!Inside(SCent))
+				{
+					continue;
+				}
+				Tile.QuadAlive[Q] = false;
+				++N;
+			}
+		}
+		if (N == 0)
+		{
+			continue;
+		}
+		RebuildIndices(Tile);
+		if (Tile.Indices.Num() < 3)
+		{
+			Tile.QuadAlive.Init(true, Cells * Cells);
+			RebuildIndices(Tile);
+			continue;
+		}
+		DropNanite(Tile);
+		Comp->ClearMeshSection(0);
+		Comp->CreateMeshSection_LinearColor(
+			0, Tile.LivePos, Tile.Indices, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents, true);
+		if (Material)
+		{
+			Comp->SetMaterial(0, Material);
+		}
+		Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+		Comp->SetVisibility(true);
+		Comp->UpdateBounds();
+		Changed += N;
+	}
+	if (Changed > 0)
+	{
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles consume n=%d r=%.2f"), Changed, ApproxR);
+		GX_PERF(1, TEXT("GX-tile consume n=%d r=%.2f"), Changed, ApproxR);
+	}
+	return Changed;
+}
+
 void FGXCrustTiles::CollectAliveQuadCentroidsNear(const FVector& LocalM, float RadiusM, TArray<FVector>& Out) const
 {
 	if (RadiusM <= 0.0f || Live.Num() == 0)

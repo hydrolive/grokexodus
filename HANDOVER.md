@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.51**  
+Last updated: **2026-08-17** · On-disk build stamp: **GX 0.11.0**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -8,11 +8,11 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 These are why 0.8–0.10 went in a circle. A later pass that violates one will
 reintroduce a bug we already paid for.
 
-1. **Never hide a heightfield face unless remeshed cave tris already exist.** Hide because density under the quad is air, not because a cave vert is nearby. If remesh is empty, keep the lid.
-2. **Never hide a cave mesh that backs a punched hole.** That is the black triangle (GX-shot-0130). Hide leftover sheets only when no punch exists nearby.
+1. **The edit island owns the mouth.** Brush + 2 m collar is one voxel MC (collar, lip, cave). Do not hide tile quads with air/disk/sliver predicates. Consume stamp centroids **inside the island** only after remesh has ≥12 tris.
+2. **Never hide a cave mesh that backs a punched hole.** That is the black triangle (GX-shot-0130).
 3. **Never move tile verts off the planet radial.** 3D wall dent folds tris into growing black blades.
 4. **Texture:** floor uses rest-position triplanar (no crack swim). Steep walls use live WorldPosition (rest-pos smears the ground photo down the cliff).
-5. **Floor digs stay a closed bowl.** Do not remesh/punch on a radial hit.
+5. **Do not use page AABBs as the consume shape.** That was the 6 m square lawn (GX-shot-0139). Island = union of spheres.
 
 ## Reset the voxel save on major gen / handling changes
 
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.11.0** Shot GX-shot-0151: rim still leftover tile sheets — hide predicates cannot join 0.5 m lawn to 1 m MC. **Edit island:** brush+2 m is one voxel mesh (collar+cave). Tiles consume stamp centroids inside the union of spheres. Save v2 stores island spheres. Wipe `earth_default.gxsav` (bak_pre_0152).
 - **GX 0.10.51** Shot GX-shot-0150: cave works; **grass sheets on unrefined tiles** as the hole grows. FineCell 8 nearest tiles. Fine 0.5 m quads hide if **any** corner is in the disk; 1 m quads still need 3 corners.
 - **GX 0.10.50** Shot GX-shot-0149: cave works, 4 tiles FineCell, but **rim grass sheets** (3-corner hide). Hide if centroid is in the disk **or ≥2 corners**.
 - **GX 0.10.49** Shot GX-shot-0148: FineCell **missed** (reach 37 m, spawn tiles 45 m). Same 0.80×64+8 reach as sculpt. 3-corner disk hide stays.

@@ -37,7 +37,7 @@ static constexpr float GUUToMeters = 0.01f;
 namespace GXPersist
 {
 	static constexpr uint32 Magic = 0x31565847; // GXV1
-	static constexpr uint32 Version = 1;
+	static constexpr uint32 Version = 2;
 }
 
 AGXVoxelWorld::AGXVoxelWorld()
@@ -392,7 +392,7 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			});
 		// Load-only. A live dig must not restore the whole 8 m page box
 		// (GX-shot-0139 hide-air r=6.04 punched the lawn).
-		if (bLoadRestorePending && EditedPageBoxesM.Num() > 0 && CrustTiles->IsReady())
+		if (bLoadRestorePending && CrustTiles->IsReady())
 		{
 			RestoreEditedSurfaces();
 		}
@@ -873,32 +873,22 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	}
 	int32 Punched = 0;
 	int32 Closed = 0;
-	int32 HiddenCave = 0;
-	bool bSteep = false;
 	const float BrushR = RadiusM * DigSpeedMul;
-	auto DensityAt = [this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); };
-	if (CrustTiles)
-	{
-		CrustTiles->NotifyBrush(
-			L, BrushR, true, Volume->GetStamp(), TerrainMaterial.Get(),
-			DensityAt, &Punched, false, &bSteep, 0, false);
-	}
-	// Edited patch: remesh first, then hide air-backed lid only if MC exists
-	// (plan D / GX-shot-0134). Floor and wall both remesh.
+	EditIsland.Add(L, BrushR + FGXEditIsland::CollarM);
 	{
 		const int32 SavedCreates = MaxMeshCreatesPerTick;
-		MaxMeshCreatesPerTick = MeshCreatesThisTick + 6;
-		RemeshCaveAt(L, BrushR, false);
+		MaxMeshCreatesPerTick = MeshCreatesThisTick + 8;
+		RemeshIsland();
 		MaxMeshCreatesPerTick = SavedCreates;
 	}
 	int32 CaveTris = 0;
 	{
 		const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
-		const float Reach2 = FMath::Square(BrushR + ChunkM + 8.0f);
 		for (const FGXChunkKey& K : CaveChunks)
 		{
 			const FVector C((K.X + 0.5f) * ChunkM, (K.Y + 0.5f) * ChunkM, (K.Z + 0.5f) * ChunkM);
-			if (FVector::DistSquared(C, L) > Reach2)
+			const FBox Box(C - FVector(ChunkM * 0.5f), C + FVector(ChunkM * 0.5f));
+			if (!EditIsland.OverlapsBox(Box))
 			{
 				continue;
 			}
@@ -908,34 +898,24 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			}
 		}
 	}
-	if (CrustTiles)
+	if (CrustTiles && CaveTris >= 12)
 	{
-		if (CaveTris >= 12)
-		{
-			// Surface disk R+0.55. Voxel density misses 0.5 m lids (0146).
-			Punched = CrustTiles->HideAirBackedQuads(
-				L, FMath::Max(BrushR + 2.00f, 14.0f), TerrainMaterial.Get(), DensityAt,
-				BrushR + 0.55f);
-			if (Punched > 0)
-			{
-				const int32 Saved2 = MaxMeshCreatesPerTick;
-				MaxMeshCreatesPerTick = MeshCreatesThisTick + 6;
-				RemeshCaveAt(L, BrushR, false);
-				MaxMeshCreatesPerTick = Saved2;
-			}
-		}
-		else
-		{
-			Closed = CrustTiles->CloseUncoveredBrush(
-				L, BrushR * 3.0f + 4.0f, TerrainMaterial.Get(),
-				TFunction<bool(const FVector&)>());
-			GX_PERF(1, TEXT("GX-cave miss tris=%d — lid stays"), CaveTris);
-		}
+		const FBox IB = EditIsland.Bounds();
+		const FVector IC = IB.IsValid ? IB.GetCenter() : L;
+		const float IR = IB.IsValid ? IB.GetExtent().GetMax() : (BrushR + FGXEditIsland::CollarM);
+		Punched = CrustTiles->ConsumeWhere(
+			IC, IR,
+			[this](const FVector& P) { return EditIsland.Contains(P); },
+			TerrainMaterial.Get());
 	}
-	(void)bSteep;
-	(void)HiddenCave;
+	else
+	{
+		GX_PERF(1, TEXT("GX-island miss tris=%d — lid stays"), CaveTris);
+	}
 	(void)HitNormal;
-	GX_PERF(1, TEXT("GX-cave remesh tris=%d hide-air=%d close=%d"), CaveTris, Punched, Closed);
+	(void)Closed;
+	GX_PERF(1, TEXT("GX-island spheres=%d remesh-tris=%d consume=%d r=%.2f"),
+		EditIsland.Spheres.Num(), CaveTris, Punched, BrushR + FGXEditIsland::CollarM);
 	{
 		static double LastBoxesAt = -1.0e9;
 		const double Now = FPlatformTime::Seconds();
@@ -961,8 +941,8 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			},
 			true);
 	}
-	GX_PERF(1, TEXT("GX-dig volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d punch=%d close=%d hideCave=%d steep=%d boxes=%d"),
-		L.X, L.Y, L.Z, BrushR, Brush.DirtyChunks.Num(), Punched, Closed, HiddenCave, bSteep ? 1 : 0,
+	GX_PERF(1, TEXT("GX-dig pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d consume=%d spheres=%d boxes=%d"),
+		L.X, L.Y, L.Z, BrushR, Brush.DirtyChunks.Num(), Punched, EditIsland.Spheres.Num(),
 		EditedPageBoxesM.Num());
 	return Out;
 }
@@ -980,14 +960,19 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	Out.bSuccess = Brush.VolumeChanged > 0.0f;
 	Out.MaterialId = MaterialId;
 	if (Jobs) Jobs->BumpStamp();
-	if (CrustTiles)
+	if (CrustTiles && !EditIsland.Contains(L))
 	{
 		CrustTiles->NotifyBrush(
 			L, RadiusM, false, Volume->GetStamp(), TerrainMaterial.Get(),
 			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); },
 			nullptr, false, nullptr, MaterialId);
-		// Place adds solid. Hide-air here punched 14–31 lid quads per
-		// teal click (GX-shot-0140 far-hill holes).
+	}
+	else if (!EditIsland.IsEmpty())
+	{
+		const int32 SavedCreates = MaxMeshCreatesPerTick;
+		MaxMeshCreatesPerTick = MeshCreatesThisTick + 6;
+		RemeshIsland();
+		MaxMeshCreatesPerTick = SavedCreates;
 	}
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
@@ -1368,9 +1353,9 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 					++SkippedAir;
 					continue;
 				}
-				// Unedited crust is tiles. Surface edits stay on the tile
-				// (0.10.2 punch + remesh was a teal window through the planet).
-				if (ChunkOverlapsSurface(CC, ChunkM) && !bDrawVoxelVisuals && !bEdited)
+				// Unedited crust is tiles unless the edit island owns it.
+				if (ChunkOverlapsSurface(CC, ChunkM) && !bDrawVoxelVisuals && !bEdited
+					&& !CaveChunks.Contains(CC))
 				{
 					continue;
 				}
@@ -1384,7 +1369,7 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 				{
 					continue;
 				}
-				if (!bEdited && !bDrawVoxelVisuals)
+				if (!bEdited && !bDrawVoxelVisuals && !CaveChunks.Contains(CC))
 				{
 					continue;
 				}
@@ -1740,15 +1725,20 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 {
 	if (CaveChunks.Contains(Coord))
 	{
-		const int32 Before = MeshData.Indices.Num();
-		FilterMeshToCarveBalls(Coord, MeshData);
-		GX_PERF(1, TEXT("GX-cave filter %d_%d_%d tris %d -> %d"),
-			Coord.X, Coord.Y, Coord.Z, Before / 3, MeshData.Indices.Num() / 3);
-		if (MeshData.IsEmpty())
+		const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
+		const FVector C((Coord.X + 0.5f) * ChunkM, (Coord.Y + 0.5f) * ChunkM, (Coord.Z + 0.5f) * ChunkM);
+		const FBox Box(C - FVector(ChunkM * 0.5f), C + FVector(ChunkM * 0.5f));
+		if (!EditIsland.OverlapsBox(Box))
 		{
-			// All tris were the grass lid. Do not retry every stream tick.
-			HollowChunks.Add(Coord);
-			return true;
+			const int32 Before = MeshData.Indices.Num();
+			FilterMeshToCarveBalls(Coord, MeshData);
+			GX_PERF(1, TEXT("GX-cave filter %d_%d_%d tris %d -> %d"),
+				Coord.X, Coord.Y, Coord.Z, Before / 3, MeshData.Indices.Num() / 3);
+			if (MeshData.IsEmpty())
+			{
+				HollowChunks.Add(Coord);
+				return true;
+			}
 		}
 	}
 	if (MeshData.IsEmpty())
@@ -2219,6 +2209,12 @@ bool AGXVoxelWorld::SaveWorld()
 			Write(Pair.Value[I]->Cells.GetData(), sizeof(FGXVoxelPacked) * FGXVoxelConstants::CellsPerPage);
 		}
 	}
+	int32 IslandN = EditIsland.Spheres.Num();
+	Write(&IslandN, 4);
+	for (const FGXEditSphere& S : EditIsland.Spheres)
+	{
+		Write(&S.C.X, 4); Write(&S.C.Y, 4); Write(&S.C.Z, 4); Write(&S.R, 4);
+	}
 	const FString Path = GetSavePath();
 	IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
 	if (!FFileHelper::SaveArrayToFile(Buf, *Path))
@@ -2316,14 +2312,32 @@ bool AGXVoxelWorld::LoadWorld()
 			CaveChunks.Add(Key);
 		}
 	}
+	EditIsland.Reset();
+	if (Ver >= 2)
+	{
+		int32 IslandN = 0;
+		if (Read(&IslandN, 4))
+		{
+			IslandN = FMath::Clamp(IslandN, 0, FGXEditIsland::MaxSpheres);
+			for (int32 I = 0; I < IslandN; ++I)
+			{
+				FGXEditSphere S;
+				if (!Read(&S.C.X, 4) || !Read(&S.C.Y, 4) || !Read(&S.C.Z, 4) || !Read(&S.R, 4))
+				{
+					break;
+				}
+				EditIsland.Spheres.Add(S);
+			}
+		}
+	}
 	RebuildEditedPageBoxes();
 	if (HorizonClipmap)
 	{
 		HorizonClipmap->NotifyEdits();
 	}
 	bPersistDirty = false;
-	bLoadRestorePending = PageCount > 0;
-	if (PageCount == 0)
+	bLoadRestorePending = PageCount > 0 || !EditIsland.IsEmpty();
+	if (!bLoadRestorePending)
 	{
 		bRevealedTileEdits = true;
 	}
@@ -2335,82 +2349,33 @@ bool AGXVoxelWorld::LoadWorld()
 
 void AGXVoxelWorld::RestoreEditedSurfaces()
 {
-	if (!CrustTiles || !CrustTiles->IsReady() || !Volume || EditedPageBoxesM.Num() == 0)
+	if (!CrustTiles || !CrustTiles->IsReady() || EditIsland.IsEmpty())
+	{
+		if (EditIsland.IsEmpty())
+		{
+			bLoadRestorePending = false;
+			bRevealedTileEdits = true;
+		}
+		return;
+	}
+	const FBox IB = EditIsland.Bounds();
+	if (!IB.IsValid || !CrustTiles->HasTileAt(IB.GetCenter()))
 	{
 		return;
 	}
-	auto DensityAt = [this](const FVector& P)
-	{
-		return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z));
-	};
 	const int32 SavedCreates = MaxMeshCreatesPerTick;
 	MaxMeshCreatesPerTick = MeshCreatesThisTick + 8;
-	int32 Boxes = 0;
-	int32 Hidden = 0;
-	int32 Need = 0;
-	int32 Have = 0;
-	for (const FBox& B : EditedPageBoxesM)
-	{
-		++Need;
-		const FVector C = B.GetCenter();
-		if (!CrustTiles->HasTileAt(C))
-		{
-			continue;
-		}
-		++Have;
-		RemeshCaveAt(C, 2.0f, false);
-		int32 CaveTris = 0;
-		const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
-		const float Reach2 = FMath::Square(8.0f + ChunkM);
-		for (const FGXChunkKey& K : CaveChunks)
-		{
-			const FVector KC((K.X + 0.5f) * ChunkM, (K.Y + 0.5f) * ChunkM, (K.Z + 0.5f) * ChunkM);
-			if (FVector::DistSquared(KC, C) > Reach2)
-			{
-				continue;
-			}
-			if (const FChunkVisual* V = ChunkVisuals.Find(K))
-			{
-				CaveTris += V->IndexCount / 3;
-			}
-		}
-		if (CaveTris < 12)
-		{
-			++Boxes;
-			continue;
-		}
-		const FVector Ext = B.GetExtent();
-		const float CrustR = C.Size();
-		for (float Dz = -Ext.Z; Dz <= Ext.Z + 0.01f; Dz += 1.50f)
-		{
-			for (float Dy = -Ext.Y; Dy <= Ext.Y + 0.01f; Dy += 1.50f)
-			{
-				for (float Dx = -Ext.X; Dx <= Ext.X + 0.01f; Dx += 1.50f)
-				{
-					const FVector P = C + FVector(Dx, Dy, Dz);
-					if (FMath::Abs(P.Size() - CrustR) > 4.0f)
-					{
-						continue;
-					}
-					Hidden += CrustTiles->HideAirBackedQuads(
-						P, 1.70f, TerrainMaterial.Get(), DensityAt);
-				}
-			}
-		}
-		++Boxes;
-	}
+	RemeshIsland();
+	int32 Hidden = CrustTiles->ConsumeWhere(
+		IB.GetCenter(), IB.GetExtent().GetMax(),
+		[this](const FVector& P) { return EditIsland.Contains(P); },
+		TerrainMaterial.Get());
 	MaxMeshCreatesPerTick = SavedCreates;
-	if (Need == 0 || Have == Need)
-	{
-		bLoadRestorePending = false;
-		bRevealedTileEdits = true;
-	}
-	if (Hidden > 0)
-	{
-		UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s restore-lid boxes=%d hide-air=%d"),
-			GX_VERSION_STRING, Boxes, Hidden);
-		GX_PERF(1, TEXT("GX-restore-lid boxes=%d hide-air=%d"), Boxes, Hidden);
-	}
+	bLoadRestorePending = false;
+	bRevealedTileEdits = true;
+	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s restore-island consume=%d spheres=%d"),
+		GX_VERSION_STRING, Hidden, EditIsland.Spheres.Num());
+	GX_PERF(1, TEXT("GX-restore-island consume=%d spheres=%d"), Hidden, EditIsland.Spheres.Num());
 }
 
 void AGXVoxelWorld::RebuildEditedPageBoxes()
@@ -2554,6 +2519,70 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 	{
 		Mesh.Reset();
 	}
+}
+
+void AGXVoxelWorld::RemeshIsland()
+{
+	if (!Volume || EditIsland.IsEmpty())
+	{
+		return;
+	}
+	const FBox IB = EditIsland.Bounds().ExpandBy(VoxelSize * 2.0f);
+	if (!IB.IsValid)
+	{
+		return;
+	}
+	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
+	const FGXChunkKey A = FGXVoxelVolume::VoxelToChunk(
+		FGXVoxelVolume::WorldToVoxel(FVector3d(IB.Min.X, IB.Min.Y, IB.Min.Z), VoxelSize));
+	const FGXChunkKey B = FGXVoxelVolume::VoxelToChunk(
+		FGXVoxelVolume::WorldToVoxel(FVector3d(IB.Max.X, IB.Max.Y, IB.Max.Z), VoxelSize));
+	const int32 X0 = FMath::Min(A.X, B.X);
+	const int32 X1 = FMath::Max(A.X, B.X);
+	const int32 Y0 = FMath::Min(A.Y, B.Y);
+	const int32 Y1 = FMath::Max(A.Y, B.Y);
+	const int32 Z0 = FMath::Min(A.Z, B.Z);
+	const int32 Z1 = FMath::Max(A.Z, B.Z);
+	int32 N = 0;
+	const double Now = FPlatformTime::Seconds();
+	for (int32 Z = Z0; Z <= Z1 && N < 8; ++Z)
+	{
+		for (int32 Y = Y0; Y <= Y1 && N < 8; ++Y)
+		{
+			for (int32 X = X0; X <= X1 && N < 8; ++X)
+			{
+				const FGXChunkKey CC(X, Y, Z);
+				const FVector C((X + 0.5f) * ChunkM, (Y + 0.5f) * ChunkM, (Z + 0.5f) * ChunkM);
+				const FBox Box(C - FVector(ChunkM * 0.5f), C + FVector(ChunkM * 0.5f));
+				if (!EditIsland.OverlapsBox(Box))
+				{
+					continue;
+				}
+				const bool bEdited = Volume->ChunkHasEdits(CC);
+				if (!bEdited && !ChunkOverlapsSurface(CC, ChunkM))
+				{
+					continue;
+				}
+				if (AsyncInFlight.Contains(CC))
+				{
+					continue;
+				}
+				CaveChunks.Add(CC);
+				HollowChunks.Remove(CC);
+				BrushForceLOD0.Add(CC);
+				LastRemeshAt.Remove(CC);
+				MeshQueued.Remove(CC);
+				NearMeshQueue.Remove(CC);
+				MeshQueue.Remove(CC);
+				LastRemeshAt.Add(CC, Now);
+				BuildChunkMeshSync(CC);
+				++N;
+			}
+		}
+	}
+	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s island remesh n=%d spheres=%d"),
+		GX_VERSION_STRING, N, EditIsland.Spheres.Num());
+	GX_PERF(1, TEXT("GX-island remesh n=%d spheres=%d"), N, EditIsland.Spheres.Num());
 }
 
 void AGXVoxelWorld::RemeshCaveAt(const FVector& LocalM, float RadiusM, bool bOnlyExistingCaves)
