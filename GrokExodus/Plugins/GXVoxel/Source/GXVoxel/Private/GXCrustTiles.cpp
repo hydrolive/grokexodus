@@ -925,14 +925,38 @@ int32 FGXCrustTiles::SyncAirBackedQuads(
 				}
 				return DensityAt(W) <= 0.0f || DensityAt(W - Rad * 0.40f) <= 0.0f;
 			};
-			// Only a fully excavated cell. Sliver / 3-corner hide plus a
-			// 6 m restore box punched the lawn (GX-shot-0139).
-			const bool bAir = CornerAir(WA) && CornerAir(WB) && CornerAir(WC) && CornerAir(WD);
-			if (bAir == !Tile.QuadAlive[Q])
+			auto CornerSolid = [&](const FVector& W) -> bool
 			{
-				continue;
+				return DensityAt(W) > 0.0f;
+			};
+			const FVector RadC = Cent.GetSafeNormal();
+			const bool bCentAir = !RadC.IsNearlyZero()
+				&& (DensityAt(Cent) <= 0.0f || DensityAt(Cent - RadC * 0.40f) <= 0.0f);
+			const int32 AirN = (CornerAir(WA) ? 1 : 0) + (CornerAir(WB) ? 1 : 0)
+				+ (CornerAir(WC) ? 1 : 0) + (CornerAir(WD) ? 1 : 0);
+			// 4-corner-only left mixed rim sheets over the mouth (0140).
+			// Hide a leftover face when its center sits on air. Restore
+			// only a fully solid surface — never unhide because 0.4 m
+			// under is still a cave (place must not punch hills).
+			const bool bHide = bCentAir && AirN >= 2;
+			const bool bSolid = CornerSolid(WA) && CornerSolid(WB)
+				&& CornerSolid(WC) && CornerSolid(WD);
+			if (Tile.QuadAlive[Q])
+			{
+				if (!bHide)
+				{
+					continue;
+				}
+				Tile.QuadAlive[Q] = false;
 			}
-			Tile.QuadAlive[Q] = !bAir;
+			else
+			{
+				if (!bSolid)
+				{
+					continue;
+				}
+				Tile.QuadAlive[Q] = true;
+			}
 			++N;
 		}
 	}

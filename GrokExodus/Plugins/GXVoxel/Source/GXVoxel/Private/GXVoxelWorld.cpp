@@ -912,8 +912,10 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	{
 		if (CaveTris >= 12)
 		{
+			// +2 m catches leftover rim sheets beside the ball. A 6 m
+			// page box punched the lawn (0139); stay brush-local.
 			Punched = CrustTiles->HideAirBackedQuads(
-				L, BrushR + 0.50f, TerrainMaterial.Get(), DensityAt);
+				L, BrushR + 2.00f, TerrainMaterial.Get(), DensityAt);
 		}
 		else
 		{
@@ -977,9 +979,8 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 			L, RadiusM, false, Volume->GetStamp(), TerrainMaterial.Get(),
 			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); },
 			nullptr, false, nullptr, MaterialId);
-		CrustTiles->HideAirBackedQuads(
-			L, RadiusM + 0.50f, TerrainMaterial.Get(),
-			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); });
+		// Place adds solid. Hide-air here punched 14–31 lid quads per
+		// teal click (GX-shot-0140 far-hill holes).
 	}
 	for (const FGXChunkKey& C : Brush.DirtyChunks)
 	{
@@ -2706,20 +2707,9 @@ bool AGXVoxelWorld::ShouldPunchClipmap(const FVector& LocalM) const
 	}
 	FGXVoxelPacked Stored;
 	const FVector3d P(LocalM.X, LocalM.Y, LocalM.Z);
+	// Only the surface itself. Air 0.5–0.9 m under a solid cap is a cave
+	// or a thin place fill — punching that opened far-hill holes (0140).
 	if (Volume->TryGetAuthoritative(P, Stored) && Stored.ToDensityMeters() <= 0.0f)
-	{
-		return true;
-	}
-	FVector Rad = LocalM.GetSafeNormal();
-	if (Rad.IsNearlyZero())
-	{
-		return false;
-	}
-	if (Volume->TryGetAuthoritative(P - FVector3d(Rad) * 0.5, Stored) && Stored.ToDensityMeters() <= 0.0f)
-	{
-		return true;
-	}
-	if (Volume->TryGetAuthoritative(P - FVector3d(Rad) * 0.9, Stored) && Stored.ToDensityMeters() <= 0.0f)
 	{
 		return true;
 	}
