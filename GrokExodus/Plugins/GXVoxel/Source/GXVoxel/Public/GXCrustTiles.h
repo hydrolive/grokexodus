@@ -32,8 +32,9 @@ struct FGXCrustTileKey
 
 /**
  * Unedited crust as non-overlapping tiles.
- * Dig projects verts onto the brush sphere (never hide or punch a tile —
- * that was a square / teal hole). Nanite is idle underfoot only.
+ * Dig punches triangles whose centroid is inside the brush sphere (walls
+ * and floors) so density remesh can show a cave. Never hide a whole tile.
+ * First stroke refines to 0.5 m. Nanite is idle underfoot only.
  */
 class GXVOXEL_API FGXCrustTiles
 {

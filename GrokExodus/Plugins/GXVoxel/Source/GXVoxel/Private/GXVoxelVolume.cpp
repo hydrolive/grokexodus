@@ -235,7 +235,12 @@ FGXVoxelVolume::FBrushResult FGXVoxelVolume::ApplySphereBrush(
 	const float VoxelSize = Stamp.GetParams().VoxelSize;
 	const float Inv = 1.0f / VoxelSize;
 	const FVector3d Rad = CenterM.GetSafeNormal();
-	const FVector3d Lid = (bDig && !Rad.IsNearlyZero())
+	// Lid scrape only near the stamp crust. A wall stroke in a crater is
+	// well below the stamp — a chimney there punched a skylight, not a cave.
+	const bool bNearStamp = !Rad.IsNearlyZero()
+		&& (static_cast<float>(CenterM.Size())
+			> Stamp.SampleSurfaceRadius(FVector3f(Rad.X, Rad.Y, Rad.Z)) - RadiusM * 1.75f);
+	const FVector3d Lid = (bDig && bNearStamp && !Rad.IsNearlyZero())
 		? (Rad * static_cast<double>(RadiusM + VoxelSize))
 		: FVector3d::Zero();
 	const double Exp = static_cast<double>(RadiusM + VoxelSize);
@@ -274,7 +279,7 @@ FGXVoxelVolume::FBrushResult FGXVoxelVolume::ApplySphereBrush(
 					: Delta;
 				const float Tang2 = static_cast<float>(Tang.SizeSquared());
 				const bool bInSphere = D2 <= Inf2;
-				const bool bInLid = bDig && Along > -static_cast<double>(VoxelSize)
+				const bool bInLid = bDig && bNearStamp && Along > -static_cast<double>(VoxelSize)
 					&& Along < static_cast<double>(RadiusM + 1.5f)
 					&& Tang2 <= Inf2;
 				if (!bInSphere && !bInLid)

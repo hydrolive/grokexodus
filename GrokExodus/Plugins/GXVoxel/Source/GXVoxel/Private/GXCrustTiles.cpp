@@ -208,12 +208,16 @@ int32 FGXCrustTiles::NotifyBrush(
 	{
 		return 0;
 	}
-	// Radial CSG only. Yanking verts toward the brush center (0.10.3) made
-	// 1 m pyramids (GX-dig-0104). First stroke refines this tile to 0.5 m.
+	// Remove punches tris inside the brush so a wall stroke is a cave mouth
+	// (radial-only CSG could not destroy a wall). Place still raises radially.
+	// Do not FineCell-rebuild an already-sculpted tile — that restores the lid.
 	const float Cover = RadiusM + FineCellM;
 	const float Cover2 = Cover * Cover;
 	const float R2 = RadiusM * RadiusM;
+	const float PunchR = RadiusM + FineCellM * 0.50f;
+	const float PunchR2 = PunchR * PunchR;
 	int32 Changed = 0;
+	int32 PunchedTris = 0;
 	for (auto& Pair : Live)
 	{
 		FTile& Tile = Pair.Value;
@@ -222,7 +226,7 @@ int32 FGXCrustTiles::NotifyBrush(
 		{
 			continue;
 		}
-		if (FMath::Abs(Tile.FineCell - FineCellM) > 0.01f)
+		if (!Tile.bSculpted && FMath::Abs(Tile.FineCell - FineCellM) > 0.01f)
 		{
 			Tile.FineCell = FineCellM;
 			BuildTile(Tile, Stamp, Material, nullptr);
@@ -234,6 +238,71 @@ int32 FGXCrustTiles::NotifyBrush(
 		}
 		DropNanite(Tile);
 		Tile.bSculpted = true;
+
+		if (bRemove && Tile.Indices.Num() >= 3)
+		{
+			TArray<int32> Kept;
+			Kept.Reserve(Tile.Indices.Num());
+			int32 Cut = 0;
+			for (int32 T = 0; T + 2 < Tile.Indices.Num(); T += 3)
+			{
+				const int32 IA = Tile.Indices[T];
+				const int32 IB = Tile.Indices[T + 1];
+				const int32 IC = Tile.Indices[T + 2];
+				if (!Tile.LivePos.IsValidIndex(IA) || !Tile.LivePos.IsValidIndex(IB)
+					|| !Tile.LivePos.IsValidIndex(IC))
+				{
+					continue;
+				}
+				const FVector WA = (Tile.OriginCm + Tile.LivePos[IA]) * 0.01f;
+				const FVector WB = (Tile.OriginCm + Tile.LivePos[IB]) * 0.01f;
+				const FVector WC = (Tile.OriginCm + Tile.LivePos[IC]) * 0.01f;
+				const FVector Cent = (WA + WB + WC) * (1.0f / 3.0f);
+				const bool bCut = FVector::DistSquared(Cent, LocalM) <= PunchR2
+					|| FVector::DistSquared(WA, LocalM) <= R2
+					|| FVector::DistSquared(WB, LocalM) <= R2
+					|| FVector::DistSquared(WC, LocalM) <= R2;
+				if (bCut)
+				{
+					++Cut;
+					if (Tile.UV0.IsValidIndex(IA)) { Tile.UV0[IA] = FVector2D(3.0f, 0.0f); }
+					if (Tile.UV0.IsValidIndex(IB)) { Tile.UV0[IB] = FVector2D(3.0f, 0.0f); }
+					if (Tile.UV0.IsValidIndex(IC)) { Tile.UV0[IC] = FVector2D(3.0f, 0.0f); }
+					if (Tile.Colors.IsValidIndex(IA)) { Tile.Colors[IA] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f); }
+					if (Tile.Colors.IsValidIndex(IB)) { Tile.Colors[IB] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f); }
+					if (Tile.Colors.IsValidIndex(IC)) { Tile.Colors[IC] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f); }
+					continue;
+				}
+				Kept.Add(IA);
+				Kept.Add(IB);
+				Kept.Add(IC);
+			}
+			if (Cut == 0)
+			{
+				continue;
+			}
+			// Never delete the whole tile — that was the 0.10.2 teal window.
+			if (Kept.Num() < 3)
+			{
+				continue;
+			}
+			Tile.Indices = MoveTemp(Kept);
+			PunchedTris += Cut;
+			RecomputeNormals(Tile);
+			Comp->ClearMeshSection(0);
+			Comp->CreateMeshSection_LinearColor(
+				0, Tile.LivePos, Tile.Indices, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents, true);
+			if (Material)
+			{
+				Comp->SetMaterial(0, Material);
+			}
+			Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+			Comp->SetVisibility(true);
+			Comp->UpdateBounds();
+			Changed += Cut;
+			continue;
+		}
+
 		int32 N = 0;
 		for (int32 I = 0; I < Tile.LivePos.Num(); ++I)
 		{
@@ -244,9 +313,6 @@ int32 FGXCrustTiles::NotifyBrush(
 				continue;
 			}
 			const float CurR = W.Size();
-			// Ray Origin + t*Dir vs brush sphere. Cap the stroke at one
-			// brush radius — uncapped THit in a pit yanked verts tens of
-			// metres down (0.10.5: one crater soft, the next a mineshaft).
 			const float Bcoe = FVector::DotProduct(Dir, LocalM);
 			const float Disc = Bcoe * Bcoe - (LocalM.SizeSquared() - R2);
 			const float MaxStep = RadiusM * 0.90f;
@@ -254,43 +320,22 @@ int32 FGXCrustTiles::NotifyBrush(
 			if (Disc >= 0.0f)
 			{
 				const float Root = FMath::Sqrt(Disc);
-				if (bRemove)
-				{
-					const float THit = Bcoe - Root;
-					if (THit > 0.0f)
-					{
-						NewR = FMath::Max(THit, CurR - MaxStep);
-						NewR = FMath::Min(CurR, NewR);
-					}
-				}
-				else
-				{
-					const float THit = Bcoe + Root;
-					NewR = FMath::Min(THit, CurR + MaxStep * 0.55f);
-					NewR = FMath::Max(CurR, NewR);
-				}
+				const float THit = Bcoe + Root;
+				NewR = FMath::Min(THit, CurR + MaxStep * 0.55f);
+				NewR = FMath::Max(CurR, NewR);
 			}
 			else
 			{
 				const float D3 = FVector::Dist(W, LocalM);
 				float Wgt = 1.0f - D3 / Cover;
 				Wgt = Wgt * Wgt * (3.0f - 2.0f * Wgt);
-				const float Nudge = MaxStep * 0.25f * Wgt;
-				NewR = bRemove ? (CurR - Nudge) : (CurR + Nudge * 0.55f);
+				NewR = CurR + MaxStep * 0.25f * Wgt;
 			}
 			if (FMath::Abs(NewR - CurR) < 0.01f)
 			{
 				continue;
 			}
 			Tile.LivePos[I] = Dir * NewR * 100.0f - Tile.OriginCm;
-			if (bRemove && (CurR - NewR) > 0.20f && Tile.UV0.IsValidIndex(I))
-			{
-				Tile.UV0[I] = FVector2D(3.0f, 0.0f);
-				if (Tile.Colors.IsValidIndex(I))
-				{
-					Tile.Colors[I] = FLinearColor(0.58f, 0.50f, 0.44f, 1.0f);
-				}
-			}
 			++N;
 		}
 		if (N == 0)
@@ -298,7 +343,6 @@ int32 FGXCrustTiles::NotifyBrush(
 			continue;
 		}
 		RecomputeNormals(Tile);
-		// Topology is unchanged after the first FineCell cook.
 		Comp->UpdateMeshSection_LinearColor(
 			0, Tile.LivePos, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents);
 		Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
@@ -308,10 +352,10 @@ int32 FGXCrustTiles::NotifyBrush(
 	}
 	if (Changed > 0)
 	{
-		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles sculpt %s verts=%d r=%.2f cell=%.2f"),
-			bRemove ? TEXT("dig") : TEXT("place"), Changed, RadiusM, FineCellM);
-		GX_PERF(1, TEXT("GX-tile sculpt %s verts=%d r=%.2f"),
-			bRemove ? TEXT("dig") : TEXT("place"), Changed, RadiusM);
+		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles sculpt %s n=%d punch=%d r=%.2f cell=%.2f"),
+			bRemove ? TEXT("dig") : TEXT("place"), Changed, PunchedTris, RadiusM, FineCellM);
+		GX_PERF(1, TEXT("GX-tile sculpt %s n=%d punch=%d r=%.2f"),
+			bRemove ? TEXT("dig") : TEXT("place"), Changed, PunchedTris, RadiusM);
 	}
 	return Changed;
 }

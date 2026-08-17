@@ -263,6 +263,10 @@ protected:
 	TSet<FGXChunkKey> HollowChunks;
 	TSet<FGXChunkKey> RemeshWhenIdle;
 	TSet<FGXChunkKey> BrushForceLOD0;
+	/** Surface chunks remeshed for a cave this session. Stream must not drop them. */
+	TSet<FGXChunkKey> CaveChunks;
+	/** Union of dig spheres (xyz local m, w radius+pad) used to clip MC to the hole. */
+	TMap<FGXChunkKey, TArray<FVector4>> CarveBalls;
 	TMap<FGXChunkKey, int32> EmptyRetries;
 	/** Planet-local metre AABBs of dirty 8³ pages — clipmap punch + hybrid ray. */
 	TArray<FBox> EditedPageBoxesM;
@@ -340,5 +344,7 @@ protected:
 	bool LocalInEditedPage(const FVector& LocalM) const;
 	bool ShouldPunchClipmap(const FVector& LocalM) const;
 	void RemeshAroundLocal(const FVector& LocalM, float RadiusM);
+	void RemeshCaveAt(const FVector& LocalM, float RadiusM, bool bOnlyExistingCaves);
+	void FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const;
 	void MarkPersistDirty();
 };

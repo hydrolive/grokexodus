@@ -115,6 +115,8 @@ void AGXVoxelWorld::ResetStreamingState()
 	LastRemeshAt.Empty();
 	NextEmptyRetryAt.Empty();
 	EditedPageBoxesM.Empty();
+	CaveChunks.Empty();
+	CarveBalls.Empty();
 	bPersistDirty = false;
 	AutoSaveAccum = 0.0f;
 	LastSettledEmpty = 0;
@@ -747,6 +749,7 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	}
 	RebuildEditedPageBoxes();
 	MarkPersistDirty();
+	RemeshCaveAt(L, RadiusM * DigSpeedMul, false);
 	if (HorizonClipmap && !(CrustTiles && CrustTiles->HasTileAt(L)))
 	{
 		HorizonClipmap->NotifyBrush(
@@ -762,8 +765,8 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			},
 			true);
 	}
-	GX_PERF(1, TEXT("GX-dig volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d boxes=%d"),
-		L.X, L.Y, L.Z, RadiusM * DigSpeedMul, Brush.DirtyChunks.Num(), EditedPageBoxesM.Num());
+	GX_PERF(1, TEXT("GX-dig volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d boxes=%d caves=%d"),
+		L.X, L.Y, L.Z, RadiusM * DigSpeedMul, Brush.DirtyChunks.Num(), EditedPageBoxesM.Num(), CaveChunks.Num());
 	return Out;
 }
 
@@ -792,6 +795,10 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	}
 	RebuildEditedPageBoxes();
 	MarkPersistDirty();
+	if (CaveChunks.Num() > 0)
+	{
+		RemeshCaveAt(L, RadiusM, true);
+	}
 	if (HorizonClipmap && !(CrustTiles && CrustTiles->HasTileAt(L)))
 	{
 		HorizonClipmap->NotifyBrush(
@@ -1164,7 +1171,7 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 					continue;
 				}
 				if (bEdited && ChunkOverlapsSurface(CC, ChunkM) && CrustTiles
-					&& CrustTiles->HasTileAt(ChunkCenter))
+					&& CrustTiles->HasTileAt(ChunkCenter) && !CaveChunks.Contains(CC))
 				{
 					continue;
 				}
@@ -1228,7 +1235,7 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 			(Pair.Key.Y + 0.5f) * ChunkM,
 			(Pair.Key.Z + 0.5f) * ChunkM);
 		if (Volume && Volume->ChunkHasEdits(Pair.Key) && ChunkOverlapsSurface(Pair.Key, ChunkM)
-			&& CrustTiles && CrustTiles->HasTileAt(CC))
+			&& CrustTiles && CrustTiles->HasTileAt(CC) && !CaveChunks.Contains(Pair.Key))
 		{
 			DropOnTile.Add(Pair.Key);
 		}
@@ -1522,6 +1529,19 @@ void AGXVoxelWorld::DeferMeshApply(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 
 bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshBuffers&& MeshData)
 {
+	if (CaveChunks.Contains(Coord))
+	{
+		const int32 Before = MeshData.Indices.Num();
+		FilterMeshToCarveBalls(Coord, MeshData);
+		GX_PERF(1, TEXT("GX-cave filter %d_%d_%d tris %d -> %d"),
+			Coord.X, Coord.Y, Coord.Z, Before / 3, MeshData.Indices.Num() / 3);
+		if (MeshData.IsEmpty())
+		{
+			// Walls live on a neighbor. Do not settle hollow or the next
+			// stroke will skip this chunk.
+			return true;
+		}
+	}
 	if (MeshData.IsEmpty())
 	{
 		MarkChunkEmpty(Coord, LOD, TEXT("mesh"));
@@ -2169,6 +2189,116 @@ void AGXVoxelWorld::RemeshAroundLocal(const FVector& LocalM, float RadiusM)
 		}
 	}
 	GX_PERF(1, TEXT("GX-remesh-footprint n=%d cover=%.0f"), N, Cover);
+}
+
+void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const
+{
+	const TArray<FVector4>* Balls = CarveBalls.Find(Coord);
+	if (!Balls || Balls->Num() == 0 || Mesh.IsEmpty())
+	{
+		return;
+	}
+	TArray<int32> Kept;
+	Kept.Reserve(Mesh.Indices.Num());
+	auto Inside = [Balls](const FVector& P) -> bool
+	{
+		for (const FVector4& B : *Balls)
+		{
+			const FVector C(B.X, B.Y, B.Z);
+			if (FVector::DistSquared(P, C) <= B.W * B.W)
+			{
+				return true;
+			}
+		}
+		return false;
+	};
+	for (int32 T = 0; T + 2 < Mesh.Indices.Num(); T += 3)
+	{
+		const int32 IA = Mesh.Indices[T];
+		const int32 IB = Mesh.Indices[T + 1];
+		const int32 IC = Mesh.Indices[T + 2];
+		if (!Mesh.Positions.IsValidIndex(IA) || !Mesh.Positions.IsValidIndex(IB)
+			|| !Mesh.Positions.IsValidIndex(IC))
+		{
+			continue;
+		}
+		const FVector Cent = (Mesh.Positions[IA] + Mesh.Positions[IB] + Mesh.Positions[IC]) * (1.0f / 3.0f);
+		if (Inside(Cent) || Inside(Mesh.Positions[IA]) || Inside(Mesh.Positions[IB]) || Inside(Mesh.Positions[IC]))
+		{
+			Kept.Add(IA);
+			Kept.Add(IB);
+			Kept.Add(IC);
+		}
+	}
+	Mesh.Indices = MoveTemp(Kept);
+	if (Mesh.Indices.Num() < 3)
+	{
+		Mesh.Reset();
+	}
+}
+
+void AGXVoxelWorld::RemeshCaveAt(const FVector& LocalM, float RadiusM, bool bOnlyExistingCaves)
+{
+	if (!Volume)
+	{
+		return;
+	}
+	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
+	const float Cover = FMath::Max(RadiusM, 1.0f) + VoxelSize * 2.0f;
+	const int32 Reach = FMath::CeilToInt(Cover / ChunkM) + 1;
+	const FGXChunkKey Center = FGXVoxelVolume::VoxelToChunk(
+		FGXVoxelVolume::WorldToVoxel(FVector3d(LocalM.X, LocalM.Y, LocalM.Z), VoxelSize));
+	const FVector4 Ball(LocalM.X, LocalM.Y, LocalM.Z, RadiusM + VoxelSize * 1.35f);
+	int32 N = 0;
+	for (int32 Z = -Reach; Z <= Reach; ++Z)
+	{
+		for (int32 Y = -Reach; Y <= Reach; ++Y)
+		{
+			for (int32 X = -Reach; X <= Reach; ++X)
+			{
+				const FGXChunkKey CC(Center.X + X, Center.Y + Y, Center.Z + Z);
+				const FVector C((CC.X + 0.5f) * ChunkM, (CC.Y + 0.5f) * ChunkM, (CC.Z + 0.5f) * ChunkM);
+				if (FVector::DistSquared(C, LocalM) > FMath::Square(Cover + ChunkM))
+				{
+					continue;
+				}
+				if (!Volume->ChunkHasEdits(CC))
+				{
+					continue;
+				}
+				if (bOnlyExistingCaves && !CaveChunks.Contains(CC))
+				{
+					continue;
+				}
+				CaveChunks.Add(CC);
+				TArray<FVector4>& Balls = CarveBalls.FindOrAdd(CC);
+				if (Balls.Num() >= 48)
+				{
+					Balls.RemoveAt(0);
+				}
+				Balls.Add(Ball);
+				LastRemeshAt.Remove(CC);
+				MeshQueued.Remove(CC);
+				BrushForceLOD0.Add(CC);
+				EnqueueRemesh(CC, true);
+				++N;
+			}
+		}
+	}
+
+	const bool bWasAsync = bAsyncMeshing;
+	const int32 SavedCreates = MaxMeshCreatesPerTick;
+	const float SavedBudget = MeshTimeBudgetMs;
+	bAsyncMeshing = false;
+	MaxMeshCreatesPerTick = 24;
+	MeshTimeBudgetMs = 200.0f;
+	MeshCreatesThisTick = 0;
+	FlushMeshQueue(FMath::Max(8, N + 4));
+	bAsyncMeshing = bWasAsync;
+	MaxMeshCreatesPerTick = SavedCreates;
+	MeshTimeBudgetMs = SavedBudget;
+	GX_PERF(1, TEXT("GX-cave remesh n=%d cover=%.1f balls=%d live=%d"),
+		N, Cover, CarveBalls.Num(), CaveChunks.Num());
 }
 
 bool AGXVoxelWorld::ShouldPunchClipmap(const FVector& LocalM) const
