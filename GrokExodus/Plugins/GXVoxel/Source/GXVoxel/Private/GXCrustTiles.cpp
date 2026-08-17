@@ -916,9 +916,18 @@ int32 FGXCrustTiles::SyncAirBackedQuads(
 			{
 				continue;
 			}
-			const FVector Rad = Cent.GetSafeNormal();
-			const FVector Under = Cent - Rad * 0.40f;
-			const bool bAir = DensityAt(Cent) <= 0.0f || DensityAt(Under) <= 0.0f;
+			auto CornerAir = [&](const FVector& W) -> bool
+			{
+				const FVector Rad = W.GetSafeNormal();
+				if (Rad.IsNearlyZero())
+				{
+					return false;
+				}
+				return DensityAt(W) <= 0.0f || DensityAt(W - Rad * 0.40f) <= 0.0f;
+			};
+			// Only hide a fully excavated cell. Partial rim quads stayed
+			// as sawtooth cuts + dirt stains (GX-shot-0135).
+			const bool bAir = CornerAir(WA) && CornerAir(WB) && CornerAir(WC) && CornerAir(WD);
 			if (bAir == !Tile.QuadAlive[Q])
 			{
 				continue;
@@ -937,6 +946,71 @@ int32 FGXCrustTiles::SyncAirBackedQuads(
 		Tile.QuadAlive.Init(true, Cells * Cells);
 		RebuildIndices(Tile);
 		return 0;
+	}
+	auto AdjHidden = [&](int32 II, int32 JJ) -> bool
+	{
+		for (int32 DJ = -1; DJ <= 0; ++DJ)
+		{
+			for (int32 DI = -1; DI <= 0; ++DI)
+			{
+				const int32 QI = II + DI;
+				const int32 QJ = JJ + DJ;
+				if (QI < 0 || QJ < 0 || QI >= Cells || QJ >= Cells)
+				{
+					continue;
+				}
+				if (!Tile.QuadAlive[QI + QJ * Cells])
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	};
+	int32 HI0 = Dim, HI1 = -1, HJ0 = Dim, HJ1 = -1;
+	for (int32 J = 0; J < Dim; ++J)
+	{
+		for (int32 I = 0; I < Dim; ++I)
+		{
+			const int32 Idx = I + J * Dim;
+			const FVector W = (Tile.OriginCm + Tile.LivePos[Idx]) * 0.01f;
+			if (FVector::DistSquared(W, LocalM) > R2)
+			{
+				continue;
+			}
+			HI0 = FMath::Min(HI0, I);
+			HI1 = FMath::Max(HI1, I);
+			HJ0 = FMath::Min(HJ0, J);
+			HJ1 = FMath::Max(HJ1, J);
+			const bool bLip = AdjHidden(I, J);
+			if (bLip)
+			{
+				if (Tile.UV0.IsValidIndex(Idx))
+				{
+					Tile.UV0[Idx] = GXCrustUV::MatSurf(Tile.StampSurfM, Tile.UV0, Idx, 3.0f);
+				}
+				continue;
+			}
+			const FVector Rad = Tile.StampDir.IsValidIndex(Idx)
+				? Tile.StampDir[Idx] : W.GetSafeNormal();
+			const FVector Nrm = Tile.LiveN.IsValidIndex(Idx) ? Tile.LiveN[Idx] : Rad;
+			if (FMath::Abs(FVector::DotProduct(Nrm.GetSafeNormal(), Rad)) < 0.62f)
+			{
+				continue;
+			}
+			if (Tile.UV0.IsValidIndex(Idx) && Tile.UV0[Idx].X > 2.5f)
+			{
+				Tile.UV0[Idx] = GXCrustUV::MatSurf(Tile.StampSurfM, Tile.UV0, Idx, 1.0f);
+				if (Tile.Colors.IsValidIndex(Idx))
+				{
+					Tile.Colors[Idx] = FLinearColor(0.58f, 0.66f, 0.38f, 1.0f);
+				}
+			}
+		}
+	}
+	if (HI1 >= 0)
+	{
+		RecomputeNormalsWindow(Tile, HI0, HI1, HJ0, HJ1);
 	}
 	return N;
 }
