@@ -32,9 +32,8 @@ struct FGXCrustTileKey
 
 /**
  * Unedited crust as non-overlapping tiles.
- * Dig keeps the heightfield watertight: radial drop + 3D sphere project
- * (wall dent). Voxel remesh is the cave interior only — never a 1 m lid.
- * First stroke refines to 0.5 m.
+ * Dig drops tile verts radially (bowl) and strips stretched leftover
+ * sheets. No per-click voxel remesh. First stroke refines to 0.5 m.
  */
 class GXVOXEL_API FGXCrustTiles
 {

@@ -749,7 +749,6 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	}
 	RebuildEditedPageBoxes();
 	MarkPersistDirty();
-	RemeshCaveAt(L, RadiusM * DigSpeedMul, false);
 	if (HorizonClipmap && !(CrustTiles && CrustTiles->HasTileAt(L)))
 	{
 		HorizonClipmap->NotifyBrush(
@@ -765,8 +764,8 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			},
 			true);
 	}
-	GX_PERF(1, TEXT("GX-dig volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d boxes=%d caves=%d"),
-		L.X, L.Y, L.Z, RadiusM * DigSpeedMul, Brush.DirtyChunks.Num(), EditedPageBoxesM.Num(), CaveChunks.Num());
+	GX_PERF(1, TEXT("GX-dig volume pages local=(%.1f,%.1f,%.1f) r=%.2f dirty=%d boxes=%d"),
+		L.X, L.Y, L.Z, RadiusM * DigSpeedMul, Brush.DirtyChunks.Num(), EditedPageBoxesM.Num());
 	return Out;
 }
 
@@ -795,10 +794,6 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	}
 	RebuildEditedPageBoxes();
 	MarkPersistDirty();
-	if (CaveChunks.Num() > 0)
-	{
-		RemeshCaveAt(L, RadiusM, true);
-	}
 	if (HorizonClipmap && !(CrustTiles && CrustTiles->HasTileAt(L)))
 	{
 		HorizonClipmap->NotifyBrush(

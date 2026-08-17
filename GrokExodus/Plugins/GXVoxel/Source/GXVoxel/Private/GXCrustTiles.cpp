@@ -237,9 +237,8 @@ int32 FGXCrustTiles::NotifyBrush(
 
 		if (bRemove)
 		{
-			// Keep the heightfield watertight. Punching tris left a sawtooth
-			// that 1 m MC filled with a spikey lid (GX-spikes-0107 / 0108).
-			// Radial drop makes the bowl; 3D project onto the sphere dents a wall.
+			// Radial bowl only. 3D yank stretched leftover sheets across the
+			// pit (GX-faces-0108). Sync voxel remesh was 312 ms/click.
 			const float MaxStep = RadiusM * 0.90f;
 			int32 N = 0;
 			for (int32 I = 0; I < Tile.LivePos.Num(); ++I)
@@ -251,44 +250,23 @@ int32 FGXCrustTiles::NotifyBrush(
 					continue;
 				}
 				const float CurR = W.Size();
-				float NewR = CurR;
-				FVector NewW = W;
-				const FVector Offset = W - LocalM;
-				const float Dist3 = Offset.Size();
-				if (Dist3 < RadiusM && Dist3 > 1.0e-3f)
-				{
-					const FVector OnSphere = LocalM + Offset * (RadiusM / Dist3);
-					if (OnSphere.Size() <= CurR + 0.02f)
-					{
-						NewW = OnSphere;
-						NewR = NewW.Size();
-					}
-				}
 				const float Bcoe = FVector::DotProduct(Dir, LocalM);
 				const float Disc = Bcoe * Bcoe - (LocalM.SizeSquared() - R2);
+				float NewR = CurR;
 				if (Disc >= 0.0f)
 				{
 					const float THit = Bcoe - FMath::Sqrt(Disc);
 					if (THit > 0.0f)
 					{
-						const float RadialR = FMath::Clamp(THit, CurR - MaxStep, CurR);
-						if (RadialR < NewR)
-						{
-							NewR = RadialR;
-							NewW = Dir * NewR;
-						}
+						NewR = FMath::Max(THit, CurR - MaxStep);
+						NewR = FMath::Min(CurR, NewR);
 					}
 				}
-				if (FMath::Abs(NewR - CurR) < 0.01f && FVector::DistSquared(NewW, W) < 1.0e-4f)
+				if (FMath::Abs(NewR - CurR) < 0.01f)
 				{
 					continue;
 				}
-				if (CurR - NewR > MaxStep)
-				{
-					NewR = CurR - MaxStep;
-					NewW = NewW.GetSafeNormal() * NewR;
-				}
-				Tile.LivePos[I] = NewW * 100.0f - Tile.OriginCm;
+				Tile.LivePos[I] = Dir * NewR * 100.0f - Tile.OriginCm;
 				if ((CurR - NewR) > 0.15f && Tile.UV0.IsValidIndex(I))
 				{
 					Tile.UV0[I] = FVector2D(3.0f, 0.0f);
@@ -299,17 +277,69 @@ int32 FGXCrustTiles::NotifyBrush(
 				}
 				++N;
 			}
-			if (N == 0)
+			int32 Slivers = 0;
+			if (Tile.Indices.Num() >= 3)
+			{
+				const float Sliver2 = FMath::Square(FineCellM * 2.80f);
+				TArray<int32> Kept;
+				Kept.Reserve(Tile.Indices.Num());
+				for (int32 T = 0; T + 2 < Tile.Indices.Num(); T += 3)
+				{
+					const int32 IA = Tile.Indices[T];
+					const int32 IB = Tile.Indices[T + 1];
+					const int32 IC = Tile.Indices[T + 2];
+					if (!Tile.LivePos.IsValidIndex(IA) || !Tile.LivePos.IsValidIndex(IB)
+						|| !Tile.LivePos.IsValidIndex(IC))
+					{
+						continue;
+					}
+					const FVector WA = (Tile.OriginCm + Tile.LivePos[IA]) * 0.01f;
+					const FVector WB = (Tile.OriginCm + Tile.LivePos[IB]) * 0.01f;
+					const FVector WC = (Tile.OriginCm + Tile.LivePos[IC]) * 0.01f;
+					const bool bNear = FVector::DistSquared(WA, LocalM) <= Cover2
+						|| FVector::DistSquared(WB, LocalM) <= Cover2
+						|| FVector::DistSquared(WC, LocalM) <= Cover2;
+					const bool bLong = FVector::DistSquared(WA, WB) > Sliver2
+						|| FVector::DistSquared(WB, WC) > Sliver2
+						|| FVector::DistSquared(WC, WA) > Sliver2;
+					if (bNear && bLong)
+					{
+						++Slivers;
+						continue;
+					}
+					Kept.Add(IA);
+					Kept.Add(IB);
+					Kept.Add(IC);
+				}
+				if (Slivers > 0 && Kept.Num() >= 3)
+				{
+					Tile.Indices = MoveTemp(Kept);
+				}
+			}
+			if (N == 0 && Slivers == 0)
 			{
 				continue;
 			}
 			RecomputeNormals(Tile);
-			Comp->UpdateMeshSection_LinearColor(
-				0, Tile.LivePos, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents);
+			if (Slivers > 0)
+			{
+				Comp->ClearMeshSection(0);
+				Comp->CreateMeshSection_LinearColor(
+					0, Tile.LivePos, Tile.Indices, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents, true);
+				if (Material)
+				{
+					Comp->SetMaterial(0, Material);
+				}
+			}
+			else
+			{
+				Comp->UpdateMeshSection_LinearColor(
+					0, Tile.LivePos, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents);
+			}
 			Comp->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 			Comp->SetVisibility(true);
 			Comp->UpdateBounds();
-			Changed += N;
+			Changed += N + Slivers;
 			continue;
 		}
 
