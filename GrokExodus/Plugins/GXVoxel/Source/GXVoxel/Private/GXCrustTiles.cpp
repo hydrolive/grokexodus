@@ -366,6 +366,7 @@ int32 FGXCrustTiles::NotifyBrush(
 			{
 				continue;
 			}
+			const int32 Flipped = (Dim >= 2) ? RebuildIndices(Tile) : 0;
 			if (Dim >= 2)
 			{
 				RecomputeNormalsWindow(Tile, I0, I1, J0, J1);
@@ -405,9 +406,8 @@ int32 FGXCrustTiles::NotifyBrush(
 					}
 				}
 			}
-			int32 PunchedHere = 0;
 			(void)bAllowPunch;
-			if (PunchedHere > 0)
+			if (Flipped > 0)
 			{
 				Comp->ClearMeshSection(0);
 				Comp->CreateMeshSection_LinearColor(
@@ -416,6 +416,7 @@ int32 FGXCrustTiles::NotifyBrush(
 				{
 					Comp->SetMaterial(0, Material);
 				}
+				GX_PERF(1, TEXT("GX-tile wind-fix flipped=%d"), Flipped);
 			}
 			else
 			{
@@ -1062,17 +1063,38 @@ void FGXCrustTiles::RecomputeNormalsWindow(FTile& Tile, int32 I0, int32 I1, int3
 	}
 }
 
-void FGXCrustTiles::RebuildIndices(FTile& Tile)
+int32 FGXCrustTiles::RebuildIndices(FTile& Tile)
 {
 	const int32 Dim = GridDim(Tile);
 	if (Dim < 2)
 	{
-		return;
+		return 0;
 	}
 	const int32 Cells = Dim - 1;
 	const bool bMask = Tile.QuadAlive.Num() == Cells * Cells;
 	Tile.Indices.Reset();
 	Tile.Indices.Reserve(Cells * Cells * 6);
+	int32 Flipped = 0;
+	auto Emit = [&](int32 IA, int32 IB, int32 IC)
+	{
+		if (!Tile.LivePos.IsValidIndex(IA) || !Tile.LivePos.IsValidIndex(IB)
+			|| !Tile.LivePos.IsValidIndex(IC))
+		{
+			return;
+		}
+		FVector FaceN = FVector::CrossProduct(Tile.LivePos[IB] - Tile.LivePos[IA], Tile.LivePos[IC] - Tile.LivePos[IA]);
+		const FVector Mid = (Tile.LivePos[IA] + Tile.LivePos[IB] + Tile.LivePos[IC]) * (1.0f / 3.0f) + Tile.OriginCm;
+		// A,C,B must Cross toward the core (0.9.11). A drop can fold a
+		// crater-wall tri so the backface shows as a black blade (GX-exposed-0125).
+		if (!FaceN.IsNearlyZero() && FVector::DotProduct(FaceN, Mid) > 0.0f)
+		{
+			Swap(IB, IC);
+			++Flipped;
+		}
+		Tile.Indices.Add(IA);
+		Tile.Indices.Add(IB);
+		Tile.Indices.Add(IC);
+	};
 	for (int32 J = 0; J < Cells; ++J)
 	{
 		for (int32 I = 0; I < Cells; ++I)
@@ -1085,14 +1107,11 @@ void FGXCrustTiles::RebuildIndices(FTile& Tile)
 			const int32 Bv = (I + 1) + J * Dim;
 			const int32 C = I + (J + 1) * Dim;
 			const int32 D = (I + 1) + (J + 1) * Dim;
-			Tile.Indices.Add(A);
-			Tile.Indices.Add(C);
-			Tile.Indices.Add(Bv);
-			Tile.Indices.Add(Bv);
-			Tile.Indices.Add(C);
-			Tile.Indices.Add(D);
+			Emit(A, C, Bv);
+			Emit(Bv, C, D);
 		}
 	}
+	return Flipped;
 }
 
 int32 FGXCrustTiles::PaintSteepDirt(FTile& Tile, int32 I0, int32 I1, int32 J0, int32 J1)
