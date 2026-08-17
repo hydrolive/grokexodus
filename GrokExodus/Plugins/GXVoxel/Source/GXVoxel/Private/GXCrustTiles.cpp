@@ -220,18 +220,29 @@ int32 FGXCrustTiles::NotifyBrush(
 	const float R2 = RadiusM * RadiusM;
 	int32 Changed = 0;
 	int32 PunchedAll = 0;
+	const float TileReach2 = FMath::Square(Cover + TileM + 4.0f);
+	// FineCell every nearby tile first. Doing it mid-loop let a stamp rebuild
+	// rip the U/V seam against an already-sculpted crater (GX-seam-0113).
+	for (auto& Pair : Live)
+	{
+		FTile& Tile = Pair.Value;
+		if (FVector::DistSquared(Tile.OriginCm * 0.01f, LocalM) > TileReach2)
+		{
+			continue;
+		}
+		if (FMath::Abs(Tile.FineCell - FineCellM) > 0.01f)
+		{
+			Tile.FineCell = FineCellM;
+			BuildTile(Tile, Stamp, Material, nullptr);
+		}
+	}
 	for (auto& Pair : Live)
 	{
 		FTile& Tile = Pair.Value;
 		const FVector TileWorld = Tile.OriginCm * 0.01f;
-		if (FVector::DistSquared(TileWorld, LocalM) > FMath::Square(Cover + TileM + 4.0f))
+		if (FVector::DistSquared(TileWorld, LocalM) > TileReach2)
 		{
 			continue;
-		}
-		if (!Tile.bSculpted && FMath::Abs(Tile.FineCell - FineCellM) > 0.01f)
-		{
-			Tile.FineCell = FineCellM;
-			BuildTile(Tile, Stamp, Material, nullptr);
 		}
 		UProceduralMeshComponent* Comp = Tile.Comp.Get();
 		if (!Comp || Tile.LivePos.Num() == 0 || Tile.StampDir.Num() != Tile.LivePos.Num())
@@ -246,7 +257,6 @@ int32 FGXCrustTiles::NotifyBrush(
 			// Never delete tris. Wide cover + smoothstep so a hard R cutoff
 			// cannot leave a leftover fin (GX-leftover-0112).
 			const float MaxStep = RadiusM * 0.90f;
-			const float WallStep = FineCellM * 1.35f;
 			int32 N = 0;
 			for (int32 I = 0; I < Tile.LivePos.Num(); ++I)
 			{
@@ -259,41 +269,27 @@ int32 FGXCrustTiles::NotifyBrush(
 				}
 				float Wgt = 1.0f - Dist3 / Cover;
 				Wgt = Wgt * Wgt * (3.0f - 2.0f * Wgt);
-				const FVector Nrm = (Tile.LiveN.IsValidIndex(I) ? Tile.LiveN[I] : Dir).GetSafeNormal();
-				const bool bSteep = FMath::Abs(FVector::DotProduct(Nrm, Dir)) < 0.72f;
-				FVector NewW = W;
-				if (bSteep)
+				// Radial only. Wall-push along -N stretched leftover tris
+				// through the orange ball (GX-seam-0113).
+				const float CurR = W.Size();
+				const float Bcoe = FVector::DotProduct(Dir, LocalM);
+				const float Disc = Bcoe * Bcoe - (LocalM.SizeSquared() - R2);
+				float TargetR = CurR - MaxStep * 0.20f;
+				if (Disc >= 0.0f)
 				{
-					const float Into = FMath::Max(0.0f, RadiusM - Dist3);
-					const float Step = FMath::Min(Into + FineCellM * 0.35f, WallStep) * Wgt;
-					if (Step < 0.01f)
+					const float THit = Bcoe - FMath::Sqrt(Disc);
+					if (THit > 0.0f)
 					{
-						continue;
+						TargetR = FMath::Max(THit, CurR - MaxStep);
+						TargetR = FMath::Min(CurR, TargetR);
 					}
-					NewW = W - Nrm * Step;
 				}
-				else
+				const float NewR = FMath::Lerp(CurR, TargetR, Wgt);
+				if (FMath::Abs(NewR - CurR) < 0.01f)
 				{
-					const float CurR = W.Size();
-					const float Bcoe = FVector::DotProduct(Dir, LocalM);
-					const float Disc = Bcoe * Bcoe - (LocalM.SizeSquared() - R2);
-					float TargetR = CurR - MaxStep * 0.20f;
-					if (Disc >= 0.0f)
-					{
-						const float THit = Bcoe - FMath::Sqrt(Disc);
-						if (THit > 0.0f)
-						{
-							TargetR = FMath::Max(THit, CurR - MaxStep);
-							TargetR = FMath::Min(CurR, TargetR);
-						}
-					}
-					const float NewR = FMath::Lerp(CurR, TargetR, Wgt);
-					if (FMath::Abs(NewR - CurR) < 0.01f)
-					{
-						continue;
-					}
-					NewW = Dir * NewR;
+					continue;
 				}
+				const FVector NewW = Dir * NewR;
 				if (FVector::DistSquared(NewW, W) < 1.0e-4f)
 				{
 					continue;
@@ -370,6 +366,10 @@ int32 FGXCrustTiles::NotifyBrush(
 		Comp->UpdateBounds();
 		Changed += N;
 	}
+	if (bRemove && Changed > 0)
+	{
+		WeldSeamsNear(LocalM, Cover, Material, Changed);
+	}
 	if (Changed > 0)
 	{
 		UE_LOG(LogGXVoxel, Warning, TEXT("GXCrustTiles sculpt %s n=%d punch=%d r=%.2f cell=%.2f"),
@@ -382,6 +382,133 @@ int32 FGXCrustTiles::NotifyBrush(
 		*OutPunched = PunchedAll;
 	}
 	return Changed;
+}
+
+int32 FGXCrustTiles::GridDim(const FTile& Tile)
+{
+	const int32 N = Tile.LivePos.Num();
+	const int32 D = FMath::RoundToInt(FMath::Sqrt(static_cast<float>(N)));
+	return (D > 1 && D * D == N) ? D : 0;
+}
+
+void FGXCrustTiles::PushTileMesh(FTile& Tile)
+{
+	UProceduralMeshComponent* Comp = Tile.Comp.Get();
+	if (!Comp || Tile.LivePos.Num() < 3)
+	{
+		return;
+	}
+	RecomputeNormals(Tile);
+	Comp->UpdateMeshSection_LinearColor(
+		0, Tile.LivePos, Tile.LiveN, Tile.UV0, Tile.Colors, Tile.Tangents);
+	Comp->UpdateBounds();
+}
+
+void FGXCrustTiles::WeldSharedU(FTile& Left, FTile& Right)
+{
+	const int32 DL = GridDim(Left);
+	const int32 DR = GridDim(Right);
+	if (DL < 2 || DL != DR || Left.StampDir.Num() != Left.LivePos.Num()
+		|| Right.StampDir.Num() != Right.LivePos.Num())
+	{
+		return;
+	}
+	for (int32 J = 0; J < DL; ++J)
+	{
+		const int32 IL = (DL - 1) + J * DL;
+		const int32 IR = 0 + J * DR;
+		const FVector WA = (Left.OriginCm + Left.LivePos[IL]) * 0.01f;
+		const FVector WB = (Right.OriginCm + Right.LivePos[IR]) * 0.01f;
+		const float RA = WA.Size();
+		const float RB = WB.Size();
+		if (FMath::Abs(RA - RB) < 0.02f)
+		{
+			continue;
+		}
+		const float NewR = FMath::Min(RA, RB);
+		const FVector Dir = (RA <= RB)
+			? (Left.StampDir.IsValidIndex(IL) ? Left.StampDir[IL] : WA.GetSafeNormal())
+			: (Right.StampDir.IsValidIndex(IR) ? Right.StampDir[IR] : WB.GetSafeNormal());
+		const FVector NewW = Dir * NewR;
+		Left.LivePos[IL] = NewW * 100.0f - Left.OriginCm;
+		Right.LivePos[IR] = NewW * 100.0f - Right.OriginCm;
+	}
+}
+
+void FGXCrustTiles::WeldSharedV(FTile& Lo, FTile& Hi)
+{
+	const int32 DL = GridDim(Lo);
+	const int32 DH = GridDim(Hi);
+	if (DL < 2 || DL != DH || Lo.StampDir.Num() != Lo.LivePos.Num()
+		|| Hi.StampDir.Num() != Hi.LivePos.Num())
+	{
+		return;
+	}
+	for (int32 I = 0; I < DL; ++I)
+	{
+		const int32 IL = I + (DL - 1) * DL;
+		const int32 IH = I + 0 * DH;
+		const FVector WA = (Lo.OriginCm + Lo.LivePos[IL]) * 0.01f;
+		const FVector WB = (Hi.OriginCm + Hi.LivePos[IH]) * 0.01f;
+		const float RA = WA.Size();
+		const float RB = WB.Size();
+		if (FMath::Abs(RA - RB) < 0.02f)
+		{
+			continue;
+		}
+		const float NewR = FMath::Min(RA, RB);
+		const FVector Dir = (RA <= RB)
+			? (Lo.StampDir.IsValidIndex(IL) ? Lo.StampDir[IL] : WA.GetSafeNormal())
+			: (Hi.StampDir.IsValidIndex(IH) ? Hi.StampDir[IH] : WB.GetSafeNormal());
+		const FVector NewW = Dir * NewR;
+		Lo.LivePos[IL] = NewW * 100.0f - Lo.OriginCm;
+		Hi.LivePos[IH] = NewW * 100.0f - Hi.OriginCm;
+	}
+}
+
+void FGXCrustTiles::WeldSeamsNear(const FVector& LocalM, float CoverM, UMaterialInterface* Material, int32& InOutChanged)
+{
+	(void)Material;
+	const float Reach2 = FMath::Square(CoverM + TileM + 8.0f);
+	TArray<FGXCrustTileKey> Keys;
+	for (const auto& Pair : Live)
+	{
+		if (FVector::DistSquared(Pair.Value.OriginCm * 0.01f, LocalM) <= Reach2)
+		{
+			Keys.Add(Pair.Key);
+		}
+	}
+	TSet<FGXCrustTileKey> Touched;
+	for (const FGXCrustTileKey& K : Keys)
+	{
+		FGXCrustTileKey Right = K;
+		Right.U += 1;
+		FGXCrustTileKey Up = K;
+		Up.V += 1;
+		if (FTile* A = Live.Find(K))
+		{
+			if (FTile* B = Live.Find(Right))
+			{
+				WeldSharedU(*A, *B);
+				Touched.Add(K);
+				Touched.Add(Right);
+			}
+			if (FTile* C = Live.Find(Up))
+			{
+				WeldSharedV(*A, *C);
+				Touched.Add(K);
+				Touched.Add(Up);
+			}
+		}
+	}
+	for (const FGXCrustTileKey& K : Touched)
+	{
+		if (FTile* T = Live.Find(K))
+		{
+			PushTileMesh(*T);
+		}
+	}
+	InOutChanged += Touched.Num();
 }
 
 void FGXCrustTiles::RecomputeNormals(FTile& Tile)

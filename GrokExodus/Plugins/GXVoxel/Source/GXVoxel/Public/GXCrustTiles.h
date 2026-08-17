@@ -32,8 +32,8 @@ struct FGXCrustTileKey
 
 /**
  * Unedited crust as non-overlapping tiles.
- * Floor digs drop verts radially with a wide smoothstep rim. Wall verts
- * push into the dirt along -N. Never delete tris. First stroke 0.35 m.
+ * Dig drops verts radially with a wide smoothstep. Shared tile edges are
+ * welded (min R) so a FineCell neighbor cannot rip a seam. Never delete tris.
  */
 class GXVOXEL_API FGXCrustTiles
 {
@@ -105,6 +105,11 @@ private:
 	static void FaceAxes(int8 Face, FVector& OutN, FVector& OutT, FVector& OutB);
 	void BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMaterialInterface* Material,
 		const TFunction<float(const FVector&)>& DensityAt);
+	static int32 GridDim(const FTile& Tile);
+	void WeldSeamsNear(const FVector& LocalM, float CoverM, UMaterialInterface* Material, int32& InOutChanged);
+	static void WeldSharedU(FTile& Left, FTile& Right);
+	static void WeldSharedV(FTile& Lo, FTile& Hi);
+	static void PushTileMesh(FTile& Tile);
 	static void RecomputeNormals(FTile& Tile);
 	void ApplyNaniteVisual(FTile& Tile, UMaterialInterface* Material);
 	void DropNanite(FTile& Tile);
