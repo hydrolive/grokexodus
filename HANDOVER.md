@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.46**  
+Last updated: **2026-08-17** · On-disk build stamp: **GX 0.10.47**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.10.47** Shot GX-shot-0146: air-gated disk still hid only 8–11 quads — 1 m voxels make stamp-0.20 look solid. Hide is a **geometric surface disk R+0.55** (remesh fills). Dig still does not slump.
 - **GX 0.10.46** Shot GX-shot-0146: hole opens, **too small** (hide-air n=11) so the ball sits on the rim. Hide is an air-gated **surface disk R+0.40** plus stamp-air. Dig still does not slump; remesh after hide.
 - **GX 0.10.45** Shot GX-shot-0145: hole opens but **black stair-step rim** — hide disk (R+1.25) punched grass with no cave behind it. Hide is **stamp-air only**; remesh again after hide so MC fills the mouth. Dig still does not slump.
 - **GX 0.10.44** Shot GX-shot-0144: still a **mess of spanning grass lids**. Slump and remesh were fighting — NotifyBrush still moved 5–25 verts while hide only opened 5–20 quads. Dig **no longer slumps** (FineCell only); remesh + hide own the hole. Hide a **brush disk** (R+1.25 m) plus stamp-air. **Reset `earth_default.gxsav`** (bak_pre_0144) — leftover pages no longer match the lid.

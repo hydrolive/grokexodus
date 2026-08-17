@@ -974,15 +974,11 @@ int32 FGXCrustTiles::SyncAirBackedQuads(
 			const FVector BrushSurf = LocalM.GetSafeNormal() * SCent.Size();
 			const bool bDisk = DiskR > 0.05f && !BrushSurf.IsNearlyZero()
 				&& FVector::DistSquared(SCent, BrushSurf) <= DiskR * DiskR;
-			const FVector SDir = SCent.GetSafeNormal();
-			const bool bSkinAir = !SDir.IsNearlyZero()
-				&& DensityAt(SDir * (SCent.Size() - 0.20f)) <= 0.0f;
-			// 0145: fat disk, no air test = black stairs. 0146: air-only
-			// hid 11 quads so the ball sat on the rim. Air-gated disk
-			// matches the brush.
-			const bool bHide = ColAir(SCent) || (bDisk && bSkinAir) || bSpan || bDroppedLid;
+			// 1 m voxels make stamp-0.20 look solid on most 0.5 m quads
+			// (0146 n=11). Geometric disk matches the brush; remesh fills.
+			const bool bHide = bDisk || ColAir(SCent) || bSpan || bDroppedLid;
 			const bool bSolid = ColSolid(SA) && ColSolid(SB) && ColSolid(SC) && ColSolid(SD)
-				&& !bSpan && !bDroppedLid;
+				&& !bSpan && !bDroppedLid && !bDisk;
 			if (Tile.QuadAlive[Q])
 			{
 				if (!bHide)

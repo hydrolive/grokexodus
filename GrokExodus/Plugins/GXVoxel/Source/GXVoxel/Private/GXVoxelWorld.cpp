@@ -912,11 +912,10 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	{
 		if (CaveTris >= 12)
 		{
-			// Surface-tangent disk R+0.40, only if skin is air. Fat disk
-			// was black stairs (0145); air-only was smaller than the ball (0146).
+			// Surface disk R+0.55. Voxel density misses 0.5 m lids (0146).
 			Punched = CrustTiles->HideAirBackedQuads(
 				L, FMath::Max(BrushR + 2.00f, 14.0f), TerrainMaterial.Get(), DensityAt,
-				BrushR + 0.40f);
+				BrushR + 0.55f);
 			if (Punched > 0)
 			{
 				const int32 Saved2 = MaxMeshCreatesPerTick;
