@@ -950,9 +950,7 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			TerrainMaterial.Get());
 		if (PlanetGlobe)
 		{
-			PlanetGlobe->PunchWhere(
-				[this](const FVector& P) { return EditIsland.Contains(P); },
-				TerrainMaterial.Get());
+			PlanetGlobe->PunchIsland(EditIsland, TerrainMaterial.Get());
 		}
 	}
 	else
@@ -2509,9 +2507,7 @@ void AGXVoxelWorld::RestoreEditedSurfaces()
 		TerrainMaterial.Get());
 	if (PlanetGlobe)
 	{
-		PlanetGlobe->PunchWhere(
-			[this](const FVector& P) { return EditIsland.Contains(P); },
-			TerrainMaterial.Get());
+		PlanetGlobe->PunchIsland(EditIsland, TerrainMaterial.Get());
 	}
 	MaxMeshCreatesPerTick = SavedCreates;
 	bLoadRestorePending = false;

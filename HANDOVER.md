@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-screen build stamp: **GX 0.12.4**  
+Last updated: **2026-08-17** · On-screen build stamp: **GX 0.12.5**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.12.5** Globe punch uses triangle AABB overlap (1 km cells never sit inside a 14 m island — that was the filled dig).
 - **GX 0.12.4** Vessel-view FPS: clipmap stays on the pawn (no 500 ms 90 km rebuild). Globe is 48² stamp + **punches the edit island** (that filled the dig). Stars are inertial, depth-tested, not camera-parented. Noon sky 4.5 km / Rayleigh 2.2 km / near-zero Mie. `GX-vessel` perf line.
 - **GX 0.12.3** Night stars are debug points + larger ISM (M_GXStar needed InstancedStaticMeshes).
 - **GX 0.12.2** Follow cam orbits the vessel (mouse look) with scroll zoom. Clipmap + stamp globe follow the camera so orbit is not a blank SkyAtmosphere sphere. Noon sky retuned Earth-blue (visual 8 km / less Mie; drag still 18 km). Stars are instanced meshes (HUD canvas was skipped). Moon impostor is Movable (kills mobility spam).

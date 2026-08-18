@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Templates/Function.h"
 #include "ProceduralMeshComponent.h"
+#include "GXEditIsland.h"
 #include "GXVoxelStamps.h"
 
 class AActor;
@@ -17,8 +18,8 @@ public:
 	void Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMaterialInterface* Material);
 	void Shutdown();
 	bool IsReady() const { return bReady; }
-	/** Drop globe tris whose stamp centroid is inside the edit island. */
-	int32 PunchWhere(const TFunction<bool(const FVector&)>& Inside, UMaterialInterface* Material);
+	/** Drop globe tris whose AABB overlaps the edit island (cells are ~1 km). */
+	int32 PunchIsland(const FGXEditIsland& Island, UMaterialInterface* Material);
 
 private:
 	TWeakObjectPtr<UProceduralMeshComponent> Comp;

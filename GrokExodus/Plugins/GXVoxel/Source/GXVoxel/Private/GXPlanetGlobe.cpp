@@ -124,10 +124,10 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 		Positions.Num(), SinkM);
 }
 
-int32 FGXPlanetGlobe::PunchWhere(const TFunction<bool(const FVector&)>& Inside, UMaterialInterface* Material)
+int32 FGXPlanetGlobe::PunchIsland(const FGXEditIsland& Island, UMaterialInterface* Material)
 {
 	UProceduralMeshComponent* PMC = Comp.Get();
-	if (!PMC || !bReady || !Inside || Indices.Num() < 3)
+	if (!PMC || !bReady || Island.IsEmpty() || Indices.Num() < 3)
 	{
 		return 0;
 	}
@@ -142,8 +142,14 @@ int32 FGXPlanetGlobe::PunchWhere(const TFunction<bool(const FVector&)>& Inside, 
 		{
 			continue;
 		}
-		const FVector CentM = (Positions[A] + Positions[B] + Positions[C]) * (0.01f / 3.0f);
-		if (Inside(CentM))
+		const FVector AM = Positions[A] * 0.01f;
+		const FVector BM = Positions[B] * 0.01f;
+		const FVector CM = Positions[C] * 0.01f;
+		FBox Tri(ForceInit);
+		Tri += AM;
+		Tri += BM;
+		Tri += CM;
+		if (Island.OverlapsBox(Tri))
 		{
 			++Dropped;
 			continue;
