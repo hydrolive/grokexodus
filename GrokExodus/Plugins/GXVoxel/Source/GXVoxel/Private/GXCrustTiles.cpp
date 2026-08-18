@@ -2440,7 +2440,11 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 	}
 	const float Scale = TileM * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
 	const float BaseCell = (Tile.FineCell > 0.1f) ? Tile.FineCell : CellM;
-	const float Cell = BaseCell * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
+	// LOD1 keeps 1 m cells (128²). Doubling made a 2 m stair on every flank
+	// (0.13.23 still looked like Minecraft).
+	const float Cell = (Tile.Key.LOD <= 1)
+		? BaseCell
+		: BaseCell * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
 	// Shared edge only. The extra overlap cell z-fought after sculpt
 	// (texture/mesh thrash on 0.10.5). Nanite is off so the Y=0 crack is gone.
 	const int32 Cells = FMath::Max(2, FMath::RoundToInt(Scale / Cell));
@@ -2573,12 +2577,14 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 	Comp->ClearAllMeshSections();
 	if (Positions.Num() >= 3 && Indices.Num() >= 3)
 	{
-		Comp->CreateMeshSection_LinearColor(0, Positions, Indices, Normals, UV0, Colors, Tangents, true);
+		const bool bCollide = (Tile.Key.LOD == 0) && !Tile.bHidden;
+		Comp->CreateMeshSection_LinearColor(0, Positions, Indices, Normals, UV0, Colors, Tangents, bCollide);
 		if (Material)
 		{
 			Comp->SetMaterial(0, Material);
 		}
-		Comp->SetCollisionEnabled(Tile.bHidden ? ECollisionEnabled::NoCollision : ECollisionEnabled::QueryAndPhysics);
+		Comp->SetCollisionEnabled(bCollide ? ECollisionEnabled::QueryAndPhysics : ECollisionEnabled::NoCollision);
+		Comp->SetCastShadow(Tile.Key.LOD == 0);
 		Comp->SetVisibility(!Tile.bHidden);
 		Comp->SetHiddenInGame(false);
 		Comp->UpdateBounds();
@@ -2634,7 +2640,11 @@ void FGXCrustTiles::Update(
 			}
 		}
 	};
-	AddBand(0, 0.0f, 128.0f);
+	// LOD1 is cube-sphere (face axes), not viewer-centered. The 16 m
+	// clipmap around the pawn turned every slope into Minecraft terraces
+	// (0.13.22 shot). 2 m cells on 128 m tiles = 65² verts — cheap.
+	AddBand(0, 0.0f, 180.0f);
+	AddBand(1, 160.0f, 420.0f);
 
 	TArray<FGXCrustTileKey> Evict;
 	for (const auto& Pair : Live)

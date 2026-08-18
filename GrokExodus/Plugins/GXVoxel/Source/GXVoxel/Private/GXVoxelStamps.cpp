@@ -101,10 +101,10 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	float Domain = 0.5f + 0.5f * FGXNoise::FBm(
 		Ux * Params.PlateauFreq, Uy * Params.PlateauFreq, Uz * Params.PlateauFreq,
 		Params.Seed + 21u, 2, 2.0f, 0.5f);
-	// 500 m pad, then rolling hills. Ranges are elongated spines 8–10 km out
-	// so flanks start past ~4 km (voxel stream never meshes a 2 km cliff).
+	// Ranges are elongated spines. Do NOT dump Domain in an ArcM disk —
+	// that was a circular bowl whose rim meshed as Minecraft terraces
+	// (0.13.22–23 ziggurat). Spawn sits on 3D hills, not in a crater.
 	const float ArcM = FMath::Acos(FMath::Clamp(Ux, -1.0f, 1.0f)) * Params.Radius;
-	const float Basin = FGXNoise::Smooth01((180.0f - ArcM) / 120.0f);
 	const float R = FMath::Max(Params.Radius, 1.0f);
 	const FVector3f Here(Ux, Uy, Uz);
 	// Weight is 1 on the crest. The old (HalfWid-Dist)/Flank peaked at
@@ -167,11 +167,9 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 		Feet = FMath::Max(Feet, RangeW(Mid, Along, S.HalfLen * 1.15f, S.HalfWid * 4.0f, S.Flank * 1.85f, true));
 		Rise = FMath::Max(Rise, RangeW(Mid, Along, S.HalfLen * 1.25f, S.HalfWid * 3.4f, S.Flank * 2.7f, true));
 	}
-	Domain = FMath::Lerp(Domain, 0.22f, Basin * 0.80f);
-	const float Away = 1.0f - Basin;
-	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.52f, Rise * Away));
-	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.64f, Feet * Away));
-	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.93f, Spine * Away));
+	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.52f, Rise));
+	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.64f, Feet));
+	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.93f, Spine));
 	// Cap LAST so Rise/Feet cannot rebuild a wall. Ease over 6 km —
 	// 0.13.14 released Domain 0.36→0.88 in 1.4 km and the 24 m ring
 	// drew that as contour stairs filling the spawn view.
@@ -218,14 +216,34 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 		Ux * Params.MountainFreq * 0.45f, Uy * Params.MountainFreq * 0.45f, Uz * Params.MountainFreq * 0.45f,
 		Params.Seed + 8u, 3, 2.0f, 0.5f) * 0.016f;
 
-	// Anisotropic ridges, not circular blobs. Gate so the 280 m pad stays walkable.
-	const float HillGate = 1.0f - FGXNoise::Smooth01((80.0f - ArcM) / 60.0f);
 	const float HillN = FGXNoise::FBm(
 		Ux * Params.HillFreq,
 		Uy * Params.HillFreq * 0.42f,
 		Uz * Params.HillFreq * 1.18f,
 		Params.Seed + 18u, 4, 2.0f, 0.52f);
-	const float Hills = LandMask * HillGate * 0.024f * (0.30f + 0.70f * HillN);
+	const float HillRidge = FGXNoise::Ridged(
+		Ux * Params.HillFreq * 2.1f,
+		Uy * Params.HillFreq * 0.55f,
+		Uz * Params.HillFreq * 1.65f,
+		Params.Seed + 21u, 3);
+	const float Hills = LandMask * (
+		0.018f * (0.30f + 0.70f * HillN) + 0.012f * HillRidge);
+	// Ridges that miss +X. Spawn looks +Y at a flank, not the axis of a cone.
+	const FSpine NearRidges[] = {
+		{ 780.0f,  320.0f, 1100.0f, 160.0f, 480.0f },
+		{ 520.0f, -720.0f,  900.0f, 150.0f, 440.0f },
+		{ 1500.0f, 180.0f, 1300.0f, 180.0f, 560.0f },
+	};
+	float NearCrest = 0.0f;
+	float NearFeet = 0.0f;
+	for (const FSpine& S : NearRidges)
+	{
+		const FVector3f Mid = MidAt(S.East, S.North);
+		const FVector3f Along = (FMath::Abs(S.East) >= FMath::Abs(S.North)) ? AZ : AY;
+		NearCrest = FMath::Max(NearCrest, RangeW(Mid, Along, S.HalfLen, S.HalfWid, S.Flank, false));
+		NearFeet = FMath::Max(NearFeet, RangeW(Mid, Along, S.HalfLen * 1.2f, S.HalfWid * 3.2f, S.Flank * 1.6f, true));
+	}
+	const float NearRange = LandMask * (NearCrest * 0.048f + NearFeet * 0.010f);
 	const float Shield = LandMask * PlainsW * 0.004f;
 	const float Plateau = 0.0f;
 
@@ -285,7 +303,7 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	// onion stairs). Keep 3D hills in the first 4 km; ease ranges in after.
 	const float FarAmp = 1.0f - NearStream;
 	float LandH = 0.01f * LandMask
-		+ Inland * (Shield + Hills + Foothills + Plateau
+		+ Inland * (Shield + Hills + NearRange + Foothills + Plateau
 			+ FarAmp * (Orogeny + WorldBelt)
 			+ Local * 0.45f * DetailScale
 			+ Detail * DetailScale

@@ -111,7 +111,7 @@ public:
 	static constexpr float CellM = 1.00f;
 	/** First sculpt rebuilds this tile at 1 m. */
 	static constexpr float FineCellM = 1.00f;
-	static constexpr float StreamM = 128.0f;
+	static constexpr float StreamM = 560.0f;
 	static constexpr int32 ReadyMin = 9;
 
 private:

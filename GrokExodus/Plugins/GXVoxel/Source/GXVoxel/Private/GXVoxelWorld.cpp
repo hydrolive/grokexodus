@@ -430,7 +430,7 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			Volume->GetStamp(),
 			WorldToLocalMeters(CachedViewerWorld),
 			TerrainMaterial.Get(),
-			(WarmupTimeRemaining > 0.0f) ? 9 : 2,
+			(WarmupTimeRemaining > 0.0f) ? 12 : 8,
 			[this](const FVector& P)
 			{
 				return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z));
@@ -446,11 +446,11 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	{
 		// 5×5 tiles = 320 m square. A 140 m circle stuck out past a 4×4
 		// (0.9.9 live: hole through the planet). Hole 100 m only after 5×5.
-		const float ClipInnerM = (CrustTiles && CrustTiles->NumLive() >= 9)
-			? 110.0f
+		const float ClipInnerM = (CrustTiles && CrustTiles->NumLive() >= 24)
+			? 400.0f
 			: ((CrustTiles && CrustTiles->HasNeighborhood(
 				WorldToLocalMeters(CachedViewerWorld), 2))
-				? 80.0f
+				? 160.0f
 				: 0.0f);
 		HorizonClipmap->Update(
 			this,

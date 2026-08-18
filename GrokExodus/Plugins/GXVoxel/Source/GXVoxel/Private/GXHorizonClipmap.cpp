@@ -212,12 +212,12 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// Visible annulus starts inside the tile disk (140 m) at a small sink
 	// so the 8 m ring is not a second skin on the 2 m tiles (0.9.6–0.9.8
 	// fins). Farther rings sit deeper and barely overlap.
-	// 0.13.20: 2.5 m→520 + 8 m→2.2 km was ~900 k verts / 4.8 s rebuild / 3 FPS.
-	// Coarse rings; walk tiles own the first 128 m. Globe past ~7 km.
+	// Mid hills are LOD1 tiles (2 m, face-aligned). Clipmap starts past
+	// 500 m so it cannot terrace the spawn slope (0.13.22 ziggurat).
 	const FSpec Specs[] = {
-		{ 110.0f, 800.0f, 16.0f, 4.0f },
-		{ 750.0f, 2400.0f, 40.0f, 12.0f },
-		{ 2300.0f, 7000.0f, 90.0f, 24.0f },
+		{ 400.0f, 1400.0f, 8.0f, 3.5f },
+		{ 1300.0f, 4000.0f, 24.0f, 9.0f },
+		{ 3800.0f, 10000.0f, 64.0f, 20.0f },
 	};
 	for (const FSpec& S : Specs)
 	{

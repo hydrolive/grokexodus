@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-18** · On-screen build stamp: **GX 0.13.22**  
+Last updated: **2026-08-18** · On-screen build stamp: **GX 0.13.24**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,8 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.13.24** 0.13.23 was still a ziggurat: ArcM Basin + HillGate is a circular bowl around +X, so every grid row is a height isoline. Basin/HillGate gone; near ridges miss +X (look at a flank). LOD1 is 1 m to 420 m.
+- **GX 0.13.23** Ground horizon was a 16 m clipmap ziggurat. Mid field is LOD1 cube-sphere tiles (2 m, 120–560 m); clipmap starts at 500 m. Near hills get an anisotropic ridge so the 1 km swell is a crest, not a cone.
 - **GX 0.13.22** 0.13.21 spawned on stamp (r=60027) then density snap used a stale crust atlas and lifted the pawn 70 m (r=60097) — look-down dartboard. Density is stamp (plus authored voxels), never atlas. Horizon look (pitch 0).
 - **GX 0.13.21** Still airborne + 3 FPS: LOD1 0.5 m tiles to 640 m (~10 M verts) + HW RT on every walk tile + 8 m clipmap to 2.2 km. Walk is LOD0 1 m / 128 m only, clipmap 16/40/90 m, RT off on tiles. Spawn uses live stamp (not atlas). Look −8°, snap if > 2 m above stamp.
 - **GX 0.13.20** From the air the ground was a clipmap dartboard (concentric stairs). LOD 1 cube-sphere tiles cover 170–640 m; clipmap hole is 580 m. Snap if > 4.5 m above the stamp.
