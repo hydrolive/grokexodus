@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-18** · On-screen build stamp: **GX 0.13.35**  
+Last updated: **2026-08-18** · On-screen build stamp: **GX 0.13.41**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,12 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.13.41** Far-slope sky windows: a pit wall 2 m down still “covered” hillside tiles 1.2 m away. Cave cover ignores verts more than 1.15 m below the tile unless they are within 0.70 m. Wiped `bak_pre_01341`.
+- **GX 0.13.40** Black wedges on the grass were tiles punched outside the MC keep (cover radius from a rim vert). Consume is now inside island R−0.25 ∩ cave-cover 1.20 m; MC keep stays R+1.25. Lid only drops on live grass. Wiped `bak_pre_01340`.
+- **GX 0.13.39** 0.13.38 dropped interior lid and opened globe windows at the rim. Lid over consumed tiles is back. Consume is island ∩ cave-cover 1.50 m (not 2.10 over-punch, not 1.15 under-open). Filter drops lid only on live grass. Wiped `bak_pre_01339`.
+- **GX 0.13.38** 0.13.37 cover 2.10 m punched grass around the near pit (black wedges). Cover is 1.15 m. Filter keeps stamp-lid only on the rim (near live tiles, not on them); interior lid over a punched hole is dropped so the bowl shows. Wiped `bak_pre_01338`.
+- **GX 0.13.37** 0.13.36 still left a grass quad in the far hillside hole (cover 1.25 m missed slope tiles 2 m from the tunnel). Cover is 2.10 m, still island ∩ cave-mesh. Wiped `bak_pre_01337`.
+- **GX 0.13.36** Far hillside dig showed sky windows + stacked rock on grass: sphere consume punched slope tiles the cave never covered. Consume is now island ∩ cave-cover (lid skip 0.18 m after compact). Filter drops only true lid on live grass (Depth<0.18, pad 0.38 m). Wiped `bak_pre_01336`.
 - **GX 0.13.35** Dig into a hillside stacked grass tiles on the rock collar (z-fight, textures never met). Filter drops stamp-lid tris that sit on live tiles (pad 0.42 m) and keeps excavated walls plus rim over consumed quads only. Consume is island R−0.40 m. Wiped `bak_pre_01335`.
 - **GX 0.13.34** 0.13.33 crater is a rock bowl again but the outer consume ring left rim windows. Consume is now island R−0.55 m; MC keep stays R+1.25 so the collar covers the lip. Wiped `bak_pre_01334`.
 - **GX 0.13.33** 0.13.32 dropped the island lid and only punched 6 tiles (CaveMeshNear skips lid verts) — dark globe window in the grass. Island again owns the mouth: keep every MC tri inside the island (collar+lip+cave), consume every tile centroid inside the island, compact verts. Hill outside the island stays tiles. Wiped `bak_pre_01333`.

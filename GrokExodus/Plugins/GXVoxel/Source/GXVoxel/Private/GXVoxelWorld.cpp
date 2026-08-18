@@ -969,12 +969,16 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			IC, IR,
 			[this](const FVector& P)
 			{
-				// Inner disk only. The leftover tile ring is the grass lip;
-				// MC lid on those quads is dropped so grass and rock do not
-				// z-fight (0.13.34 layered the hillside).
+				// Sphere-only consume punched hillside tiles the cave does
+				// not cover (0.13.35 far-rim sky). Open a quad only when the
+				// compacted mouth mesh actually sits under it.
+				// Subset of the MC keep disk (R+1.25). A 1.5 m cover from a
+				// rim vert used to punch grass outside the keep — black
+				// wedges on the hillside (0.13.37–39).
 				for (const FGXEditSphere& S : EditIsland.Spheres)
 				{
-					if (S.R > 0.80f && FVector::DistSquared(P, S.C) <= FMath::Square(S.R - 0.40f))
+					if (S.R > 0.80f && FVector::DistSquared(P, S.C) <= FMath::Square(S.R - 0.25f)
+						&& CaveMeshNear(P, 1.20f))
 					{
 						return true;
 					}
@@ -1982,18 +1986,24 @@ bool AGXVoxelWorld::CaveMeshNear(const FVector& LocalM, float RadiusM) const
 		for (const FProcMeshVertex& V : Sec->ProcVertexBuffer)
 		{
 			const FVector P = WorldToLocalMeters(Xf.TransformPosition(V.Position));
-			if (FVector::DistSquared(P, LocalM) > R2)
+			const float Dist2 = FVector::DistSquared(P, LocalM);
+			if (Dist2 > R2)
 			{
 				continue;
 			}
-			// Lid verts of the 32 m MC sit on the stamp and would mark every
-			// nearby grass quad as "covered" (0.13.27 consumed 269 @ 12 m).
-			// Only excavated surface (below the stamp) may open a tile.
+			// A deep pit wall 2 m below must not open a hillside tile beside
+			// the hole (0.13.40 blue windows on the far slope).
+			const float DepthGap = static_cast<float>(LocalM.Size() - P.Size());
+			if (DepthGap > 1.15f && Dist2 > 0.70f * 0.70f)
+			{
+				continue;
+			}
+			// Skip the true stamp lid. After compact the buffer is island-only.
 			if (Stamp)
 			{
 				const FVector3f D(P.GetSafeNormal());
 				const float StampR = Stamp->SampleSurfaceRadius(D);
-				if (StampR - P.Size() < 0.70f)
+				if (StampR - P.Size() < 0.18f)
 				{
 					continue;
 				}
@@ -2657,7 +2667,18 @@ void AGXVoxelWorld::RestoreEditedSurfaces()
 	RemeshIsland();
 	int32 Hidden = CrustTiles->ConsumeWhere(
 		IB.GetCenter(), FMath::Max(IB.GetExtent().GetMax(), 4.0f),
-		[this](const FVector& P) { return EditIsland.Contains(P); },
+		[this](const FVector& P)
+		{
+			for (const FGXEditSphere& S : EditIsland.Spheres)
+			{
+				if (S.R > 0.80f && FVector::DistSquared(P, S.C) <= FMath::Square(S.R - 0.25f)
+					&& CaveMeshNear(P, 1.20f))
+				{
+					return true;
+				}
+			}
+			return false;
+		},
 		TerrainMaterial.Get());
 	MaxMeshCreatesPerTick = SavedCreates;
 	bLoadRestorePending = false;
@@ -2766,7 +2787,7 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 		GX_PERF(1, TEXT("GX-filter isle n=%d r=%.2f c=%.1f aliveLid=%d"),
 			EditIsland.Spheres.Num(), S0.R, S0.C.Size(), AliveLid.Num());
 	}
-	const float LidPad2 = 0.42f * 0.42f;
+	const float LidPad2 = 0.38f * 0.38f;
 	auto OnAliveLid = [&AliveLid, LidPad2](const FVector& P) -> bool
 	{
 		for (const FVector& C : AliveLid)
@@ -2815,7 +2836,7 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 			const float StampR = Stamp->SampleSurfaceRadius(FVector3f(Cent.GetSafeNormal()));
 			Depth = StampR - static_cast<float>(Cent.Size());
 		}
-		if (Depth < 0.30f && OnAliveLid(Cent))
+		if (Depth < 0.18f && OnAliveLid(Cent))
 		{
 			++DropLid;
 			continue;
