@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-screen build stamp: **GX 0.11.1**  
+Last updated: **2026-08-17** · On-screen build stamp: **GX 0.12.0**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.12.0** Wave C first ship. Ephemeris sky (`UGXSkySubsystem`) poses the sun from Kepler + sidereal spin; planet actor stays fixed. Moon impostor. Demo LEO vessel on rails. INTEGRATED path has drag/heat/breakup/parachute. Navball + orbit strip + polar map. Time warp `,` / `.` or `gx.warp` (1–1000); physics warp refused in atmo / while thrusting. Overlay shows `UT` + `W×`. `gx.sky.dump`, `gx.vessel.spawn [rails|int]`.
 - **GX 0.11.1** Reload left you under a closed lid (cap + missing faces). Save v2 wrote 4 bytes of each `FVector` (doubles in UE 5.8) so the island reloaded at the origin; consume=0; `SnapToSurface` then sat you on the cave floor. Save **v3** writes explicit floats; invalid/v2 islands rebuild from near-surface air cells; spawn stays on the stamp crust. Keep the cave save (reconstruct on load).
 - **GX 0.11.0** Shot GX-shot-0151: rim still leftover tile sheets — hide predicates cannot join 0.5 m lawn to 1 m MC. **Edit island:** brush+2 m is one voxel mesh (collar+cave). Tiles consume stamp centroids inside the union of spheres. Save v2 stores island spheres. Wipe `earth_default.gxsav` (bak_pre_0152).
 - **GX 0.10.51** Shot GX-shot-0150: cave works; **grass sheets on unrefined tiles** as the hole grows. FineCell 8 nearest tiles. Fine 0.5 m quads hide if **any** corner is in the disk; 1 m quads still need 3 corners.
@@ -491,13 +492,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 ## Next work
 
-**Wave C — sky that tells the truth** (see `GrokExodus/Docs/02_Voxel_World_System.md`):
-
-1. `UGXSkySubsystem` — sun/stars/impostors from `R_inertial_to_body(UT)`; planet actor stays fixed.
-2. Vessel INTEGRATED / ON_RAILS.
-3. Drag, heating, breakup, parachute hook.
-4. Navball + orbit strip + read-only map.
-5. Time warp (refuse in atmo / thrusting).
+**Wave C first ship is 0.12.0.** Remaining C polish: star catalog on the dome, follow-vessel camera, parachute deploy key, more honest year/season lighting.
 
 Then Wave D (grids/industry) and Wave E (Earth→Moon).
 

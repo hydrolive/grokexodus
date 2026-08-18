@@ -221,7 +221,7 @@ Required bar:
 | Session state | `HANDOVER.md` |
 | Build stamp | `GXVersion.h` |
 | Perf log | `LogGXVoxel` once/sec: `GX-<ver> perf tick=…` in `Saved/Logs/GrokExodus.log` |
-| Next feature wave | **C** — GXSky, on-rails vessels, drag/heat, navball |
+| Next feature wave | **D** — grids / industry / typed thrusters (C first-shipped in 0.12.0) |
 
 ---
 

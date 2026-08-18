@@ -2,7 +2,7 @@
 
 **Project:** Grok Exodus  
 **Engine:** Unreal Engine 5.8  
-**Status:** Waves **A** (plugins + math) and **B** (walkable planet) implemented.  
+**Status:** Waves **A** and **B** implemented. Wave **C** first ship (GX 0.12.0): ephemeris sky, rails/integrated vessels, drag/heat, navball, time warp.  
 **Default play:** `AGXGameMode` (`/Script/GrokExodus.GXGameMode`)
 
 Primary fantasy: **player creativity + hard space exploration.** Mine, build anything, fly it. Gravity, orbits, and re-entry are physically honest enough to punish a sloppy ship.
@@ -142,7 +142,7 @@ g(r) = −μ r̂ / r²
 | Sky | Directional light + starfield + impostors posed by `R_inertial_to_body(UT)` |
 | Ships in orbit | Integrated in inertial space, transformed into the body-fixed scene |
 
-`GXCelestial` already has Kepler, ECI↔body, atmosphere density, and heat/q helpers. `UGXSkySubsystem` is Wave C.
+`GXCelestial` already has Kepler, ECI↔body, atmosphere density, and heat/q helpers. `UGXSkySubsystem` (0.12.0) owns UT, `R_inertial_to_body`, the directional sun, a Moon impostor, and time warp. `AGXVessel` is ON_RAILS (Kepler) or INTEGRATED (RK2 + drag/heat). The planet actor does not move.
 
 ### Persistence
 
@@ -324,7 +324,7 @@ Automation (editor): `Automation RunTests GX`
 |---|---|---|
 | **A** — plugin skeletons + math | **Done** | Core / Voxel volume / Celestial math / Construct types / Presentation shell |
 | **B** — walkable planet | **Done** | DynamicMesh, invokers, async stamps, tools, `UGXBodyMovement`, `AGXGameMode` |
-| **C** — sky that tells the truth | Next | GXSky, on-rails vessels, drag/heat on ships, navball, time warp |
+| **C** — sky that tells the truth | **First ship 0.12.0** | `UGXSkySubsystem`, `AGXVessel` rails/int, drag/heat/breakup, navball + map, time warp |
 | **D** — creative industry + ships | After C | Place / weld / conveyors / typed thrusters |
 | **E** — Earth → Moon vertical slice | After D | Drop-pod, Moon stamps, delete legacy `Voxel/` |
 
@@ -334,7 +334,7 @@ Automation (editor): `Automation RunTests GX`
 
 - Mesher is CPU MC with transvoxel face skirts (0.8). Dual Contouring / cluster DAG is 0.9.
 - PBR is a 4×2 atlas sampled by a native material graph (no Custom HLSL). Vertex color still tints if the atlas is unbound.
-- Sky lamp is still `AVoxelSunSetup` (not ephemeris). Atmosphere *orientation* is now spherical via `FGXPlanetAtmosphere`.
+- Sun lamp is still spawned by `AVoxelSunSetup`; `UGXSkySubsystem` poses it from ephemeris each tick. Atmosphere *orientation* is spherical via `FGXPlanetAtmosphere`.
 - 60 km surface is 6×10⁶ UU from origin — LWC is on; Chaos is acceptable at that range but not at Earth–Moon span (hence body frames).
 - Single-player only.
 - Legacy `AVoxelPlanetActor` path still compiles but is not the product.

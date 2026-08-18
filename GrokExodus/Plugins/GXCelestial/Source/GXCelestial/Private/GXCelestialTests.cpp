@@ -4,6 +4,9 @@
 #include "GXKepler.h"
 #include "GXGravity.h"
 #include "GXBodyFrame.h"
+#include "GXEphemeris.h"
+#include "GXSkySubsystem.h"
+#include "GXFrameSubsystem.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGXCelestialClosedOrbit, "GX.Celestial.ClosedOrbit",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -61,5 +64,31 @@ bool FGXCelestialAtmoHeat::RunTest(const FString& Parameters)
 	const FVector3d G = FGXGravity::Acceleration(FVector3d(60000, 0, 0), 9.81 * 60000.0 * 60000.0);
 	TestTrue(TEXT("surface g ~9.81"), FMath::Abs(G.Size() - 9.81) < 1e-3);
 	TestTrue(TEXT("toward center"), G.X < 0.0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGXCelestialSkyNoon, "GX.Celestial.SkyNoon",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGXCelestialSkyNoon::RunTest(const FString& Parameters)
+{
+	const FGXEphemeris E = FGXEphemeris::PlayableEarth();
+	const FVector3d Sun0 = E.SunBodyDir(0.0);
+	TestTrue(TEXT("UT0 noon on +X"), Sun0.X > 0.70);
+	const FVector3d SunNight = E.SunBodyDir(E.EarthRot.SiderealPeriod * 0.5);
+	TestTrue(TEXT("half-day is night on +X"), SunNight.X < 0.0);
+	const FQuat4d R = E.InertialToBody(111.0);
+	TestTrue(TEXT("frame invert"), UGXFrameSubsystem::TransformRoundTripOk(R, FVector3d(60000, 40, -20)));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGXCelestialWarpRefuse, "GX.Celestial.WarpRefuse",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGXCelestialWarpRefuse::RunTest(const FString& Parameters)
+{
+	TestTrue(TEXT("vacuum ok"), !UGXSkySubsystem::ShouldRefusePhysicsWarp(0.0, false));
+	TestTrue(TEXT("atmo refuse"), UGXSkySubsystem::ShouldRefusePhysicsWarp(0.2, false));
+	TestTrue(TEXT("thrust refuse"), UGXSkySubsystem::ShouldRefusePhysicsWarp(0.0, true));
 	return true;
 }

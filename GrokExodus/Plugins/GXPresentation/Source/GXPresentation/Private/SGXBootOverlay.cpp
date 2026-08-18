@@ -87,6 +87,17 @@ void SGXBootOverlay::Construct(const FArguments& InArgs)
 			.ShadowOffset(FVector2D(1.f, 1.f))
 			.ShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.85f))
 		]
+		+ SOverlay::Slot()
+		.HAlign(HAlign_Left)
+		.VAlign(VAlign_Bottom)
+		.Padding(FMargin(16.f, 0.f, 0.f, 18.f))
+		[
+			SAssignNew(Flight, STextBlock)
+			.Font(FCoreStyle::GetDefaultFontStyle("Regular", 13))
+			.ColorAndOpacity(FLinearColor(0.78f, 0.88f, 0.95f, 0.92f))
+			.ShadowOffset(FVector2D(1.f, 1.f))
+			.ShadowColorAndOpacity(FLinearColor(0.f, 0.f, 0.f, 0.75f))
+		]
 	];
 
 	SetState(1.0f, 0.05f, TEXT("Starting planet systems…"), TEXT("boot"));
@@ -111,6 +122,14 @@ void SGXBootOverlay::SetState(float InOverlayAlpha, float InProgress, const FStr
 	{
 		Stamp->SetText(FText::FromString(
 			FString::Printf(TEXT("GX %s  %s"), GX_VERSION_STRING, *InExtra)));
+	}
+}
+
+void SGXBootOverlay::SetFlight(const FString& InFlight)
+{
+	if (Flight.IsValid())
+	{
+		Flight->SetText(FText::FromString(InFlight));
 	}
 }
 

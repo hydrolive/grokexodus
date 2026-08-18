@@ -52,6 +52,9 @@ protected:
 	void OnCycleMaterial();
 	void OnSaveWorld();
 	void OnCycleQuality();
+	void OnWarpUp();
+	void OnWarpDown();
+	void StepWarp(int32 Delta);
 
 	UGXBodyMovement* GetBodyMove() const;
 	FVector GetPlanetUp() const;

@@ -17,6 +17,8 @@ public:
 	virtual void DrawHUD() override;
 	virtual void Tick(float DeltaSeconds) override;
 
+	void DrawFlightInstruments();
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "GX|HUD")
 	bool bDrawDebugStrip = true;
 

@@ -5,6 +5,7 @@
 #include "GXVoxelInvokerComponent.h"
 #include "GXBodyMovement.h"
 #include "GXVoxelWorld.h"
+#include "GXSkySubsystem.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -263,6 +264,31 @@ void AGrokExodusSurvivor::SetupPlayerInputComponent(UInputComponent* PlayerInput
 	PlayerInputComponent->BindKey(EKeys::G, IE_Pressed, this, &AGrokExodusSurvivor::OnToolMode);
 	PlayerInputComponent->BindKey(EKeys::SpaceBar, IE_Pressed, this, &AGrokExodusSurvivor::OnJumpPressed);
 	PlayerInputComponent->BindKey(EKeys::SpaceBar, IE_Released, this, &AGrokExodusSurvivor::OnJumpReleased);
+	PlayerInputComponent->BindKey(EKeys::Period, IE_Pressed, this, &AGrokExodusSurvivor::OnWarpUp);
+	PlayerInputComponent->BindKey(EKeys::Comma, IE_Pressed, this, &AGrokExodusSurvivor::OnWarpDown);
+	PlayerInputComponent->BindKey(EKeys::Equals, IE_Pressed, this, &AGrokExodusSurvivor::OnWarpUp);
+	PlayerInputComponent->BindKey(EKeys::Hyphen, IE_Pressed, this, &AGrokExodusSurvivor::OnWarpDown);
+}
+
+void AGrokExodusSurvivor::OnWarpUp()
+{
+	StepWarp(1);
+}
+
+void AGrokExodusSurvivor::OnWarpDown()
+{
+	StepWarp(-1);
+}
+
+void AGrokExodusSurvivor::StepWarp(int32 Delta)
+{
+	if (UWorld* World = GetWorld())
+	{
+		if (UGXSkySubsystem* Sky = World->GetSubsystem<UGXSkySubsystem>())
+		{
+			Sky->StepWarp(Delta);
+		}
+	}
 }
 
 void AGrokExodusSurvivor::OnDrillStarted() { if (TerrainTool) TerrainTool->PrimaryFire(true); }

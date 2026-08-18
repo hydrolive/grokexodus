@@ -13,6 +13,7 @@ public:
 
 	void Construct(const FArguments& InArgs);
 	void SetState(float InOverlayAlpha, float InProgress, const FString& InStatus, const FString& InExtra);
+	void SetFlight(const FString& InFlight);
 
 private:
 	FSlateColor GetDimColor() const;
@@ -25,4 +26,5 @@ private:
 	TSharedPtr<STextBlock> BuildLine;
 	TSharedPtr<STextBlock> StatusLine;
 	TSharedPtr<STextBlock> Stamp;
+	TSharedPtr<STextBlock> Flight;
 };

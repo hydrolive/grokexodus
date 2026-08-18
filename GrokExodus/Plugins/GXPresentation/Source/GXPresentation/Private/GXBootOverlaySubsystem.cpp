@@ -6,6 +6,7 @@
 #include "GXPresentation.h"
 #include "GXVersion.h"
 #include "GXVoxelWorld.h"
+#include "GXSkySubsystem.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/World.h"
@@ -82,6 +83,15 @@ void UGXBootOverlaySubsystem::Tick(float DeltaTime)
 				: Toast;
 		}
 		Boot->SetState(OverlayAlpha, Progress, Status, Extra);
+		FString Flight;
+		if (UWorld* World = GetWorld())
+		{
+			if (UGXSkySubsystem* Sky = World->GetSubsystem<UGXSkySubsystem>())
+			{
+				Flight = Sky->FlightStrip();
+			}
+		}
+		Boot->SetFlight(Flight);
 	}
 }
 
