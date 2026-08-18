@@ -697,10 +697,10 @@ void FGXHorizonClipmap::BuildRing(
 			{
 				continue;
 			}
-			// Outward winding. A,C,B faced the core — 0.7.15 mid-range was
-			// backface-culled (teal void) and only the underside showed.
-			Indices.Add(A); Indices.Add(B); Indices.Add(C);
-			Indices.Add(B); Indices.Add(D); Indices.Add(C);
+			// Same A-C-B as walk tiles. A-B-C was culled from the pawn so
+			// the globe's 0.5 km cells showed through (Minecraft hills).
+			Indices.Add(A); Indices.Add(C); Indices.Add(B);
+			Indices.Add(B); Indices.Add(C); Indices.Add(D);
 		}
 	}
 
