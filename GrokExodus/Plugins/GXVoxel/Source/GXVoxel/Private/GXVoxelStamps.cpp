@@ -168,14 +168,15 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 		Rise = FMath::Max(Rise, RangeW(Mid, Along, S.HalfLen * 1.25f, S.HalfWid * 3.4f, S.Flank * 2.7f, true));
 	}
 	Domain = FMath::Lerp(Domain, 0.22f, Basin * 0.80f);
-	// Near the voxel stream, cap Domain so we do not mesh a 2 km wall.
-	// Far land (orbit) must still have ranges — spines only cover ~11 km of +X.
-	const float NearStream = FGXNoise::Smooth01((4200.0f - ArcM) / 1600.0f);
-	Domain = FMath::Min(Domain, FMath::Lerp(0.90f, 0.44f, NearStream));
 	const float Away = 1.0f - Basin;
 	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.52f, Rise * Away));
 	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.64f, Feet * Away));
 	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.93f, Spine * Away));
+	// Apply the near-stream cap LAST. 0.13.13 capped first, then Rise/Feet
+	// of the +X range rebuilt Domain to 0.64–0.93 and meshed an 80° wall
+	// 200 m from spawn (contour stairs on a 4 m clipmap).
+	const float NearStream = FGXNoise::Smooth01((2800.0f - ArcM) / 1400.0f);
+	Domain = FMath::Min(Domain, FMath::Lerp(0.88f, 0.36f, NearStream));
 	const float PlainsW = 1.0f - FGXNoise::Smooth01((Domain - 0.34f) / 0.26f);
 	const float MountainW = FGXNoise::Smooth01((Domain - 0.54f) / 0.26f);
 	const float HillW = FMath::Clamp(1.0f - PlainsW - MountainW, 0.0f, 1.0f);
@@ -278,7 +279,7 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	const float DetailScale = PlainsW * 0.40f + HillW * 0.70f + MountainW;
 	// Plate-suture ranges on every continent (not only +X spines).
 	const float WorldBelt = LandMask * Belt * (0.10f + 0.22f * Mass * Ridge)
-		* (1.0f - NearStream * 0.55f);
+		* (1.0f - NearStream * 0.88f);
 	float LandH = 0.01f * LandMask
 		+ Inland * (Shield + Hills + Foothills + Plateau + Orogeny + WorldBelt
 			+ Local * 0.45f * DetailScale
