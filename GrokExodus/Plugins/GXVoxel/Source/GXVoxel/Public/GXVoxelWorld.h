@@ -334,6 +334,7 @@ protected:
 	void EnqueueChunkMeshAsync(const FGXChunkKey& Coord);
 	void DrainPendingMeshes(int32 Budget);
 	bool ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshBuffers&& MeshData);
+	bool ApplyCaveProxyMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshBuffers&& MeshData);
 	void DeferMeshApply(const FGXChunkKey& Coord, int32 LOD, FGXMeshBuffers&& MeshData);
 	void EnsureMeshBanks();
 	void GrowMeshBanks(int32 TargetBanks);

@@ -1173,10 +1173,11 @@ int32 FGXCrustTiles::ConsumeWhere(
 		return 0;
 	}
 	int32 Changed = 0;
-	const float TileReach2 = FMath::Square(ApproxR + TileM * 0.80f + 8.0f);
 	for (auto& Pair : Live)
 	{
 		FTile& Tile = Pair.Value;
+		const float Scale = TileM * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
+		const float TileReach2 = FMath::Square(ApproxR + Scale * 0.80f + 8.0f);
 		if (FVector::DistSquared(Tile.OriginCm * 0.01f, ApproxCenter) > TileReach2)
 		{
 			continue;

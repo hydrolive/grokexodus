@@ -23,7 +23,9 @@ AGXVoxelChunkProxy::AGXVoxelChunkProxy()
 	Mesh->bAffectDynamicIndirectLighting = true;
 	Mesh->bCastContactShadow = true;
 	Mesh->SetVisibleInRayTracing(false);
-	Mesh->bNeverDistanceCull = false;
+	Mesh->bNeverDistanceCull = true;
+	Mesh->SetCullDistance(0.0f);
+	Mesh->SetBoundsScale(4.0f);
 }
 
 void AGXVoxelChunkProxy::InitializeChunk(const FGXChunkKey& InCoord, int32 InLOD)
@@ -83,9 +85,8 @@ void AGXVoxelChunkProxy::ApplyMesh(
 		Tangents.Add(FProcMeshTangent(T, false));
 	}
 
-	// Always async. Sync-cooking the 160 m collision island while walking
-	// was the 14 FPS hitch in the 0.7.11 log.
-	Mesh->bUseAsyncCooking = true;
+	// Cave mouth must exist this frame. Two 32 m chunks are cheap to cook.
+	Mesh->bUseAsyncCooking = !bCollision;
 	Mesh->ClearAllMeshSections();
 	Mesh->CreateMeshSection_LinearColor(
 		0,

@@ -738,9 +738,6 @@ FGXVoxelHit AGXVoxelWorld::RaycastVoxels(FVector WorldOrigin, FVector WorldDirec
 	// Cave MC first so the ball cannot sit behind a leftover lid (0134).
 	if (CaveChunks.Num() > 0 && ChunkVisuals.Num() > 0)
 	{
-		const FTransform Xf = GetActorTransform();
-		const FVector LO = Xf.InverseTransformPosition(WorldOrigin);
-		const FVector LD = Xf.InverseTransformVectorNoScale(Dir).GetSafeNormal();
 		float BestT = MaxDistance;
 		FVector BestN = FVector::ZeroVector;
 		bool bCaveHit = false;
@@ -783,17 +780,30 @@ FGXVoxelHit AGXVoxelWorld::RaycastVoxels(FVector WorldOrigin, FVector WorldDirec
 			{
 				continue;
 			}
-			UProceduralMeshComponent* PMC = MeshBanks.IsValidIndex(Pair.Value.Bank)
-				? MeshBanks[Pair.Value.Bank].Get() : nullptr;
+			UProceduralMeshComponent* PMC = nullptr;
+			FTransform Xf = GetActorTransform();
+			int32 Section = Pair.Value.Section;
+			if (AGXVoxelChunkProxy* Proxy = ChunkActors.FindRef(Pair.Key).Get())
+			{
+				PMC = Proxy->Mesh;
+				Xf = Proxy->GetActorTransform();
+				Section = 0;
+			}
+			else if (MeshBanks.IsValidIndex(Pair.Value.Bank))
+			{
+				PMC = MeshBanks[Pair.Value.Bank].Get();
+			}
 			if (!PMC)
 			{
 				continue;
 			}
-			const FProcMeshSection* Sec = PMC->GetProcMeshSection(Pair.Value.Section);
+			const FProcMeshSection* Sec = PMC->GetProcMeshSection(Section);
 			if (!Sec)
 			{
 				continue;
 			}
+			const FVector LO = Xf.InverseTransformPosition(WorldOrigin);
+			const FVector LD = Xf.InverseTransformVectorNoScale(Dir).GetSafeNormal();
 			const TArray<FProcMeshVertex>& Verts = Sec->ProcVertexBuffer;
 			const TArray<uint32>& Idx = Sec->ProcIndexBuffer;
 			for (int32 T = 0; T + 2 < Idx.Num(); T += 3)
@@ -809,7 +819,7 @@ FGXVoxelHit AGXVoxelWorld::RaycastVoxels(FVector WorldOrigin, FVector WorldDirec
 					Verts[Idx[T + 2]].Position, BestT, HitT, HitN))
 				{
 					BestT = HitT;
-					BestN = HitN;
+					BestN = Xf.TransformVectorNoScale(HitN);
 					bCaveHit = true;
 				}
 			}
@@ -1798,6 +1808,10 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 		MarkChunkEmpty(Coord, LOD, TEXT("mesh"));
 		return true;
 	}
+	if (CaveChunks.Contains(Coord))
+	{
+		return ApplyCaveProxyMesh(Coord, LOD, MoveTemp(MeshData));
+	}
 	HollowChunks.Remove(Coord);
 	EmptyRetries.Remove(Coord);
 	NextEmptyRetryAt.Remove(Coord);
@@ -1923,6 +1937,61 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 	}
 
 	MeshQueued.Remove(Coord);
+	return true;
+}
+
+bool AGXVoxelWorld::ApplyCaveProxyMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshBuffers&& MeshData)
+{
+	UWorld* World = GetWorld();
+	if (!World || MeshData.IsEmpty())
+	{
+		return true;
+	}
+	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
+	const FVector OriginM(
+		(Coord.X + 0.5f) * ChunkM,
+		(Coord.Y + 0.5f) * ChunkM,
+		(Coord.Z + 0.5f) * ChunkM);
+	const FVector WorldCm = GetActorLocation() + OriginM * GMetersToUU;
+	AGXVoxelChunkProxy* Proxy = ChunkActors.FindRef(Coord).Get();
+	if (!Proxy)
+	{
+		FActorSpawnParameters SP;
+		SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+		Proxy = World->SpawnActor<AGXVoxelChunkProxy>(WorldCm, FRotator::ZeroRotator, SP);
+		if (!Proxy)
+		{
+			UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s cave proxy spawn failed %d_%d_%d"),
+				GX_VERSION_STRING, Coord.X, Coord.Y, Coord.Z);
+			return true;
+		}
+		Proxy->InitializeChunk(Coord, LOD);
+		ChunkActors.Add(Coord, Proxy);
+	}
+	else
+	{
+		Proxy->SetActorLocation(WorldCm, false, nullptr, ETeleportType::TeleportPhysics);
+	}
+	if (UProceduralMeshComponent* M = Proxy->Mesh)
+	{
+		M->bNeverDistanceCull = true;
+		M->SetCullDistance(0.0f);
+		M->SetBoundsScale(4.0f);
+		M->bUseAsyncCooking = false;
+	}
+	Proxy->ApplyMesh(MeshData, OriginM, GMetersToUU, TerrainMaterial.Get(), true);
+	HollowChunks.Remove(Coord);
+	EmptyRetries.Remove(Coord);
+	NextEmptyRetryAt.Remove(Coord);
+	FChunkVisual& V = ChunkVisuals.FindOrAdd(Coord);
+	V.Bank = INDEX_NONE;
+	V.Section = INDEX_NONE;
+	V.LOD = LOD;
+	V.VertCount = MeshData.Positions.Num();
+	V.IndexCount = MeshData.Indices.Num();
+	MeshQueued.Remove(Coord);
+	GX_PERF(1, TEXT("GX-cave proxy %d_%d_%d verts=%d tris=%d"),
+		Coord.X, Coord.Y, Coord.Z, V.VertCount, V.IndexCount / 3);
 	return true;
 }
 
@@ -2174,6 +2243,11 @@ void AGXVoxelWorld::ReleaseVisual(const FGXChunkKey& Key)
 	{
 		return;
 	}
+	if (AGXVoxelChunkProxy* Proxy = ChunkActors.FindRef(Key).Get())
+	{
+		Proxy->Destroy();
+	}
+	ChunkActors.Remove(Key);
 	if (MeshBanks.IsValidIndex(Slot.Bank) && MeshBanks[Slot.Bank])
 	{
 		MeshBanks[Slot.Bank]->ClearMeshSection(Slot.Section);
@@ -2194,6 +2268,10 @@ bool AGXVoxelWorld::EvictFurthestVisual(const FVector& ViewerLocalM, float Chunk
 	bool bFound = false;
 	for (const auto& Pair : ChunkVisuals)
 	{
+		if (CaveChunks.Contains(Pair.Key))
+		{
+			continue;
+		}
 		const FVector C((Pair.Key.X + 0.5f) * ChunkM, (Pair.Key.Y + 0.5f) * ChunkM, (Pair.Key.Z + 0.5f) * ChunkM);
 		const float Ds = FVector::DistSquared(C, ViewerLocalM);
 		if (Ds > BestDs)
