@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-screen build stamp: **GX 0.13.9**  
+Last updated: **2026-08-17** · On-screen build stamp: **GX 0.13.10**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.13.10** 0.13.9 VSM overflow (globe + far clipmap shadows) and hills past 360 m were still 8 m stairs. Only tiles + near clipmap cast. Fine ring is 4 m out to 720 m.
 - **GX 0.13.9** Could not walk (V follow ate the camera; WASD now cancels follow). Sun shone through the crust — tiles/clipmap/globe cast no shadows and CSM died at 200 m. Shadows on, CSM 8 km. Hills were 8/32/96 m stairs; clipmap is 3/8/24/64 m, globe N=192.
 - **GX 0.13.8** Orbit PBR minified to one tan sheet (ice IDs not reading at 20 km). Globe MID sets `BiomeTint=0.78` so ice/grass/rock vertex colors show continents from LEO. Walk stays 0.18 (textured). Regenerated `M_VoxelTerrain_PBR`.
 - **GX 0.13.7** +X spawn land was a whole hemisphere so orbit was one tan disk. SpawnLand is a tight pad. Globe back to A-C-B (green floor). SSR/Lumen reflections off so the sky is not a mirror of the hills.

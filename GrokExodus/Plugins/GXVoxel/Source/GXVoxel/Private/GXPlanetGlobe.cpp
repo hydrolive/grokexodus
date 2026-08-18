@@ -36,7 +36,8 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 		return;
 	}
 	PMC->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	PMC->SetCastShadow(true);
+	// Planet-sized bounds overflow the VSM marking queue (0.13.9).
+	PMC->SetCastShadow(false);
 	PMC->SetVisibleInRayTracing(false);
 	PMC->bNeverDistanceCull = true;
 	PMC->SetCullDistance(0.0f);

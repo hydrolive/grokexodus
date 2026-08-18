@@ -212,13 +212,13 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// Visible annulus starts inside the tile disk (140 m) at a small sink
 	// so the 8 m ring is not a second skin on the 2 m tiles (0.9.6–0.9.8
 	// fins). Farther rings sit deeper and barely overlap.
-	// 8/32/96 m cells were Minecraft stairs on every hill (0.13.8).
-	// 3 m near the walk tiles, then 8 / 24 / 64 m out to 10 km.
+	// 4 m through the first range (0.13.9's 3 m ring stopped at 360 m
+	// so the hills in the shot were still 8–24 m stairs).
 	const FSpec Specs[] = {
-		{ 70.0f, 360.0f, 3.0f, 1.2f },
-		{ 340.0f, 1200.0f, 8.0f, 3.5f },
-		{ 1150.0f, 3800.0f, 24.0f, 8.0f },
-		{ 3600.0f, 10000.0f, 64.0f, 16.0f },
+		{ 70.0f, 720.0f, 4.0f, 1.5f },
+		{ 700.0f, 2000.0f, 12.0f, 4.0f },
+		{ 1900.0f, 5500.0f, 32.0f, 10.0f },
+		{ 5300.0f, 11000.0f, 64.0f, 16.0f },
 	};
 	for (const FSpec& S : Specs)
 	{
@@ -227,6 +227,9 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 		{
 			continue;
 		}
+		// Only the near rings cast. Globe-sized far PMCs overflow VSM
+		// (0.13.9 on-screen marking-queue warning).
+		PMC->SetCastShadow(S.Cell <= 12.0f);
 		FRing Ring;
 		Ring.Comp = PMC;
 		Ring.InnerM = S.Inner;
