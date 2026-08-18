@@ -212,12 +212,12 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// Visible annulus starts inside the tile disk (140 m) at a small sink
 	// so the 8 m ring is not a second skin on the 2 m tiles (0.9.6–0.9.8
 	// fins). Farther rings sit deeper and barely overlap.
-	// 2.5 m through the first range so 25° hills are not 4 m shelves.
+	// 8 m through 2 km so the mountain ramp is not 24 m shelves.
 	const FSpec Specs[] = {
-		{ 60.0f, 480.0f, 2.5f, 1.0f },
-		{ 460.0f, 1500.0f, 8.0f, 3.5f },
-		{ 1450.0f, 4200.0f, 24.0f, 8.0f },
-		{ 4000.0f, 11000.0f, 64.0f, 16.0f },
+		{ 60.0f, 520.0f, 2.5f, 1.0f },
+		{ 500.0f, 2200.0f, 8.0f, 3.5f },
+		{ 2100.0f, 5500.0f, 20.0f, 8.0f },
+		{ 5300.0f, 11000.0f, 56.0f, 16.0f },
 	};
 	for (const FSpec& S : Specs)
 	{

@@ -172,11 +172,11 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.52f, Rise * Away));
 	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.64f, Feet * Away));
 	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.93f, Spine * Away));
-	// Apply the near-stream cap LAST. 0.13.13 capped first, then Rise/Feet
-	// of the +X range rebuilt Domain to 0.64–0.93 and meshed an 80° wall
-	// 200 m from spawn (contour stairs on a 4 m clipmap).
-	const float NearStream = FGXNoise::Smooth01((2800.0f - ArcM) / 1400.0f);
-	Domain = FMath::Min(Domain, FMath::Lerp(0.88f, 0.36f, NearStream));
+	// Cap LAST so Rise/Feet cannot rebuild a wall. Ease over 6 km —
+	// 0.13.14 released Domain 0.36→0.88 in 1.4 km and the 24 m ring
+	// drew that as contour stairs filling the spawn view.
+	const float NearStream = FGXNoise::Smooth01((7000.0f - ArcM) / 5000.0f);
+	Domain = FMath::Min(Domain, FMath::Lerp(0.82f, 0.40f, NearStream));
 	const float PlainsW = 1.0f - FGXNoise::Smooth01((Domain - 0.34f) / 0.26f);
 	const float MountainW = FGXNoise::Smooth01((Domain - 0.54f) / 0.26f);
 	const float HillW = FMath::Clamp(1.0f - PlainsW - MountainW, 0.0f, 1.0f);
