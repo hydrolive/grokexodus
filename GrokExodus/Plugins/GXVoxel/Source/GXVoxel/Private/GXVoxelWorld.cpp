@@ -363,8 +363,15 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	EnsureCrustAtlas();
 	if (PlanetGlobe && Volume)
 	{
+		// Unlit vertex color so the night side still reads as crust, not a
+		// black bowling ball (lit HorizonFar vanished under auto-exposure).
 		UMaterialInterface* GlobeMat = LoadObject<UMaterialInterface>(nullptr,
-			TEXT("/Game/Voxel/Materials/M_VoxelHorizonFar.M_VoxelHorizonFar"));
+			TEXT("/Game/Voxel/Materials/M_VoxelTerrain_VertexColor.M_VoxelTerrain_VertexColor"));
+		if (!GlobeMat)
+		{
+			GlobeMat = LoadObject<UMaterialInterface>(nullptr,
+				TEXT("/Game/Voxel/Materials/M_VoxelHorizonFar.M_VoxelHorizonFar"));
+		}
 		if (!GlobeMat)
 		{
 			GlobeMat = TerrainMaterial.Get();

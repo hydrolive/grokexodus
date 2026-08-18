@@ -4,6 +4,7 @@
 #include "GXVoxel.h"
 #include "GXPerf.h"
 #include "ProceduralMeshComponent.h"
+#include "Materials/MaterialInterface.h"
 #include "GameFramework/Actor.h"
 
 void FGXPlanetGlobe::Shutdown()
@@ -39,15 +40,15 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 	PMC->SetVisibleInRayTracing(false);
 	PMC->bNeverDistanceCull = true;
 	PMC->SetCullDistance(0.0f);
-	PMC->SetBoundsScale(32.0f);
+	PMC->SetBoundsScale(64.0f);
+	PMC->SetReceivesDecals(false);
 	PMC->SetupAttachment(Owner->GetRootComponent());
 	PMC->RegisterComponent();
 	Comp = PMC;
 
-	// 6×80². ~0.75° / 0.8 km cells. Sink under near-field so digs do not
-	// need a 1 km punch (that cut orbital holes through the crust).
+	// 6×80². Sink under tiles/clipmap. Do not punch — 1 km cells cut orbit.
 	constexpr int32 N = 80;
-	constexpr float SinkM = 80.0f;
+	constexpr float SinkM = 45.0f;
 	const float R0 = Stamp.GetParams().Radius;
 	const float Relief = FMath::Max(1.0f, Stamp.GetParams().MaxRelief);
 	TArray<FVector> Pos, Nrm;
@@ -145,12 +146,28 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 				const int32 Bv = A + 1;
 				const int32 C = A + Stride;
 				const int32 D = C + 1;
-				Idx.Add(A); Idx.Add(C); Idx.Add(Bv);
-				Idx.Add(Bv); Idx.Add(C); Idx.Add(D);
+				// Outward (A-B-C). A-C-B faced the core — orbit saw sky
+				// through whole cube faces (black planet, light through digs).
+				Idx.Add(A); Idx.Add(Bv); Idx.Add(C);
+				Idx.Add(Bv); Idx.Add(D); Idx.Add(C);
 			}
 		}
 	}
-	(void)R0;
+	int32 Flipped = 0;
+	for (int32 T = 0; T + 2 < Idx.Num(); T += 3)
+	{
+		const int32 IA = Idx[T], IB = Idx[T + 1], IC = Idx[T + 2];
+		if (!Pos.IsValidIndex(IA) || !Pos.IsValidIndex(IB) || !Pos.IsValidIndex(IC))
+		{
+			continue;
+		}
+		const FVector FN = FVector::CrossProduct(Pos[IB] - Pos[IA], Pos[IC] - Pos[IA]);
+		if (FVector::DotProduct(FN, Pos[IA]) < 0.0f)
+		{
+			Swap(Idx[T + 1], Idx[T + 2]);
+			++Flipped;
+		}
+	}
 	Positions = MoveTemp(Pos);
 	Normals = MoveTemp(Nrm);
 	UV0 = MoveTemp(UV);
@@ -158,15 +175,23 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 	Tangents = MoveTemp(Tan);
 	Indices = MoveTemp(Idx);
 	LiveIndices = Indices;
-	PMC->CreateMeshSection_LinearColor(0, Positions, LiveIndices, Normals, UV0, Colors, Tangents, false);
-	if (Material)
+	UMaterialInterface* UseMat = Material;
+	if (!UseMat)
 	{
-		PMC->SetMaterial(0, Material);
+		UseMat = LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Game/Voxel/Materials/M_VoxelTerrain_VertexColor.M_VoxelTerrain_VertexColor"));
 	}
+	PMC->CreateMeshSection_LinearColor(0, Positions, LiveIndices, Normals, UV0, Colors, Tangents, false);
+	if (UseMat)
+	{
+		PMC->SetMaterial(0, UseMat);
+	}
+	PMC->UpdateBounds();
 	bReady = true;
-	UE_LOG(LogGXVoxel, Warning, TEXT("GXPlanetGlobe ready verts=%d (stamp crust, sink=%.0fm, no punch)"),
-		Positions.Num(), SinkM);
-	GX_PERF(1, TEXT("GX-globe verts=%d sink=%.0f far-mat"), Positions.Num(), SinkM);
+	UE_LOG(LogGXVoxel, Warning,
+		TEXT("GXPlanetGlobe ready verts=%d sink=%.0fm flipped=%d mat=%s"),
+		Positions.Num(), SinkM, Flipped, *GetNameSafe(UseMat));
+	GX_PERF(1, TEXT("GX-globe verts=%d sink=%.0f flip=%d"), Positions.Num(), SinkM, Flipped);
 }
 
 int32 FGXPlanetGlobe::PunchIsland(const FGXEditIsland& Island, UMaterialInterface* Material)

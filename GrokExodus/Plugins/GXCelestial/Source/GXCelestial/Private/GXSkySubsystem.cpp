@@ -349,18 +349,100 @@ void UGXSkySubsystem::ApplyFollowView()
 
 void UGXSkySubsystem::EnsureStarField()
 {
-	// Stars are Slate dots with planet-sphere occlusion. 3D ISM spheres
-	// read as black squares and were never occluded by the limb.
-	if (!bStarsPlaced)
+	if (StarISM.IsValid())
 	{
-		bStarsPlaced = true;
-		UE_LOG(LogGXCelestial, Warning, TEXT("GX-%s stars: slate + planet occlusion n=%d"),
-			GX_VERSION_STRING, FGXStarCatalog::TotalCount);
+		return;
 	}
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	FActorSpawnParameters SP;
+	SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	AStaticMeshActor* Host = World->SpawnActor<AStaticMeshActor>(
+		AStaticMeshActor::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, SP);
+	if (!Host)
+	{
+		return;
+	}
+	Host->SetActorLabel(TEXT("GX_StarField"));
+	Host->SetActorLocation(FVector::ZeroVector);
+	Host->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+	Host->GetRootComponent()->SetMobility(EComponentMobility::Movable);
+	Host->GetStaticMeshComponent()->SetVisibility(false);
+	Host->GetStaticMeshComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	UInstancedStaticMeshComponent* ISM = NewObject<UInstancedStaticMeshComponent>(Host, TEXT("Stars"));
+	ISM->SetMobility(EComponentMobility::Movable);
+	if (UStaticMesh* Sphere = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere")))
+	{
+		ISM->SetStaticMesh(Sphere);
+	}
+	UMaterialInterface* StarMat = LoadObject<UMaterialInterface>(nullptr,
+		TEXT("/Game/Voxel/Materials/M_GXStar.M_GXStar"));
+	if (!StarMat)
+	{
+		StarMat = LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Engine/EngineMaterials/EmissiveMeshMaterial.EmissiveMeshMaterial"));
+	}
+	if (StarMat)
+	{
+		StarMat->CheckMaterialUsage(MATUSAGE_InstancedStaticMeshes);
+		ISM->SetMaterial(0, StarMat);
+	}
+	ISM->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	ISM->SetCastShadow(false);
+	ISM->SetVisibleInRayTracing(false);
+	ISM->bNeverDistanceCull = true;
+	ISM->SetCullDistance(0.0f);
+	ISM->SetReceivesDecals(false);
+	ISM->SetupAttachment(Host->GetRootComponent());
+	ISM->RegisterComponent();
+	// Beyond the far limb so depth test hides them behind crust / vessel.
+	const double StarRM = Eph.PlanetRadius + 180000.0;
+	for (int32 I = 0; I < FGXStarCatalog::TotalCount; ++I)
+	{
+		const FVector3d D = FGXStarCatalog::Dir(I);
+		const float Mag = FGXStarCatalog::Magnitude(I);
+		const float Scale = FMath::Clamp(280.0f - Mag * 36.0f, 70.0f, 320.0f);
+		const FVector Loc(
+			static_cast<float>(D.X * StarRM * 100.0),
+			static_cast<float>(D.Y * StarRM * 100.0),
+			static_cast<float>(D.Z * StarRM * 100.0));
+		ISM->AddInstance(FTransform(FRotator::ZeroRotator, Loc, FVector(Scale)));
+	}
+	StarHost = Host;
+	StarISM = ISM;
+	bStarsPlaced = true;
+	UE_LOG(LogGXCelestial, Warning, TEXT("GX-%s stars: depth ISM n=%d r=%.0fkm mat=%s"),
+		GX_VERSION_STRING, FGXStarCatalog::TotalCount, StarRM / 1000.0, *GetNameSafe(StarMat));
 }
 
 void UGXSkySubsystem::UpdateStarField()
 {
+	AActor* Host = StarHost.Get();
+	UInstancedStaticMeshComponent* ISM = StarISM.Get();
+	if (!Host || !ISM)
+	{
+		return;
+	}
+	const FQuat4d Q = Eph.InertialToBody(UniversalTime);
+	Host->SetActorRotation(FQuat(Q.X, Q.Y, Q.Z, Q.W));
+	FVector CamLoc = FVector::ZeroVector;
+	if (UWorld* World = GetWorld())
+	{
+		if (APlayerController* PC = World->GetFirstPlayerController())
+		{
+			if (PC->PlayerCameraManager)
+			{
+				CamLoc = PC->PlayerCameraManager->GetCameraLocation();
+			}
+		}
+	}
+	const FVector Up = CamLoc.GetSafeNormal();
+	const float SunUp = static_cast<float>(
+		LastSunBody.X * Up.X + LastSunBody.Y * Up.Y + LastSunBody.Z * Up.Z);
+	ISM->SetVisibility(SunUp < 0.08f);
 }
 
 void UGXSkySubsystem::BindConsole()

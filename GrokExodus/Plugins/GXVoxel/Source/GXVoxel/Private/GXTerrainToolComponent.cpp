@@ -32,11 +32,22 @@ void UGXTerrainToolComponent::BeginPlay()
 		{
 			PreviewMesh->SetStaticMesh(Sphere);
 		}
-		if (UMaterialInterface* Base = LoadObject<UMaterialInterface>(nullptr, TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial")))
+		UMaterialInterface* Base = LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Game/Voxel/Materials/M_GXSunLambert.M_GXSunLambert"));
+		if (!Base)
+		{
+			Base = LoadObject<UMaterialInterface>(nullptr,
+				TEXT("/Engine/EngineMaterials/Widget3DPassThrough.Widget3DPassThrough"));
+		}
+		if (Base)
 		{
 			if (UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(Base, this))
 			{
-				MID->SetVectorParameterValue(TEXT("Color"), FLinearColor(1.f, 0.45f, 0.1f));
+				const FLinearColor Orange(1.f, 0.45f, 0.1f, 1.f);
+				MID->SetVectorParameterValue(TEXT("Albedo"), Orange);
+				MID->SetVectorParameterValue(TEXT("Color"), Orange);
+				MID->SetVectorParameterValue(TEXT("Color and Opacity"), Orange);
+				MID->SetVectorParameterValue(TEXT("SunDir"), FLinearColor(1.f, 0.f, 0.f, 0.f));
 				PreviewMesh->SetMaterial(0, MID);
 			}
 		}
@@ -202,7 +213,10 @@ void UGXTerrainToolComponent::TickComponent(float DeltaTime, ELevelTick TickType
 		PreviewMesh->SetWorldScale3D(FVector(Scale));
 		if (UMaterialInstanceDynamic* MID = Cast<UMaterialInstanceDynamic>(PreviewMesh->GetMaterial(0)))
 		{
-			MID->SetVectorParameterValue(TEXT("Color"), FLinearColor(Col));
+			const FLinearColor C(Col);
+			MID->SetVectorParameterValue(TEXT("Color"), C);
+			MID->SetVectorParameterValue(TEXT("Albedo"), C);
+			MID->SetVectorParameterValue(TEXT("Color and Opacity"), C);
 		}
 	}
 }
