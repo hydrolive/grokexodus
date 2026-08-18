@@ -101,12 +101,12 @@ void UGXSkySubsystem::Tick(float DeltaTime)
 	if (UniversalTime - LastLog > 10.0)
 	{
 		LastLog = UniversalTime;
-		GX_PERF(1, TEXT("GX-sky ut=%.1f warp=%.0f%s sun=(%.2f,%.2f,%.2f) %s dec=%.1f follow=%d ms=%.2f"),
+		AGXVessel* FV = GetFollowedVessel();
+		GX_PERF(1, TEXT("GX-sky ut=%.1f warp=%.0f%s %s dec=%.1f follow=%d valt=%.0f ms=%.2f"),
 			UniversalTime, Warp, bWarpRefused ? TEXT(" refuse") : TEXT(""),
-			LastSunBody.X, LastSunBody.Y, LastSunBody.Z,
 			*Eph.SeasonName(UniversalTime),
 			FMath::RadiansToDegrees(Eph.SolarDeclination(UniversalTime)),
-			FollowIndex, SkyMs);
+			FollowIndex, FV ? FV->LastAltitude : -1.0, SkyMs);
 	}
 }
 
@@ -353,7 +353,9 @@ void UGXSkySubsystem::EnsureStarField()
 		return;
 	}
 	Host->SetActorLabel(TEXT("GX_StarField"));
+	Host->SetActorLocation(FVector::ZeroVector);
 	Host->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+	Host->GetRootComponent()->SetMobility(EComponentMobility::Movable);
 	Host->GetStaticMeshComponent()->SetVisibility(false);
 	Host->GetStaticMeshComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	UInstancedStaticMeshComponent* ISM = NewObject<UInstancedStaticMeshComponent>(Host, TEXT("Stars"));
@@ -363,12 +365,7 @@ void UGXSkySubsystem::EnsureStarField()
 		ISM->SetStaticMesh(Sphere);
 	}
 	UMaterialInterface* StarMat = LoadObject<UMaterialInterface>(nullptr,
-		TEXT("/Game/Voxel/Materials/M_GXStar.M_GXStar"));
-	if (!StarMat)
-	{
-		StarMat = LoadObject<UMaterialInterface>(nullptr,
-			TEXT("/Engine/EngineMaterials/Widget3DPassThrough.Widget3DPassThrough"));
-	}
+		TEXT("/Engine/EngineMaterials/Widget3DPassThrough.Widget3DPassThrough"));
 	if (StarMat)
 	{
 		StarMat->CheckMaterialUsage(MATUSAGE_InstancedStaticMeshes);
@@ -377,60 +374,52 @@ void UGXSkySubsystem::EnsureStarField()
 	ISM->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 	ISM->SetCastShadow(false);
 	ISM->bNeverDistanceCull = true;
+	ISM->SetCullDistance(0.0f);
 	ISM->SetupAttachment(Host->GetRootComponent());
 	ISM->RegisterComponent();
+	// Inertial local space. Host rotation = R_inertial_to_body. Depth vs globe.
+	const double StarRM = Eph.PlanetRadius + 80000.0;
 	for (int32 I = 0; I < FGXStarCatalog::Count; ++I)
 	{
-		ISM->AddInstance(FTransform(FRotator::ZeroRotator, FVector::ZeroVector, FVector(20.f)));
+		const FVector3d D = FGXStarCatalog::Stars[I].InertialDir();
+		const float Mag = FGXStarCatalog::Stars[I].Mag;
+		const float Scale = FMath::Clamp(220.0f - Mag * 40.0f, 80.0f, 280.0f);
+		const FVector Loc(
+			static_cast<float>(D.X * StarRM * 100.0),
+			static_cast<float>(D.Y * StarRM * 100.0),
+			static_cast<float>(D.Z * StarRM * 100.0));
+		ISM->AddInstance(FTransform(FRotator::ZeroRotator, Loc, FVector(Scale)));
 	}
+	StarHost = Host;
 	StarISM = ISM;
+	bStarsPlaced = true;
 }
 
 void UGXSkySubsystem::UpdateStarField()
 {
+	AActor* Host = StarHost.Get();
 	UInstancedStaticMeshComponent* ISM = StarISM.Get();
-	UWorld* World = GetWorld();
-	if (!ISM || !World)
+	if (!Host || !ISM)
 	{
 		return;
 	}
+	const FQuat4d Q = Eph.InertialToBody(UniversalTime);
+	Host->SetActorRotation(FQuat(Q.X, Q.Y, Q.Z, Q.W));
 	FVector CamLoc = FVector::ZeroVector;
-	if (APlayerController* PC = World->GetFirstPlayerController())
+	if (UWorld* World = GetWorld())
 	{
-		if (PC->PlayerCameraManager)
+		if (APlayerController* PC = World->GetFirstPlayerController())
 		{
-			CamLoc = PC->PlayerCameraManager->GetCameraLocation();
+			if (PC->PlayerCameraManager)
+			{
+				CamLoc = PC->PlayerCameraManager->GetCameraLocation();
+			}
 		}
-	}
-	if (CamLoc.IsNearlyZero())
-	{
-		return;
 	}
 	const FVector Up = CamLoc.GetSafeNormal();
-	const FVector3d Sd = LastSunBody;
-	const float SunUp = static_cast<float>(Sd.X * Up.X + Sd.Y * Up.Y + Sd.Z * Up.Z);
-	const bool bNight = SunUp < 0.02f;
-	ISM->SetVisibility(bNight);
-	if (!bNight)
-	{
-		return;
-	}
-	const float FarCm = 280000.0f;
-	for (int32 I = 0; I < FGXStarCatalog::Count; ++I)
-	{
-		const FVector3d Bd = StarBodyDir(I);
-		const FVector Dir(Bd.X, Bd.Y, Bd.Z);
-		if (Dir.IsNearlyZero())
-		{
-			continue;
-		}
-		const float Mag = FGXStarCatalog::Stars[I].Mag;
-		const float Scale = FMath::Clamp(40.0f - Mag * 8.0f, 16.0f, 64.0f);
-		const FVector Loc = CamLoc + Dir * FarCm;
-		ISM->UpdateInstanceTransform(I, FTransform(FRotator::ZeroRotator, Loc, FVector(Scale)), true, I + 1 == FGXStarCatalog::Count, true);
-		DrawDebugPoint(World, Loc, FMath::Clamp(14.f - Mag * 3.f, 6.f, 18.f),
-			FColor(255, 248, 235), false, 0.0f, SDPG_World);
-	}
+	const float SunUp = static_cast<float>(
+		LastSunBody.X * Up.X + LastSunBody.Y * Up.Y + LastSunBody.Z * Up.Z);
+	ISM->SetVisibility(SunUp < 0.05f);
 }
 
 void UGXSkySubsystem::BindConsole()

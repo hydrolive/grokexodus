@@ -12,6 +12,13 @@ void FGXPlanetGlobe::Shutdown()
 		C->DestroyComponent();
 	}
 	Comp.Reset();
+	Positions.Reset();
+	Normals.Reset();
+	UV0.Reset();
+	Colors.Reset();
+	Tangents.Reset();
+	Indices.Reset();
+	LiveIndices.Reset();
 	bReady = false;
 }
 
@@ -36,9 +43,9 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 	PMC->RegisterComponent();
 	Comp = PMC;
 
-	// 6×20² = 2400 quads. ~3° cells — mountains read from orbit, cheap to cook.
-	constexpr int32 N = 20;
-	constexpr float SinkM = 40.0f;
+	// 6×48². ~1.25° / 1.3 km cells so ranges read from orbit.
+	constexpr int32 N = 48;
+	constexpr float SinkM = 25.0f;
 	const float R0 = Stamp.GetParams().Radius;
 	TArray<FVector> Pos, Nrm;
 	TArray<FVector2D> UV;
@@ -100,12 +107,61 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 		}
 	}
 	(void)R0;
-	PMC->CreateMeshSection_LinearColor(0, Pos, Idx, Nrm, UV, Col, Tan, false);
+	Positions = MoveTemp(Pos);
+	Normals = MoveTemp(Nrm);
+	UV0 = MoveTemp(UV);
+	Colors = MoveTemp(Col);
+	Tangents = MoveTemp(Tan);
+	Indices = MoveTemp(Idx);
+	LiveIndices = Indices;
+	PMC->CreateMeshSection_LinearColor(0, Positions, LiveIndices, Normals, UV0, Colors, Tangents, false);
 	if (Material)
 	{
 		PMC->SetMaterial(0, Material);
 	}
 	bReady = true;
 	UE_LOG(LogGXVoxel, Warning, TEXT("GXPlanetGlobe ready verts=%d (stamp crust, sink=%.0fm)"),
-		Pos.Num(), SinkM);
+		Positions.Num(), SinkM);
+}
+
+int32 FGXPlanetGlobe::PunchWhere(const TFunction<bool(const FVector&)>& Inside, UMaterialInterface* Material)
+{
+	UProceduralMeshComponent* PMC = Comp.Get();
+	if (!PMC || !bReady || !Inside || Indices.Num() < 3)
+	{
+		return 0;
+	}
+	TArray<int32> Kept;
+	Kept.Reserve(LiveIndices.Num());
+	int32 Dropped = 0;
+	const TArray<int32>& Src = LiveIndices.Num() > 0 ? LiveIndices : Indices;
+	for (int32 T = 0; T + 2 < Src.Num(); T += 3)
+	{
+		const int32 A = Src[T], B = Src[T + 1], C = Src[T + 2];
+		if (!Positions.IsValidIndex(A) || !Positions.IsValidIndex(B) || !Positions.IsValidIndex(C))
+		{
+			continue;
+		}
+		const FVector CentM = (Positions[A] + Positions[B] + Positions[C]) * (0.01f / 3.0f);
+		if (Inside(CentM))
+		{
+			++Dropped;
+			continue;
+		}
+		Kept.Add(A);
+		Kept.Add(B);
+		Kept.Add(C);
+	}
+	if (Dropped == 0)
+	{
+		return 0;
+	}
+	LiveIndices = MoveTemp(Kept);
+	PMC->CreateMeshSection_LinearColor(0, Positions, LiveIndices, Normals, UV0, Colors, Tangents, false);
+	if (Material)
+	{
+		PMC->SetMaterial(0, Material);
+	}
+	UE_LOG(LogGXVoxel, Warning, TEXT("GXPlanetGlobe punch n=%d left=%d"), Dropped, LiveIndices.Num() / 3);
+	return Dropped;
 }

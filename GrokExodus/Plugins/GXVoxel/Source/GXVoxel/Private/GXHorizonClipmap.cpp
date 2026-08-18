@@ -215,9 +215,7 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	const FSpec Specs[] = {
 		{ 140.0f, 800.0f, 8.0f, 2.5f },
 		{ 780.0f, 2800.0f, 32.0f, 8.0f },
-		{ 2700.0f, 12000.0f, 96.0f, 16.0f },
-		{ 11500.0f, 32000.0f, 280.0f, 40.0f },
-		{ 31000.0f, 90000.0f, 900.0f, 80.0f },
+		{ 2700.0f, 10000.0f, 96.0f, 16.0f },
 	};
 	for (const FSpec& S : Specs)
 	{
@@ -1166,8 +1164,8 @@ void FGXHorizonClipmap::Update(
 	for (int32 I = 0; I < Rings.Num(); ++I)
 	{
 		FRing& Ring = Rings[I];
-		const float RebuildM = (I == 0) ? 16.0f : (I == 1) ? 50.0f : (I == 2) ? 400.0f : (I == 3) ? 900.0f : 2500.0f;
-		if (bReady && Built >= 3 && I > 3)
+		const float RebuildM = (I == 0) ? 16.0f : (I == 1) ? 50.0f : 400.0f;
+		if (bReady && Built >= 2 && I > 2)
 		{
 			break;
 		}

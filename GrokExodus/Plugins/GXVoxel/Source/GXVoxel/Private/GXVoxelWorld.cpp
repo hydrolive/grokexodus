@@ -357,7 +357,9 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 		WarmupTimeRemaining -= DeltaSeconds;
 	}
 
-	CachedViewerWorld = GetViewFocusWorld();
+	// Clipmap/tiles follow the pawn. Camera-follow was rebuilding 90 km
+	// rings every few metres of LEO ground-track (500 ms / 3 FPS).
+	CachedViewerWorld = GetPrimaryInvokerLocation();
 	EnsureCrustAtlas();
 	if (PlanetGlobe && Volume && TerrainMaterial)
 	{
@@ -418,18 +420,12 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			WorldToLocalMeters(CachedViewerWorld), 2))
 			? 100.0f
 			: 0.0f;
-		const FVector ViewLocal = WorldToLocalMeters(CachedViewerWorld);
-		const float AltM = FMath::Max(0.0f, ViewLocal.Size() - PlanetRadius);
-		const float HorizM = FMath::Sqrt(2.0f * PlanetRadius * AltM + AltM * AltM);
-		const float OuterUse = FMath::Clamp(
-			FMath::Max(HorizonOuterM, HorizM * 1.55f + 4000.0f),
-			HorizonOuterM, 90000.0f);
 		HorizonClipmap->Update(
 			this,
 			Volume->GetStamp(),
-			ViewLocal,
+			WorldToLocalMeters(CachedViewerWorld),
 			ClipInnerM,
-			OuterUse,
+			HorizonOuterM,
 			TerrainMaterial.Get(),
 			TerrainMaterial.Get(),
 			TerrainPBR ? TerrainPBR->GetPatchMaterial() : TerrainMaterial.Get(),
@@ -952,6 +948,12 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			IC, IR,
 			[this](const FVector& P) { return EditIsland.Contains(P); },
 			TerrainMaterial.Get());
+		if (PlanetGlobe)
+		{
+			PlanetGlobe->PunchWhere(
+				[this](const FVector& P) { return EditIsland.Contains(P); },
+				TerrainMaterial.Get());
+		}
 	}
 	else
 	{
@@ -2505,6 +2507,12 @@ void AGXVoxelWorld::RestoreEditedSurfaces()
 		IB.GetCenter(), FMath::Max(IB.GetExtent().GetMax(), 4.0f),
 		[this](const FVector& P) { return EditIsland.Contains(P); },
 		TerrainMaterial.Get());
+	if (PlanetGlobe)
+	{
+		PlanetGlobe->PunchWhere(
+			[this](const FVector& P) { return EditIsland.Contains(P); },
+			TerrainMaterial.Get());
+	}
 	MaxMeshCreatesPerTick = SavedCreates;
 	bLoadRestorePending = false;
 	bRevealedTileEdits = true;

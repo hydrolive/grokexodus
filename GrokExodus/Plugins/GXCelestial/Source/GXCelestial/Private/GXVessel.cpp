@@ -14,6 +14,7 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "UObject/ConstructorHelpers.h"
+#include "HAL/PlatformTime.h"
 
 AGXVessel::AGXVessel()
 {
@@ -144,6 +145,7 @@ void AGXVessel::Tick(float DeltaSeconds)
 	{
 		return;
 	}
+	const double T0 = FPlatformTime::Seconds();
 
 	double Dt = static_cast<double>(DeltaSeconds);
 	if (Mode == EGXVesselMode::OnRails)
@@ -174,6 +176,17 @@ void AGXVessel::Tick(float DeltaSeconds)
 
 	LastAltitude = RInertial.Size() - Sky->GetEphemeris().PlanetRadius;
 	PoseFromInertial(Sky);
+	const float Ms = static_cast<float>((FPlatformTime::Seconds() - T0) * 1000.0);
+	static double LastVLog = -1.0e9;
+	const double Now = FPlatformTime::Seconds();
+	if (Now - LastVLog > 1.0)
+	{
+		LastVLog = Now;
+		const bool bFollow = Sky->GetFollowedVessel() == this;
+		GX_PERF(1, TEXT("GX-vessel %s follow=%d alt=%.0f mode=%s pose=%.2fms q=%.0f"),
+			*GetName(), bFollow ? 1 : 0, LastAltitude,
+			Mode == EGXVesselMode::OnRails ? TEXT("rails") : TEXT("int"), Ms, LastQ);
+	}
 }
 
 void AGXVessel::StepIntegrated(double Dt, UGXSkySubsystem* Sky)

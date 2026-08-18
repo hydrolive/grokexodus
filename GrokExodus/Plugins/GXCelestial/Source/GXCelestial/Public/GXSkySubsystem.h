@@ -105,7 +105,9 @@ private:
 	TWeakObjectPtr<ADirectionalLight> SunLight;
 	TWeakObjectPtr<AStaticMeshActor> MoonImpostor;
 	TWeakObjectPtr<AGXVessel> DemoVessel;
+	TWeakObjectPtr<AActor> StarHost;
 	TWeakObjectPtr<class UInstancedStaticMeshComponent> StarISM;
+	bool bStarsPlaced = false;
 
 	IConsoleObject* CmdWarp = nullptr;
 	IConsoleObject* CmdDump = nullptr;
