@@ -36,6 +36,7 @@ public:
 	bool WasWarpRefused() const { return bWarpRefused; }
 	FVector3d GetSunBodyDir() const { return LastSunBody; }
 	FVector3d GetMoonBodyDir() const { return LastMoonBody; }
+	bool GetMoonSphere(FVector& OutLocCm, float& OutRadiusCm) const;
 	AGXVessel* GetFollowedVessel() const;
 	int32 GetFollowIndex() const { return FollowIndex; }
 

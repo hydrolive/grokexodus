@@ -150,23 +150,18 @@ void UGXBootOverlaySubsystem::Tick(float DeltaTime)
 							Out = FVector2f(X * 0.5f + 0.5f, 0.5f - Y * 0.5f);
 							return true;
 						};
-						FVector2f VesselUV(-10.f, -10.f);
-						bool bVessel = false;
-						if (AGXVessel* Ves = Sky->GetFollowedVessel())
-						{
-							bVessel = ToUV(Ves->GetActorLocation(), VesselUV);
-						}
 						if (Night > 0.02f && bHaveProj)
 						{
 							const int32 N = Sky->StarCount();
 							Dots.Reserve(N);
-							auto HitsPlanet = [&](const FVector& Dir) -> bool
+							auto HitsSphere = [&](const FVector& Dir, const FVector& Center, float Radius) -> bool
 							{
-								const float B = FVector::DotProduct(CamLoc, Dir);
-								const float C2 = CamLoc.SizeSquared() - PlanetRcm * PlanetRcm;
+								const FVector L = CamLoc - Center;
+								const float B = FVector::DotProduct(L, Dir);
+								const float C2 = L.SizeSquared() - Radius * Radius;
 								if (C2 <= 0.0f)
 								{
-									return B < 0.0f;
+									return FVector::DotProduct(Dir, Center - CamLoc) > 0.0f;
 								}
 								const float Disc = B * B - C2;
 								if (Disc < 0.0f)
@@ -175,6 +170,17 @@ void UGXBootOverlaySubsystem::Tick(float DeltaTime)
 								}
 								return (-B - FMath::Sqrt(Disc)) > 0.0f;
 							};
+							FVector MoonLoc = FVector::ZeroVector;
+							float MoonR = 0.0f;
+							const bool bMoon = Sky->GetMoonSphere(MoonLoc, MoonR);
+							TArray<AGXVessel*> Vessels;
+							for (TActorIterator<AGXVessel> It(World); It; ++It)
+							{
+								if (*It && !It->bBroken)
+								{
+									Vessels.Add(*It);
+								}
+							}
 							for (int32 I = 0; I < N; ++I)
 							{
 								const FVector3d Bd = Sky->StarBodyDir(I);
@@ -183,16 +189,31 @@ void UGXBootOverlaySubsystem::Tick(float DeltaTime)
 								{
 									continue;
 								}
-								if (HitsPlanet(Dir))
+								if (HitsSphere(Dir, FVector::ZeroVector, PlanetRcm))
+								{
+									continue;
+								}
+								if (bMoon && HitsSphere(Dir, MoonLoc, MoonR * 1.12f))
+								{
+									continue;
+								}
+								bool bHitVessel = false;
+								for (AGXVessel* Ves : Vessels)
+								{
+									const FVector S = Ves->GetActorScale3D();
+									const float VR = 50.0f * FMath::Max3(FMath::Abs(S.X), FMath::Abs(S.Y), FMath::Abs(S.Z)) * 1.15f;
+									if (HitsSphere(Dir, Ves->GetActorLocation(), VR))
+									{
+										bHitVessel = true;
+										break;
+									}
+								}
+								if (bHitVessel)
 								{
 									continue;
 								}
 								FVector2f UV;
 								if (!ToUV(CamLoc + Dir * 8.0e7f, UV))
-								{
-									continue;
-								}
-								if (bVessel && FVector2f::DistSquared(UV, VesselUV) < 0.004f)
 								{
 									continue;
 								}

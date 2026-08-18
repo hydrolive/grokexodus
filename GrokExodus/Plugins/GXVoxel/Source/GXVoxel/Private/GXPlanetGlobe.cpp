@@ -124,13 +124,15 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 				{
 					NrmS = Dir;
 				}
+				// Keep a little slope for dirt skirts; mostly radial so PBR
+				// does not treat every km cell as a cliff (tan rock sheet).
+				NrmS = (NrmS * 0.18f + Dir * 0.82f).GetSafeNormal();
 				const float Slope = 1.0f - FMath::Abs(FVector::DotProduct(NrmS, Dir));
 				const FLinearColor Bio = Biome(Surf, Slope);
-				const float Layer = (Bio.B > Bio.G + 0.02f) ? 3.0f
-					: (Slope > 0.14f || (Surf - R0) > Relief * 0.18f) ? 2.0f
-					: 1.0f;
+				const float Alt = (Surf - R0) / Relief;
+				const float Layer = (Alt < -0.04f) ? 3.0f : (Alt > 0.20f || Slope > 0.16f) ? 2.0f : 1.0f;
 				Pos.Add(Dir * (Surf - SinkM) * 100.0f);
-				Nrm.Add(NrmS);
+				Nrm.Add(Dir);
 				// UV.x = PBR layer id. UV.y = stamp radius so triplanar locks.
 				UV.Add(FVector2D(Layer, Surf));
 				Col.Add(Bio);
@@ -153,24 +155,11 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 				const int32 D = C + 1;
 				// Outward (A-B-C). A-C-B faced the core — orbit saw sky
 				// through whole cube faces (black planet, light through digs).
-				Idx.Add(A); Idx.Add(Bv); Idx.Add(C);
-				Idx.Add(Bv); Idx.Add(D); Idx.Add(C);
+				// UE front face = clockwise from outside. A-B-C was the
+				// inside of the cube-sphere (tan bowl, sky slivers).
+				Idx.Add(A); Idx.Add(C); Idx.Add(Bv);
+				Idx.Add(Bv); Idx.Add(C); Idx.Add(D);
 			}
-		}
-	}
-	int32 Flipped = 0;
-	for (int32 T = 0; T + 2 < Idx.Num(); T += 3)
-	{
-		const int32 IA = Idx[T], IB = Idx[T + 1], IC = Idx[T + 2];
-		if (!Pos.IsValidIndex(IA) || !Pos.IsValidIndex(IB) || !Pos.IsValidIndex(IC))
-		{
-			continue;
-		}
-		const FVector FN = FVector::CrossProduct(Pos[IB] - Pos[IA], Pos[IC] - Pos[IA]);
-		if (FVector::DotProduct(FN, Pos[IA]) < 0.0f)
-		{
-			Swap(Idx[T + 1], Idx[T + 2]);
-			++Flipped;
 		}
 	}
 	Positions = MoveTemp(Pos);
@@ -194,9 +183,9 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 	PMC->UpdateBounds();
 	bReady = true;
 	UE_LOG(LogGXVoxel, Warning,
-		TEXT("GXPlanetGlobe ready verts=%d sink=%.0fm flipped=%d mat=%s"),
-		Positions.Num(), SinkM, Flipped, *GetNameSafe(UseMat));
-	GX_PERF(1, TEXT("GX-globe verts=%d sink=%.0f flip=%d"), Positions.Num(), SinkM, Flipped);
+		TEXT("GXPlanetGlobe ready verts=%d sink=%.0fm wind=ACB n=radial mat=%s"),
+		Positions.Num(), SinkM, *GetNameSafe(UseMat));
+	GX_PERF(1, TEXT("GX-globe verts=%d sink=%.0f wind=ACB"), Positions.Num(), SinkM);
 }
 
 int32 FGXPlanetGlobe::PunchIsland(const FGXEditIsland& Island, UMaterialInterface* Material)

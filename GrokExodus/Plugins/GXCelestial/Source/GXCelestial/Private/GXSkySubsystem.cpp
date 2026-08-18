@@ -186,6 +186,19 @@ int32 UGXSkySubsystem::StarCount() const
 	return FGXStarCatalog::TotalCount;
 }
 
+bool UGXSkySubsystem::GetMoonSphere(FVector& OutLocCm, float& OutRadiusCm) const
+{
+	AStaticMeshActor* Moon = MoonImpostor.Get();
+	if (!Moon)
+	{
+		return false;
+	}
+	OutLocCm = Moon->GetActorLocation();
+	const FVector S = Moon->GetActorScale3D();
+	OutRadiusCm = 50.0f * FMath::Max3(FMath::Abs(S.X), FMath::Abs(S.Y), FMath::Abs(S.Z));
+	return OutRadiusCm > 1.0f;
+}
+
 float UGXSkySubsystem::StarMagnitude(int32 Index) const
 {
 	return FGXStarCatalog::Magnitude(Index);

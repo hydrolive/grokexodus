@@ -376,12 +376,12 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 		{
 			if (UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(Parent, this))
 			{
-				MID->SetScalarParameterValue(TEXT("TileScale"), 0.00010f);
+				MID->SetScalarParameterValue(TEXT("TileScale"), 0.00035f);
 				MID->SetScalarParameterValue(TEXT("MacroScale"), 0.028f);
-				MID->SetScalarParameterValue(TEXT("RockTileMul"), 0.45f);
-				MID->SetScalarParameterValue(TEXT("RockMacroMul"), 0.20f);
-				MID->SetScalarParameterValue(TEXT("DistanceFadeStart"), 80.0f);
-				MID->SetScalarParameterValue(TEXT("DistanceFadeEnd"), 600.0f);
+				MID->SetScalarParameterValue(TEXT("RockTileMul"), 0.50f);
+				MID->SetScalarParameterValue(TEXT("RockMacroMul"), 0.22f);
+				MID->SetScalarParameterValue(TEXT("DistanceFadeStart"), 120.0f);
+				MID->SetScalarParameterValue(TEXT("DistanceFadeEnd"), 900.0f);
 				GlobeMat = MID;
 			}
 		}
