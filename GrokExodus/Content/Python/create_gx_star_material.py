@@ -47,8 +47,16 @@ def _load_or_create(name):
 
 
 def _usage(mat):
-    _set(mat, "shading_model", unreal.MaterialShadingModel.UNLIT)
-    _set(mat, "blend_mode", unreal.BlendMode.OPAQUE)
+    unlit = getattr(unreal.MaterialShadingModel, "MSM_UNLIT", None)
+    if unlit is None:
+        unlit = getattr(unreal.MaterialShadingModel, "UNLIT", None)
+    if unlit is not None:
+        _set(mat, "shading_model", unlit)
+    opaque = getattr(unreal.BlendMode, "OPAQUE", None)
+    if opaque is None:
+        opaque = getattr(unreal.BlendMode, "BLEND_OPAQUE", None)
+    if opaque is not None:
+        _set(mat, "blend_mode", opaque)
     _set(mat, "two_sided", False)
     for prop in (
         "used_with_static_mesh",
@@ -76,7 +84,7 @@ def _make_star():
         mat, unreal.MaterialExpressionConstant3Vector, -300, 0)
     _set(const, "constant", unreal.LinearColor(1.0, 0.97, 0.92, 1.0))
     try:
-        mel.connect_material_property(const, "", unreal.MaterialProperty.MP_EMISSIVECOLOR)
+        mel.connect_material_property(const, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     except Exception as err:
         unreal.log_warning("[GXSTAR] emit: %s" % err)
     mel.recompile_material(mat)
@@ -139,7 +147,7 @@ def _make_sun_lambert():
     except Exception as err:
         unreal.log_warning("[GXSTAR] add: %s" % err)
     try:
-        mel.connect_material_property(add, "", unreal.MaterialProperty.MP_EMISSIVECOLOR)
+        mel.connect_material_property(add, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
     except Exception as err:
         unreal.log_warning("[GXSTAR] emit: %s" % err)
     mel.recompile_material(mat)
