@@ -78,26 +78,18 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 		return Stamp.SampleSurfaceRadius(FVector3f(Dir.X, Dir.Y, Dir.Z));
 	};
 
-	auto Biome = [R0, Relief](float Surf, float Slope) -> FLinearColor
+	auto Biome = [](int32 Layer) -> FLinearColor
 	{
-		const float Alt = (Surf - R0) / Relief;
-		if (Alt < -0.05f)
+		switch (Layer)
 		{
-			return FLinearColor(0.16f, 0.26f, 0.28f, 1.0f);
+		case 2: return FLinearColor(0.50f, 0.46f, 0.40f, 1.0f); // rock
+		case 3: return FLinearColor(0.55f, 0.40f, 0.24f, 1.0f); // dirt
+		case 4: return FLinearColor(0.84f, 0.72f, 0.42f, 1.0f); // sand
+		case 5: return FLinearColor(0.78f, 0.86f, 0.92f, 1.0f); // ice
+		case 6: return FLinearColor(0.30f, 0.24f, 0.16f, 1.0f); // mud
+		case 7: return FLinearColor(0.28f, 0.24f, 0.22f, 1.0f); // volcanic
+		default: return FLinearColor(0.28f, 0.48f, 0.20f, 1.0f); // grass
 		}
-		if (Alt < 0.015f)
-		{
-			return FLinearColor(0.30f, 0.44f, 0.28f, 1.0f);
-		}
-		if (Slope > 0.18f || Alt > 0.22f)
-		{
-			return FLinearColor(0.50f, 0.46f, 0.40f, 1.0f);
-		}
-		if (Slope > 0.10f)
-		{
-			return FLinearColor(0.48f, 0.38f, 0.26f, 1.0f);
-		}
-		return FLinearColor(0.40f, 0.50f, 0.28f, 1.0f);
 	};
 
 	const float Eps = 0.0035f;
@@ -128,11 +120,10 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 				// does not treat every km cell as a cliff (tan rock sheet).
 				NrmS = (NrmS * 0.15f + Dir * 0.85f).GetSafeNormal();
 				const int32 Layer = Stamp.SampleSurfaceMaterial(FVector3f(Dir.X, Dir.Y, Dir.Z));
-				const FLinearColor Bio = Biome(Surf, 1.0f - FMath::Abs(FVector::DotProduct(NrmS, Dir)));
 				Pos.Add(Dir * (Surf - SinkM) * 100.0f);
 				Nrm.Add(Dir);
 				UV.Add(FVector2D(static_cast<float>(Layer), Surf));
-				Col.Add(Bio);
+				Col.Add(Biome(Layer));
 				FVector T = FVector::CrossProduct(NrmS, FVector::ZAxisVector);
 				if (T.SizeSquared() < 1e-6f)
 				{
@@ -196,11 +187,22 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 	}
 	PMC->UpdateBounds();
 	bReady = true;
+	int32 Hist[8] = {};
+	float HMin = 1.0e9f, HMax = -1.0e9f;
+	for (int32 I = 0; I < UV0.Num(); ++I)
+	{
+		const int32 L = FMath::Clamp(FMath::RoundToInt(UV0[I].X), 0, 7);
+		++Hist[L];
+		const float H = Positions[I].Size() * 0.01f + SinkM - R0;
+		HMin = FMath::Min(HMin, H);
+		HMax = FMath::Max(HMax, H);
+	}
 	UE_LOG(LogGXVoxel, Warning,
-		TEXT("GXPlanetGlobe ready verts=%d sink=%.0fm n=%d wind=ACB flip=%d n=radial mat=%s"),
-		Positions.Num(), SinkM, N, Flipped, *GetNameSafe(UseMat));
-	GX_PERF(1, TEXT("GX-globe verts=%d n=%d sink=%.0f wind=ACB flip=%d"),
-		Positions.Num(), N, SinkM, Flipped);
+		TEXT("GXPlanetGlobe ready verts=%d sink=%.0fm n=%d wind=ACB flip=%d h=%.0f..%.0f ice=%d sand=%d grass=%d dirt=%d rock=%d mud=%d mat=%s"),
+		Positions.Num(), SinkM, N, Flipped, HMin, HMax,
+		Hist[5], Hist[4], Hist[1], Hist[3], Hist[2], Hist[6], *GetNameSafe(UseMat));
+	GX_PERF(1, TEXT("GX-globe verts=%d n=%d h=%.0f..%.0f ice=%d sand=%d grass=%d"),
+		Positions.Num(), N, HMin, HMax, Hist[5], Hist[4], Hist[1]);
 }
 
 int32 FGXPlanetGlobe::PunchIsland(const FGXEditIsland& Island, UMaterialInterface* Material)

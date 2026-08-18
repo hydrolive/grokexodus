@@ -166,9 +166,10 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 		Rise = FMath::Max(Rise, RangeW(Mid, Along, S.HalfLen * 1.25f, S.HalfWid * 3.4f, S.Flank * 2.7f, true));
 	}
 	Domain = FMath::Lerp(Domain, 0.22f, Basin * 0.80f);
-	// Cap the raw field at "hills". Uncapped FBm was a 2 km wall in the
-	// first kilometre (0.7.13–0.7.14 shots). Mountains come only from spines.
-	Domain = FMath::Min(Domain, 0.44f);
+	// Near the voxel stream, cap Domain so we do not mesh a 2 km wall.
+	// Far land (orbit) must still have ranges — spines only cover ~11 km of +X.
+	const float NearStream = FGXNoise::Smooth01((4200.0f - ArcM) / 1600.0f);
+	Domain = FMath::Min(Domain, FMath::Lerp(0.90f, 0.44f, NearStream));
 	const float Away = 1.0f - Basin;
 	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.52f, Rise * Away));
 	Domain = FMath::Max(Domain, FMath::Lerp(Domain, 0.64f, Feet * Away));
@@ -273,13 +274,17 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	// Inland weight ramps after the beach so coasts are beaches, not 1 km cliffs.
 	const float Inland = FGXNoise::Smooth01((LandMask - 0.35f) / 0.50f);
 	const float DetailScale = PlainsW * 0.40f + HillW * 0.70f + MountainW;
+	// Plate-suture ranges on every continent (not only +X spines).
+	const float WorldBelt = LandMask * Belt * (0.10f + 0.22f * Mass * Ridge)
+		* (1.0f - NearStream * 0.55f);
 	float LandH = 0.01f * LandMask
-		+ Inland * (Shield + Hills + Foothills + Plateau + Orogeny
+		+ Inland * (Shield + Hills + Foothills + Plateau + Orogeny + WorldBelt
 			+ Local * 0.45f * DetailScale
 			+ Detail * DetailScale
 			- Out.RiverCarve * PlainsW * 0.35f
 			- Out.CanyonCarve * (HillW + MountainW)
 			- Rift - GlacialCarve * MountainW);
+	Out.Orogeny = FMath::Max(Out.Orogeny, WorldBelt);
 
 	const float NormH = FMath::Lerp(OceanFloor + Shelf, LandH, LandMask);
 	Out.HeightM = NormH * Relief + Params.SeaLevelBias;
@@ -448,12 +453,11 @@ int32 FGXSphereStamp::SampleEarthMaterial(const FVector3d& PlanetLocalM, float D
 		return static_cast<int32>(EGXVoxelMaterial::SnowIce);
 	}
 
-	if (Field.LandMask < 0.28f || HeightAboveSea < -8.0f)
+	if (Field.LandMask < 0.22f || HeightAboveSea < -12.0f)
 	{
 		return static_cast<int32>(EGXVoxelMaterial::SnowIce);
 	}
-	// Sand is a beach, not the inland spawn pad.
-	if (Field.LandMask < 0.54f || (HeightAboveSea < 55.0f && Field.LandMask < 0.68f))
+	if (Field.LandMask < 0.40f && HeightAboveSea < 90.0f)
 	{
 		if (Field.RiverCarve > 0.03f || Field.Moisture > 0.62f)
 		{
@@ -484,8 +488,9 @@ int32 FGXSphereStamp::SampleSurfaceMaterial(const FVector3f& UnitDir) const
 	const float Relief = FMath::Max(Params.MaxRelief, 1.0f);
 	const float SnowLine = Relief * (0.48f - Lat * 0.28f);
 
-	// Ice oceans (Earth water fraction). Spawn +X is forced land.
-	if (Field.LandMask < 0.28f || Height < -8.0f)
+	// Ice oceans. Thin sand only on the beach — 0.13.0 treated most
+	// land as sand (LandMask 0.28–0.54 + Height<55) so orbit was one tan sheet.
+	if (Field.LandMask < 0.22f || Height < -12.0f)
 	{
 		return static_cast<int32>(EGXVoxelMaterial::SnowIce);
 	}
@@ -493,8 +498,7 @@ int32 FGXSphereStamp::SampleSurfaceMaterial(const FVector3f& UnitDir) const
 	{
 		return static_cast<int32>(EGXVoxelMaterial::SnowIce);
 	}
-	// Sand ring around basins.
-	if (Field.LandMask < 0.54f || (Height < 55.0f && Field.LandMask < 0.68f))
+	if (Field.LandMask < 0.40f && Height < 90.0f)
 	{
 		return static_cast<int32>(EGXVoxelMaterial::SandCoastal);
 	}
