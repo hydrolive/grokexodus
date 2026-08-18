@@ -141,8 +141,9 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 				const int32 Bv = A + 1;
 				const int32 C = A + Stride;
 				const int32 D = C + 1;
-				// Same order as walk tiles: A-C-B is clockwise from the sky
-				// (Cross toward the core). A-B-C was culled on +X (0.9.10).
+				// Same order as walk tiles: A-C-B is visible from outside
+				// (0.9.10). Far-side interiors are hidden by SetVisible
+				// when the camera is on the crust.
 				Idx.Add(A); Idx.Add(C); Idx.Add(Bv);
 				Idx.Add(Bv); Idx.Add(C); Idx.Add(D);
 			}
@@ -160,7 +161,7 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 			continue;
 		}
 		const FVector FN = FVector::CrossProduct(Pos[IB] - Pos[IA], Pos[IC] - Pos[IA]);
-		// UE front face wants Cross toward the core (tile comment 0.9.10).
+		// Flip any tri whose Cross points off-core so every face matches tiles.
 		if (FVector::DotProduct(FN, Pos[IA]) > 0.0f)
 		{
 			Swap(Idx[T + 1], Idx[T + 2]);
@@ -210,4 +211,13 @@ int32 FGXPlanetGlobe::PunchIsland(const FGXEditIsland& Island, UMaterialInterfac
 	(void)Island;
 	(void)Material;
 	return 0;
+}
+
+void FGXPlanetGlobe::SetVisible(bool bVisible)
+{
+	if (UProceduralMeshComponent* C = Comp.Get())
+	{
+		C->SetVisibility(bVisible);
+		C->SetHiddenInGame(!bVisible);
+	}
 }

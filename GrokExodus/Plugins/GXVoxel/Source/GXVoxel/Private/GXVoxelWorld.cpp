@@ -364,37 +364,33 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	EnsureCrustAtlas();
 	if (PlanetGlobe && Volume && !PlanetGlobe->IsReady())
 	{
-		// Parent the globe MID to the authored asset. TerrainMaterial is
-		// already a MID — Create(MID) is invalid and was the flat orbit crust
-		// (MID_MID_… every tick, LogMaterial parent warnings).
-		if (!GlobeMid)
-		{
-			UMaterialInterface* Asset = LoadObject<UMaterialInterface>(nullptr,
-				TEXT("/Game/Voxel/Materials/M_VoxelTerrain_PBR.M_VoxelTerrain_PBR"));
-			if (Asset && Cast<UMaterialInstanceDynamic>(Asset) == nullptr)
-			{
-				GlobeMid = UMaterialInstanceDynamic::Create(Asset, this);
-			}
-			if (GlobeMid)
-			{
-				// Kilometre-scale tiles so continents read from LEO.
-				GlobeMid->SetScalarParameterValue(TEXT("TileScale"), 0.00008f);
-				GlobeMid->SetScalarParameterValue(TEXT("MacroScale"), 0.004f);
-				GlobeMid->SetScalarParameterValue(TEXT("RockTileMul"), 0.45f);
-				GlobeMid->SetScalarParameterValue(TEXT("RockMacroMul"), 0.15f);
-				GlobeMid->SetScalarParameterValue(TEXT("DistanceFadeStart"), 80000.0f);
-				GlobeMid->SetScalarParameterValue(TEXT("DistanceFadeEnd"), 400000.0f);
-				UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s globe MID=%s parent=%s"),
-					GX_VERSION_STRING, *GetNameSafe(GlobeMid), *GetNameSafe(Asset));
-			}
-		}
-		UMaterialInterface* GlobeMat = GlobeMid.Get();
+		// Same walk PBR that already shows grass on spawn. A second MID
+		// with 0.00008 tile scale averaged the planet to one tan sheet.
+		UMaterialInterface* GlobeMat = TerrainMaterial.Get();
 		if (!GlobeMat)
 		{
 			GlobeMat = LoadObject<UMaterialInterface>(nullptr,
 				TEXT("/Game/Voxel/Materials/M_VoxelTerrain_PBR.M_VoxelTerrain_PBR"));
 		}
 		PlanetGlobe->Ensure(this, Volume->GetStamp(), GlobeMat);
+	}
+	if (PlanetGlobe && PlanetGlobe->IsReady())
+	{
+		// Hide the globe while the camera is on the crust. Far cube faces
+		// with mixed winding painted inverted hills into the sky (0.13.4).
+		FVector Cam = CachedViewerWorld;
+		if (UWorld* World = GetWorld())
+		{
+			if (APlayerController* PC = World->GetFirstPlayerController())
+			{
+				if (PC->PlayerCameraManager)
+				{
+					Cam = PC->PlayerCameraManager->GetCameraLocation();
+				}
+			}
+		}
+		const float CamRM = static_cast<float>(Cam.Size() * 0.01);
+		PlanetGlobe->SetVisible(CamRM > PlanetRadius + 500.0f);
 	}
 
 	if (bAtlasReady && ActiveStreamRadius < StreamRadius)
