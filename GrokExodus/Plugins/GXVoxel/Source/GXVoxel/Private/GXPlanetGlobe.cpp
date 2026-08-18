@@ -141,11 +141,10 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 				const int32 Bv = A + 1;
 				const int32 C = A + Stride;
 				const int32 D = C + 1;
-				// Same order as walk tiles: A-C-B is visible from outside
-				// (0.9.10). Far-side interiors are hidden by SetVisible
-				// when the camera is on the crust.
-				Idx.Add(A); Idx.Add(C); Idx.Add(Bv);
-				Idx.Add(Bv); Idx.Add(C); Idx.Add(D);
+				// Outside-facing (A-B-C). Far interiors then backface-cull
+				// so the antipode does not paint inverted hills in the sky.
+				Idx.Add(A); Idx.Add(Bv); Idx.Add(C);
+				Idx.Add(Bv); Idx.Add(D); Idx.Add(C);
 			}
 		}
 	}
@@ -161,8 +160,8 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 			continue;
 		}
 		const FVector FN = FVector::CrossProduct(Pos[IB] - Pos[IA], Pos[IC] - Pos[IA]);
-		// Flip any tri whose Cross points off-core so every face matches tiles.
-		if (FVector::DotProduct(FN, Pos[IA]) > 0.0f)
+		// Front face off-core: orbit sees crust, ground does not see the inside.
+		if (FVector::DotProduct(FN, Pos[IA]) < 0.0f)
 		{
 			Swap(Idx[T + 1], Idx[T + 2]);
 			++Flipped;
@@ -199,7 +198,7 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 		HMax = FMath::Max(HMax, H);
 	}
 	UE_LOG(LogGXVoxel, Warning,
-		TEXT("GXPlanetGlobe ready verts=%d sink=%.0fm n=%d wind=ACB flip=%d h=%.0f..%.0f ice=%d sand=%d grass=%d dirt=%d rock=%d mud=%d mat=%s"),
+		TEXT("GXPlanetGlobe ready verts=%d sink=%.0fm n=%d wind=ABC flip=%d h=%.0f..%.0f ice=%d sand=%d grass=%d dirt=%d rock=%d mud=%d mat=%s"),
 		Positions.Num(), SinkM, N, Flipped, HMin, HMax,
 		Hist[5], Hist[4], Hist[1], Hist[3], Hist[2], Hist[6], *GetNameSafe(UseMat));
 	GX_PERF(1, TEXT("GX-globe verts=%d n=%d h=%.0f..%.0f ice=%d sand=%d grass=%d"),

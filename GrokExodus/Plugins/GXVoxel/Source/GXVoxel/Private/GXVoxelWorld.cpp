@@ -376,21 +376,7 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	}
 	if (PlanetGlobe && PlanetGlobe->IsReady())
 	{
-		// Hide the globe while the camera is on the crust. Far cube faces
-		// with mixed winding painted inverted hills into the sky (0.13.4).
-		FVector Cam = CachedViewerWorld;
-		if (UWorld* World = GetWorld())
-		{
-			if (APlayerController* PC = World->GetFirstPlayerController())
-			{
-				if (PC->PlayerCameraManager)
-				{
-					Cam = PC->PlayerCameraManager->GetCameraLocation();
-				}
-			}
-		}
-		const float CamRM = static_cast<float>(Cam.Size() * 0.01);
-		PlanetGlobe->SetVisible(CamRM > PlanetRadius + 500.0f);
+		PlanetGlobe->SetVisible(true);
 	}
 
 	if (bAtlasReady && ActiveStreamRadius < StreamRadius)
