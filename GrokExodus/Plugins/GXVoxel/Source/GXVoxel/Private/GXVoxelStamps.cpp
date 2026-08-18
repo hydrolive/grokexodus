@@ -87,9 +87,9 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	const float SpawnLand = FGXNoise::Smooth01((Ux - 0.08f) / 0.72f);
 	Continents += SpawnLand * 0.40f;
 
-	// Earth-like basins (~70% ocean) with a wide coastal ramp. +X spawn
-	// stays land via SpawnLand. Ice/sand are materials, not deeper voxels.
-	const float LandMask = FGXNoise::Smooth01((Continents - 0.20f) / 0.58f);
+	// Majority ocean, but 0.13.0 (Continents-0.20) left 88% ice and no
+	// continents (globe ice=88396 grass=1076). SpawnLand still pins +X.
+	const float LandMask = FGXNoise::Smooth01((Continents + 0.02f) / 0.60f);
 	const float OceanMask = 1.0f - LandMask;
 	const float Coast = 4.0f * LandMask * OceanMask;
 	Out.LandMask = LandMask;
@@ -453,11 +453,11 @@ int32 FGXSphereStamp::SampleEarthMaterial(const FVector3d& PlanetLocalM, float D
 		return static_cast<int32>(EGXVoxelMaterial::SnowIce);
 	}
 
-	if (Field.LandMask < 0.22f || HeightAboveSea < -12.0f)
+	if (Field.LandMask < 0.20f || HeightAboveSea < -25.0f)
 	{
 		return static_cast<int32>(EGXVoxelMaterial::SnowIce);
 	}
-	if (Field.LandMask < 0.40f && HeightAboveSea < 90.0f)
+	if (Field.LandMask < 0.38f && HeightAboveSea < 120.0f)
 	{
 		if (Field.RiverCarve > 0.03f || Field.Moisture > 0.62f)
 		{
@@ -490,7 +490,7 @@ int32 FGXSphereStamp::SampleSurfaceMaterial(const FVector3f& UnitDir) const
 
 	// Ice oceans. Thin sand only on the beach — 0.13.0 treated most
 	// land as sand (LandMask 0.28–0.54 + Height<55) so orbit was one tan sheet.
-	if (Field.LandMask < 0.22f || Height < -12.0f)
+	if (Field.LandMask < 0.20f || Height < -25.0f)
 	{
 		return static_cast<int32>(EGXVoxelMaterial::SnowIce);
 	}
@@ -498,7 +498,7 @@ int32 FGXSphereStamp::SampleSurfaceMaterial(const FVector3f& UnitDir) const
 	{
 		return static_cast<int32>(EGXVoxelMaterial::SnowIce);
 	}
-	if (Field.LandMask < 0.40f && Height < 90.0f)
+	if (Field.LandMask < 0.38f && Height < 120.0f)
 	{
 		return static_cast<int32>(EGXVoxelMaterial::SandCoastal);
 	}
