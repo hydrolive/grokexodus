@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-18** · On-screen build stamp: **GX 0.13.34**  
+Last updated: **2026-08-18** · On-screen build stamp: **GX 0.13.35**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.13.35** Dig into a hillside stacked grass tiles on the rock collar (z-fight, textures never met). Filter drops stamp-lid tris that sit on live tiles (pad 0.42 m) and keeps excavated walls plus rim over consumed quads only. Consume is island R−0.40 m. Wiped `bak_pre_01335`.
 - **GX 0.13.34** 0.13.33 crater is a rock bowl again but the outer consume ring left rim windows. Consume is now island R−0.55 m; MC keep stays R+1.25 so the collar covers the lip. Wiped `bak_pre_01334`.
 - **GX 0.13.33** 0.13.32 dropped the island lid and only punched 6 tiles (CaveMeshNear skips lid verts) — dark globe window in the grass. Island again owns the mouth: keep every MC tri inside the island (collar+lip+cave), consume every tile centroid inside the island, compact verts. Hill outside the island stays tiles. Wiped `bak_pre_01333`.
 - **GX 0.13.32** 0.13.31 kept the stamp lid inside the island (40–60 dark tris/chunk) and punched tiles under it — hill gash + missing pit faces (globe through the lid). Filter now keeps excavated walls/floor and rim over consumed tiles only; drops lid on live grass; compacts verts so CaveMeshNear cannot see leftover lid. Island merge is a real bounding sphere (midpoint merge lost the mouth). Wiped `bak_pre_01332`.

@@ -969,12 +969,12 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			IC, IR,
 			[this](const FVector& P)
 			{
-				// Punch inside the island, but leave a 0.55 m tile ring so the
-				// MC collar (kept to R+1.25) covers the lip. Full Contains
-				// opened rim windows onto the globe (0.13.33 left/bottom).
+				// Inner disk only. The leftover tile ring is the grass lip;
+				// MC lid on those quads is dropped so grass and rock do not
+				// z-fight (0.13.34 layered the hillside).
 				for (const FGXEditSphere& S : EditIsland.Spheres)
 				{
-					if (S.R > 0.80f && FVector::DistSquared(P, S.C) <= FMath::Square(S.R - 0.55f))
+					if (S.R > 0.80f && FVector::DistSquared(P, S.C) <= FMath::Square(S.R - 0.40f))
 					{
 						return true;
 					}
@@ -2750,12 +2750,36 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 	{
 		return;
 	}
+	TArray<FVector> AliveLid;
+	if (CrustTiles)
+	{
+		const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
+		const FVector Center(
+			(Coord.X + 0.5f) * ChunkM,
+			(Coord.Y + 0.5f) * ChunkM,
+			(Coord.Z + 0.5f) * ChunkM);
+		CrustTiles->CollectAliveQuadCentroidsNear(Center, ChunkM * 0.75f, AliveLid);
+	}
 	if (EditIsland.Spheres.Num() > 0)
 	{
 		const FGXEditSphere& S0 = EditIsland.Spheres[0];
-		GX_PERF(1, TEXT("GX-filter isle n=%d r=%.2f c=%.1f"),
-			EditIsland.Spheres.Num(), S0.R, S0.C.Size());
+		GX_PERF(1, TEXT("GX-filter isle n=%d r=%.2f c=%.1f aliveLid=%d"),
+			EditIsland.Spheres.Num(), S0.R, S0.C.Size(), AliveLid.Num());
 	}
+	const float LidPad2 = 0.42f * 0.42f;
+	auto OnAliveLid = [&AliveLid, LidPad2](const FVector& P) -> bool
+	{
+		for (const FVector& C : AliveLid)
+		{
+			if (FVector::DistSquared(P, C) <= LidPad2)
+			{
+				return true;
+			}
+		}
+		return false;
+	};
+	const FGXSphereStamp* Stamp = Volume ? &Volume->GetStamp() : nullptr;
+	int32 DropLid = 0;
 	TArray<int32> Kept;
 	Kept.Reserve(Mesh.Indices.Num());
 	for (int32 T = 0; T + 2 < Mesh.Indices.Num(); T += 3)
@@ -2769,9 +2793,6 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 			continue;
 		}
 		const FVector Cent = (Mesh.Positions[IA] + Mesh.Positions[IB] + Mesh.Positions[IC]) * (1.0f / 3.0f);
-		// Island owns collar + lip + cave. Drop only the 32 m stamp lid
-		// outside the island so the hill tiles stay. Keep every mouth tri
-		// (0.13.32 dropped the lid and opened a globe window).
 		bool bInMouth = false;
 		for (const FGXEditSphere& S : EditIsland.Spheres)
 		{
@@ -2785,6 +2806,20 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 		{
 			continue;
 		}
+		// Do not draw the stamp lid on live grass. That stacked rock over
+		// the hillside (0.13.34) so textures never met. Keep excavated
+		// walls/floor and rim only where tiles were consumed.
+		float Depth = 1.0f;
+		if (Stamp)
+		{
+			const float StampR = Stamp->SampleSurfaceRadius(FVector3f(Cent.GetSafeNormal()));
+			Depth = StampR - static_cast<float>(Cent.Size());
+		}
+		if (Depth < 0.30f && OnAliveLid(Cent))
+		{
+			++DropLid;
+			continue;
+		}
 		Kept.Add(IA);
 		Kept.Add(IB);
 		Kept.Add(IC);
@@ -2793,9 +2828,13 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 	if (Mesh.Indices.Num() < 3)
 	{
 		Mesh.Reset();
+		GX_PERF(1, TEXT("GX-filter empty %d_%d_%d dropLid=%d"),
+			Coord.X, Coord.Y, Coord.Z, DropLid);
 		return;
 	}
 	Mesh.CompactUnusedVertices();
+	GX_PERF(1, TEXT("GX-filter keep %d_%d_%d tris=%d dropLid=%d verts=%d"),
+		Coord.X, Coord.Y, Coord.Z, Mesh.Indices.Num() / 3, DropLid, Mesh.Positions.Num());
 }
 
 void AGXVoxelWorld::RemeshIsland()
