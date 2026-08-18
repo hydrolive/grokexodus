@@ -7,6 +7,7 @@
 #include "GXVersion.h"
 #include "GXVoxelWorld.h"
 #include "GXSkySubsystem.h"
+#include "GXVessel.h"
 #include "GXPerf.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
@@ -97,8 +98,125 @@ void UGXBootOverlaySubsystem::Tick(float DeltaTime)
 			}
 		}
 		Boot->SetFlight(Flight);
-		// Stars are depth-tested ISM (M_GXStar). Slate painted over terrain.
-		Boot->SetStars(TArray<SGXBootOverlay::FStarDot>());
+
+		TArray<SGXBootOverlay::FStarDot> Dots;
+		if (OverlayAlpha < 0.20f)
+		{
+			if (UWorld* World = GetWorld())
+			{
+				if (UGXSkySubsystem* Sky = World->GetSubsystem<UGXSkySubsystem>())
+				{
+					if (APlayerController* PC = World->GetFirstPlayerController())
+					{
+						FVector CamLoc = FVector::ZeroVector;
+						FRotator CamRot = FRotator::ZeroRotator;
+						PC->GetPlayerViewPoint(CamLoc, CamRot);
+						const FVector CamFwd = CamRot.Vector();
+						const float PlanetRcm = static_cast<float>(
+							(Sky->GetEphemeris().PlanetRadius + 2400.0) * 100.0);
+						const FVector3d Sun = Sky->GetSunBodyDir();
+						const FVector Up = CamLoc.GetSafeNormal();
+						const float SunUp = Up.IsNearlyZero()
+							? 1.0f
+							: static_cast<float>(Sun.X * Up.X + Sun.Y * Up.Y + Sun.Z * Up.Z);
+						const float Night = FMath::Clamp((0.12f - SunUp) / 0.28f, 0.0f, 1.0f);
+						FMatrix ViewProj = FMatrix::Identity;
+						bool bHaveProj = false;
+						if (ULocalPlayer* LP = PC->GetLocalPlayer())
+						{
+							FSceneViewProjectionData Proj;
+							FViewport* VP = (LP->ViewportClient && LP->ViewportClient->Viewport)
+								? LP->ViewportClient->Viewport
+								: nullptr;
+							if (LP->GetProjectionData(VP, Proj, INDEX_NONE))
+							{
+								ViewProj = Proj.ComputeViewProjectionMatrix();
+								bHaveProj = true;
+							}
+						}
+						auto ToUV = [&](const FVector& WorldPos, FVector2f& Out) -> bool
+						{
+							const FVector4 H = ViewProj.TransformFVector4(FVector4(WorldPos, 1.0f));
+							if (H.W <= 0.0f)
+							{
+								return false;
+							}
+							const float X = static_cast<float>(H.X / H.W);
+							const float Y = static_cast<float>(H.Y / H.W);
+							if (X < -1.15f || X > 1.15f || Y < -1.15f || Y > 1.15f)
+							{
+								return false;
+							}
+							Out = FVector2f(X * 0.5f + 0.5f, 0.5f - Y * 0.5f);
+							return true;
+						};
+						FVector2f VesselUV(-10.f, -10.f);
+						bool bVessel = false;
+						if (AGXVessel* Ves = Sky->GetFollowedVessel())
+						{
+							bVessel = ToUV(Ves->GetActorLocation(), VesselUV);
+						}
+						if (Night > 0.02f && bHaveProj)
+						{
+							const int32 N = Sky->StarCount();
+							Dots.Reserve(N);
+							auto HitsPlanet = [&](const FVector& Dir) -> bool
+							{
+								const float B = FVector::DotProduct(CamLoc, Dir);
+								const float C2 = CamLoc.SizeSquared() - PlanetRcm * PlanetRcm;
+								if (C2 <= 0.0f)
+								{
+									return B < 0.0f;
+								}
+								const float Disc = B * B - C2;
+								if (Disc < 0.0f)
+								{
+									return false;
+								}
+								return (-B - FMath::Sqrt(Disc)) > 0.0f;
+							};
+							for (int32 I = 0; I < N; ++I)
+							{
+								const FVector3d Bd = Sky->StarBodyDir(I);
+								const FVector Dir(Bd.X, Bd.Y, Bd.Z);
+								if (Dir.IsNearlyZero() || FVector::DotProduct(CamFwd, Dir) < 0.10f)
+								{
+									continue;
+								}
+								if (HitsPlanet(Dir))
+								{
+									continue;
+								}
+								FVector2f UV;
+								if (!ToUV(CamLoc + Dir * 8.0e7f, UV))
+								{
+									continue;
+								}
+								if (bVessel && FVector2f::DistSquared(UV, VesselUV) < 0.004f)
+								{
+									continue;
+								}
+								const float Mag = Sky->StarMagnitude(I);
+								SGXBootOverlay::FStarDot Dot;
+								Dot.UV = UV;
+								Dot.SizePx = FMath::Clamp(5.4f - Mag * 0.50f, 2.0f, 6.5f);
+								Dot.Alpha = Night * FMath::Clamp(1.10f - Mag * 0.14f, 0.28f, 1.0f);
+								Dots.Add(Dot);
+							}
+							static double LastStarLog = -1.0e9;
+							const double Now = FPlatformTime::Seconds();
+							if (Now - LastStarLog > 2.0)
+							{
+								LastStarLog = Now;
+								GX_PERF(1, TEXT("GX-stars slate n=%d night=%.2f sunUp=%.2f"),
+									Dots.Num(), Night, SunUp);
+							}
+						}
+					}
+				}
+			}
+		}
+		Boot->SetStars(Dots);
 	}
 }
 

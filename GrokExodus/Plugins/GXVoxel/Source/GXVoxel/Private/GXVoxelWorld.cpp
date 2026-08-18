@@ -363,18 +363,32 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	EnsureCrustAtlas();
 	if (PlanetGlobe && Volume)
 	{
-		// Unlit vertex color so the night side still reads as crust, not a
-		// black bowling ball (lit HorizonFar vanished under auto-exposure).
-		UMaterialInterface* GlobeMat = LoadObject<UMaterialInterface>(nullptr,
-			TEXT("/Game/Voxel/Materials/M_VoxelTerrain_VertexColor.M_VoxelTerrain_VertexColor"));
-		if (!GlobeMat)
+		// Whole-planet crust: same PBR atlas as the walk mesh, but
+		// kilometre tiles so orbit is a landscape, not 2 m wallpaper.
+		UMaterialInterface* Parent = TerrainMaterial.Get();
+		if (!Parent)
 		{
-			GlobeMat = LoadObject<UMaterialInterface>(nullptr,
-				TEXT("/Game/Voxel/Materials/M_VoxelHorizonFar.M_VoxelHorizonFar"));
+			Parent = LoadObject<UMaterialInterface>(nullptr,
+				TEXT("/Game/Voxel/Materials/M_VoxelTerrain_PBR.M_VoxelTerrain_PBR"));
+		}
+		UMaterialInterface* GlobeMat = Parent;
+		if (Parent)
+		{
+			if (UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(Parent, this))
+			{
+				MID->SetScalarParameterValue(TEXT("TileScale"), 0.00010f);
+				MID->SetScalarParameterValue(TEXT("MacroScale"), 0.028f);
+				MID->SetScalarParameterValue(TEXT("RockTileMul"), 0.45f);
+				MID->SetScalarParameterValue(TEXT("RockMacroMul"), 0.20f);
+				MID->SetScalarParameterValue(TEXT("DistanceFadeStart"), 80.0f);
+				MID->SetScalarParameterValue(TEXT("DistanceFadeEnd"), 600.0f);
+				GlobeMat = MID;
+			}
 		}
 		if (!GlobeMat)
 		{
-			GlobeMat = TerrainMaterial.Get();
+			GlobeMat = LoadObject<UMaterialInterface>(nullptr,
+				TEXT("/Game/Voxel/Materials/M_VoxelTerrain_VertexColor.M_VoxelTerrain_VertexColor"));
 		}
 		PlanetGlobe->Ensure(this, Volume->GetStamp(), GlobeMat);
 	}

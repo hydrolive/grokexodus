@@ -125,10 +125,15 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 					NrmS = Dir;
 				}
 				const float Slope = 1.0f - FMath::Abs(FVector::DotProduct(NrmS, Dir));
+				const FLinearColor Bio = Biome(Surf, Slope);
+				const float Layer = (Bio.B > Bio.G + 0.02f) ? 3.0f
+					: (Slope > 0.14f || (Surf - R0) > Relief * 0.18f) ? 2.0f
+					: 1.0f;
 				Pos.Add(Dir * (Surf - SinkM) * 100.0f);
 				Nrm.Add(NrmS);
-				UV.Add(FVector2D(0.0f, 0.0f));
-				Col.Add(Biome(Surf, Slope));
+				// UV.x = PBR layer id. UV.y = stamp radius so triplanar locks.
+				UV.Add(FVector2D(Layer, Surf));
+				Col.Add(Bio);
 				FVector T = FVector::CrossProduct(NrmS, FVector::ZAxisVector);
 				if (T.SizeSquared() < 1e-6f)
 				{

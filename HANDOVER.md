@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-screen build stamp: **GX 0.12.7**  
+Last updated: **2026-08-17** · On-screen build stamp: **GX 0.12.8**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.12.8** Whole-planet crust is the stamp globe with **PBR kilometre tiles** (same atlas as walk mesh). 3D ISM stars at 240 km were culled / sub-pixel — night stars are Slate again, occluded by the planet disk (R+2.4 km) and the vessel. Wiped `earth_default.gxsav` (bak_pre_0128) so leftover island punches stop opening hillside voids.
 - **GX 0.12.7** Shots 200014–200233: globe winding was inward (A-C-B) so cube faces vanished from orbit (black planet, light through digs to the far sky). Outward + flip repair. Unlit vertex-color globe so night side still reads as crust. Stars are depth-tested `M_GXStar` ISM (Slate painted over hills/vessel). Dig preview is unlit orange.
 - **GX 0.12.6** Orbit/ground sky pass from shots 192854–193642. Globe is 80² stamp + 80 m sink, **no punch** (1 km cells were cutting orbital holes). Vertex-color `M_VoxelHorizonFar` — not walk-PBR grass UV. Visual air 8 km / Rayleigh 0.12× @ 1.35 km / Mie 0 so noon is blue. Night stars are Slate dots with planet-sphere occlusion (no 3D ISM). Moon + vessel use unlit sun-Lambert (`M_GXSunLambert`) so they stay sun-white, not atmosphere-red. Sun lamp is 6500 K white; SkyLight fill 0.28.
 - **GX 0.12.5** Globe punch uses triangle AABB overlap (1 km cells never sit inside a 14 m island — that was the filled dig).
