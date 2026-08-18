@@ -22,7 +22,9 @@
 #include "GameFramework/PlayerController.h"
 #include "HAL/IConsoleManager.h"
 #include "Kismet/GameplayStatics.h"
+#include "Materials/Material.h"
 #include "Materials/MaterialInterface.h"
+#include "DrawDebugHelpers.h"
 
 const double UGXSkySubsystem::WarpSteps[UGXSkySubsystem::WarpCount] = {
 	1.0, 2.0, 5.0, 10.0, 50.0, 100.0, 1000.0
@@ -360,9 +362,16 @@ void UGXSkySubsystem::EnsureStarField()
 	{
 		ISM->SetStaticMesh(Sphere);
 	}
-	if (UMaterialInterface* StarMat = LoadObject<UMaterialInterface>(nullptr,
-		TEXT("/Game/Voxel/Materials/M_GXStar.M_GXStar")))
+	UMaterialInterface* StarMat = LoadObject<UMaterialInterface>(nullptr,
+		TEXT("/Game/Voxel/Materials/M_GXStar.M_GXStar"));
+	if (!StarMat)
 	{
+		StarMat = LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Engine/EngineMaterials/Widget3DPassThrough.Widget3DPassThrough"));
+	}
+	if (StarMat)
+	{
+		StarMat->CheckMaterialUsage(MATUSAGE_InstancedStaticMeshes);
 		ISM->SetMaterial(0, StarMat);
 	}
 	ISM->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -406,7 +415,7 @@ void UGXSkySubsystem::UpdateStarField()
 	{
 		return;
 	}
-	const float FarCm = 450000.0f; // 4.5 km in front of camera
+	const float FarCm = 280000.0f;
 	for (int32 I = 0; I < FGXStarCatalog::Count; ++I)
 	{
 		const FVector3d Bd = StarBodyDir(I);
@@ -416,9 +425,11 @@ void UGXSkySubsystem::UpdateStarField()
 			continue;
 		}
 		const float Mag = FGXStarCatalog::Stars[I].Mag;
-		const float Scale = FMath::Clamp(18.0f - Mag * 4.0f, 8.0f, 28.0f);
+		const float Scale = FMath::Clamp(40.0f - Mag * 8.0f, 16.0f, 64.0f);
 		const FVector Loc = CamLoc + Dir * FarCm;
 		ISM->UpdateInstanceTransform(I, FTransform(FRotator::ZeroRotator, Loc, FVector(Scale)), true, I + 1 == FGXStarCatalog::Count, true);
+		DrawDebugPoint(World, Loc, FMath::Clamp(14.f - Mag * 3.f, 6.f, 18.f),
+			FColor(255, 248, 235), false, 0.0f, SDPG_World);
 	}
 }
 

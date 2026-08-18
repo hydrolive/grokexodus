@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-screen build stamp: **GX 0.12.2**  
+Last updated: **2026-08-17** · On-screen build stamp: **GX 0.12.3**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.12.3** Night stars are debug points + larger ISM (M_GXStar needed InstancedStaticMeshes).
 - **GX 0.12.2** Follow cam orbits the vessel (mouse look) with scroll zoom. Clipmap + stamp globe follow the camera so orbit is not a blank SkyAtmosphere sphere. Noon sky retuned Earth-blue (visual 8 km / less Mie; drag still 18 km). Stars are instanced meshes (HUD canvas was skipped). Moon impostor is Movable (kills mobility spam).
 - **GX 0.12.1** Wave C polish. 40-star inertial catalog drawn on the HUD (dim in daylight). **V** cycles follow-vessel chase cam; **P** deploys chute (rails→integrated reentry). Overlay/strip shows season + solar dec. `gx.follow`, `gx.vessel.chute`, `gx.sky.season 0..3`.
 - **GX 0.12.0** Wave C first ship. Ephemeris sky (`UGXSkySubsystem`) poses the sun from Kepler + sidereal spin; planet actor stays fixed. Moon impostor. Demo LEO vessel on rails. INTEGRATED path has drag/heat/breakup/parachute. Navball + orbit strip + polar map. Time warp `,` / `.` or `gx.warp` (1–1000); physics warp refused in atmo / while thrusting. Overlay shows `UT` + `W×`. `gx.sky.dump`, `gx.vessel.spawn [rails|int]`.
