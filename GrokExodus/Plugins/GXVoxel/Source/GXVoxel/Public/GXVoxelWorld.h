@@ -22,6 +22,7 @@
 class AGXVoxelChunkProxy;
 class UGXVoxelInvokerComponent;
 class UMaterialInterface;
+class UMaterialInstanceDynamic;
 class UStaticMeshComponent;
 class UProceduralMeshComponent;
 class APawn;
@@ -147,6 +148,10 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rendering")
 	TObjectPtr<UMaterialInterface> TerrainMaterial;
+
+	/** Globe MID parented to the PBR asset — never to TerrainMaterial (already a MID). */
+	UPROPERTY(Transient)
+	TObjectPtr<UMaterialInstanceDynamic> GlobeMid;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Rendering")
 	TObjectPtr<UStaticMeshComponent> DistantPlanetSphere;

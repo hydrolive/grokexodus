@@ -97,7 +97,7 @@ private:
 	int32 FollowIndex = -1;
 	float FollowYawDeg = 0.0f;
 	float FollowPitchDeg = 18.0f;
-	float FollowDistM = 220.0f;
+	float FollowDistM = 2800.0f;
 	bool bWarpRefused = false;
 	bool bActorsReady = false;
 	bool bDemoSpawned = false;

@@ -102,7 +102,7 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	// 500 m pad, then rolling hills. Ranges are elongated spines 8–10 km out
 	// so flanks start past ~4 km (voxel stream never meshes a 2 km cliff).
 	const float ArcM = FMath::Acos(FMath::Clamp(Ux, -1.0f, 1.0f)) * Params.Radius;
-	const float Basin = FGXNoise::Smooth01((500.0f - ArcM) / 200.0f);
+	const float Basin = FGXNoise::Smooth01((180.0f - ArcM) / 120.0f);
 	const float R = FMath::Max(Params.Radius, 1.0f);
 	const FVector3f Here(Ux, Uy, Uz);
 	// Weight is 1 on the crest. The old (HalfWid-Dist)/Flank peaked at
@@ -216,7 +216,7 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 		Params.Seed + 8u, 3, 2.0f, 0.5f) * 0.016f;
 
 	// Anisotropic ridges, not circular blobs. Gate so the 280 m pad stays walkable.
-	const float HillGate = 1.0f - FGXNoise::Smooth01((280.0f - ArcM) / 160.0f);
+	const float HillGate = 1.0f - FGXNoise::Smooth01((80.0f - ArcM) / 60.0f);
 	const float HillN = FGXNoise::FBm(
 		Ux * Params.HillFreq,
 		Uy * Params.HillFreq * 0.42f,
@@ -498,7 +498,18 @@ int32 FGXSphereStamp::SampleSurfaceMaterial(const FVector3f& UnitDir) const
 	{
 		return static_cast<int32>(EGXVoxelMaterial::SnowIce);
 	}
-	if (Field.LandMask < 0.38f && Height < 120.0f)
+	// Spawn pad (+X, ~2.4 km): force grass before the beach test.
+	// LandMask on the pad can sit in the sand band (Height~97 < 220).
+	const float ArcM = FMath::Acos(FMath::Clamp(Dir.X, -1.0f, 1.0f)) * Params.Radius;
+	if (ArcM < 2400.0f && Field.LandMask > 0.28f)
+	{
+		if (Field.SlopeProxy > 0.22f || Field.Orogeny > 0.28f || Field.Volcano > 0.18f)
+		{
+			return static_cast<int32>(EGXVoxelMaterial::RockyCliff);
+		}
+		return static_cast<int32>(EGXVoxelMaterial::TemperateGrass);
+	}
+	if (Field.LandMask < 0.46f && Height < 90.0f)
 	{
 		return static_cast<int32>(EGXVoxelMaterial::SandCoastal);
 	}

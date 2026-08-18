@@ -127,8 +127,10 @@ void FGXTerrainPBR::Initialize(UObject* Outer)
 			// Near rock stays coarser than grass (~6 m) but walkable (~10 m).
 			Mid->SetScalarParameterValue(TEXT("RockTileMul"), 0.60f);
 			Mid->SetScalarParameterValue(TEXT("RockMacroMul"), 0.005f);
-			Mid->SetScalarParameterValue(TEXT("DistanceFadeStart"), 2500.0f);
-			Mid->SetScalarParameterValue(TEXT("DistanceFadeEnd"), 18000.0f);
+			// Keep near triplanar across the walk view. 25–180 m fade was a
+			// flat dirt/grass tint on the spawn apron (iter-0133-ground).
+			Mid->SetScalarParameterValue(TEXT("DistanceFadeStart"), 80000.0f);
+			Mid->SetScalarParameterValue(TEXT("DistanceFadeEnd"), 250000.0f);
 			Mid->SetScalarParameterValue(TEXT("SlopeStart"), 0.09f);
 			Mid->SetScalarParameterValue(TEXT("SlopeMid"), 0.15f);
 			Mid->SetScalarParameterValue(TEXT("SlopeEnd"), 0.30f);

@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-screen build stamp: **GX 0.13.3**  
+Last updated: **2026-08-17** · On-screen build stamp: **GX 0.13.4**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.13.4** 0.13.3 spawn was still a textureless dirt apron (local FBm dirt + 25 m fade to macro tint). Globe created a MID from the walk MID every tick (`MID_MID_…`, invalid parent) so orbit was one flat color. Globe MID is once, from the PBR asset, km tiles. Walk fade 800–2500 m. Spawn pad forced grass; basin 180 m; V chase starts at 2.8 km. Wiped `bak_pre_0134`.
 - **GX 0.13.3** Ground was a dusk dirt sheet (dirt=17619 grass=4005) with star dots on hills. Dirt only on mountain feet (`slope>0.11` AND `orogeny>0.06`); inland flats are grass. Stars hide unless `SunUp < -0.20` and are smaller (70–280). Wiped `bak_pre_0133`.
 - **GX 0.13.2** 0.13.1 globe was 88% ice (`ice=88396 grass=1076`). LandMask threshold relaxed so continents exist; ice stays in deep basins. Wiped `bak_pre_0132`.
 - **GX 0.13.1** Orbit was a flat tan sheet: mountains existed only on +X spines, and sand rules painted almost all land. Global plate-suture ranges on every continent; sand is a thin beach; globe logs ice/sand/grass/rock counts. Wiped `bak_pre_0131`.

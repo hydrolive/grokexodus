@@ -326,6 +326,7 @@ void AGXVoxelWorld::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		PlanetGlobe->Shutdown();
 		PlanetGlobe.Reset();
 	}
+	GlobeMid = nullptr;
 	if (Foliage)
 	{
 		Foliage->Shutdown();
@@ -361,34 +362,37 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	// rings every few metres of LEO ground-track (500 ms / 3 FPS).
 	CachedViewerWorld = GetPrimaryInvokerLocation();
 	EnsureCrustAtlas();
-	if (PlanetGlobe && Volume)
+	if (PlanetGlobe && Volume && !PlanetGlobe->IsReady())
 	{
-		// Whole-planet crust: same PBR atlas as the walk mesh, but
-		// kilometre tiles so orbit is a landscape, not 2 m wallpaper.
-		UMaterialInterface* Parent = TerrainMaterial.Get();
-		if (!Parent)
+		// Parent the globe MID to the authored asset. TerrainMaterial is
+		// already a MID — Create(MID) is invalid and was the flat orbit crust
+		// (MID_MID_… every tick, LogMaterial parent warnings).
+		if (!GlobeMid)
 		{
-			Parent = LoadObject<UMaterialInterface>(nullptr,
+			UMaterialInterface* Asset = LoadObject<UMaterialInterface>(nullptr,
 				TEXT("/Game/Voxel/Materials/M_VoxelTerrain_PBR.M_VoxelTerrain_PBR"));
-		}
-		UMaterialInterface* GlobeMat = Parent;
-		if (Parent)
-		{
-			if (UMaterialInstanceDynamic* MID = UMaterialInstanceDynamic::Create(Parent, this))
+			if (Asset && Cast<UMaterialInstanceDynamic>(Asset) == nullptr)
 			{
-				MID->SetScalarParameterValue(TEXT("TileScale"), 0.0012f);
-				MID->SetScalarParameterValue(TEXT("MacroScale"), 0.028f);
-				MID->SetScalarParameterValue(TEXT("RockTileMul"), 0.55f);
-				MID->SetScalarParameterValue(TEXT("RockMacroMul"), 0.22f);
-				MID->SetScalarParameterValue(TEXT("DistanceFadeStart"), 200.0f);
-				MID->SetScalarParameterValue(TEXT("DistanceFadeEnd"), 4000.0f);
-				GlobeMat = MID;
+				GlobeMid = UMaterialInstanceDynamic::Create(Asset, this);
+			}
+			if (GlobeMid)
+			{
+				// Kilometre-scale tiles so continents read from LEO.
+				GlobeMid->SetScalarParameterValue(TEXT("TileScale"), 0.00008f);
+				GlobeMid->SetScalarParameterValue(TEXT("MacroScale"), 0.004f);
+				GlobeMid->SetScalarParameterValue(TEXT("RockTileMul"), 0.45f);
+				GlobeMid->SetScalarParameterValue(TEXT("RockMacroMul"), 0.15f);
+				GlobeMid->SetScalarParameterValue(TEXT("DistanceFadeStart"), 80000.0f);
+				GlobeMid->SetScalarParameterValue(TEXT("DistanceFadeEnd"), 400000.0f);
+				UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s globe MID=%s parent=%s"),
+					GX_VERSION_STRING, *GetNameSafe(GlobeMid), *GetNameSafe(Asset));
 			}
 		}
+		UMaterialInterface* GlobeMat = GlobeMid.Get();
 		if (!GlobeMat)
 		{
 			GlobeMat = LoadObject<UMaterialInterface>(nullptr,
-				TEXT("/Game/Voxel/Materials/M_VoxelTerrain_VertexColor.M_VoxelTerrain_VertexColor"));
+				TEXT("/Game/Voxel/Materials/M_VoxelTerrain_PBR.M_VoxelTerrain_PBR"));
 		}
 		PlanetGlobe->Ensure(this, Volume->GetStamp(), GlobeMat);
 	}
@@ -2003,12 +2007,15 @@ bool AGXVoxelWorld::PlacePawnOnSurface(APawn* Pawn, FVector RadialHint)
 		UpdateStreaming(CachedViewerWorld);
 	}
 
+	const FVector3f SpawnDir = FVector3f(WorldToLocalMeters(Pawn->GetActorLocation()).GetSafeNormal());
+	const int32 SpawnMat = Volume->GetStamp().SampleSurfaceMaterial(SpawnDir);
 	UE_LOG(LogGXVoxel, Warning,
-		TEXT("GX-%s PlacePawnOnSurface r=%.1fm want=%.1fm loc=%s"),
+		TEXT("GX-%s PlacePawnOnSurface r=%.1fm want=%.1fm loc=%s surfMat=%d"),
 		GX_VERSION_STRING,
 		WorldToLocalMeters(Pawn->GetActorLocation()).Size(),
 		PlanetRadius,
-		*Pawn->GetActorLocation().ToCompactString());
+		*Pawn->GetActorLocation().ToCompactString(),
+		SpawnMat);
 	return true;
 }
 
