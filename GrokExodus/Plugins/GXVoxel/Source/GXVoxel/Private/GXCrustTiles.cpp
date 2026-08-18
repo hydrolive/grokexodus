@@ -129,6 +129,14 @@ void FGXCrustTiles::FaceAxes(int8 Face, FVector& OutN, FVector& OutT, FVector& O
 	case 4: OutN = FVector(0, 0, 1); OutT = FVector(0, 1, 0); OutB = FVector(-1, 0, 0); break;
 	default: OutN = FVector(0, 0, -1); OutT = FVector(0, 1, 0); OutB = FVector(1, 0, 0); break;
 	}
+	// +X face used T=+Y B=+Z. Spawn looks +Y so B was screen-horizontal
+	// and every 1 m V-row was a contour stair (0.13.13–17).
+	constexpr float Ca = 0.8750f;
+	constexpr float Sa = 0.4848f;
+	const FVector Tr = (OutT * Ca + OutB * Sa).GetSafeNormal();
+	const FVector Br = (OutB * Ca - OutT * Sa).GetSafeNormal();
+	OutT = Tr;
+	OutB = Br;
 }
 
 FGXCrustTileKey FGXCrustTiles::KeyAt(const FVector& LocalM, int32 LOD)
@@ -2460,9 +2468,11 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 	for (int32 J = 0; J < Dim; ++J)
 	{
 		const float V = OriginV + static_cast<float>(J) * Cell;
+		const int32 GlobalJ = Tile.Key.V * Cells + J;
+		const float UOff = ((GlobalJ & 1) != 0) ? (0.5f * Cell) : 0.0f;
 		for (int32 I = 0; I < Dim; ++I)
 		{
-			const float U = OriginU + static_cast<float>(I) * Cell;
+			const float U = OriginU + static_cast<float>(I) * Cell + UOff;
 			FVector Dir = (FaceN * R0 + T * U + B * V).GetSafeNormal();
 			if (Dir.IsNearlyZero())
 			{

@@ -107,7 +107,7 @@ public:
 	int32 NumLive() const { return Live.Num(); }
 
 	static constexpr float TileM = 64.0f;
-	static constexpr float CellM = 1.0f;
+	static constexpr float CellM = 0.50f;
 	/** First sculpt rebuilds this tile at 0.5 m. 0.35 m was 34 k verts and missed strokes. */
 	static constexpr float FineCellM = 0.50f;
 	static constexpr float StreamM = 256.0f;
