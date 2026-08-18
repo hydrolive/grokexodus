@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-18** · On-screen build stamp: **GX 0.13.18**  
+Last updated: **2026-08-18** · On-screen build stamp: **GX 0.13.19**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.13.19** Grid rotation did not move the shelves — they are iso-height rings of an ArcM cone around spawn. First 4 km is 3D hills only; ranges ease in with FarAmp. Wiped `bak_pre_0139`.
 - **GX 0.13.18** Rotating the clipmap did nothing — the stair hill is the walk tiles. +X face used T=+Y B=+Z so 1 m V-rows were horizon contours. Face axes rotated 29°, tiles are 0.5 m, odd rows staggered.
 - **GX 0.13.17** V-rows of the clipmap sat on +Z from +X spawn, so every row was a horizon contour. Grid is rotated ~29° and verts jittered 0.35 cell.
 - **GX 0.13.16** Stair mountains were the clipmap’s regular rows: faceted quads + slope vertex-color bands drew contour shelves. Odd rows are staggered; normals bias radial; color is stamp layer only.

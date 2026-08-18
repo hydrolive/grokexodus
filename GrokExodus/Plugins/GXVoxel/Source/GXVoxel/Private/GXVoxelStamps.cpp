@@ -280,13 +280,18 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	// Plate-suture ranges on every continent (not only +X spines).
 	const float WorldBelt = LandMask * Belt * (0.10f + 0.22f * Mass * Ridge)
 		* (1.0f - NearStream * 0.88f);
+	// Ranges/Domain are f(ArcM) around +X. From spawn that is a cone of
+	// revolution — every clipmap/tile row is a height isoline (0.13.13–18
+	// onion stairs). Keep 3D hills in the first 4 km; ease ranges in after.
+	const float FarAmp = 1.0f - NearStream;
 	float LandH = 0.01f * LandMask
-		+ Inland * (Shield + Hills + Foothills + Plateau + Orogeny + WorldBelt
+		+ Inland * (Shield + Hills + Foothills + Plateau
+			+ FarAmp * (Orogeny + WorldBelt)
 			+ Local * 0.45f * DetailScale
 			+ Detail * DetailScale
 			- Out.RiverCarve * PlainsW * 0.35f
-			- Out.CanyonCarve * (HillW + MountainW)
-			- Rift - GlacialCarve * MountainW);
+			- FarAmp * Out.CanyonCarve * (HillW + MountainW)
+			- Rift - FarAmp * GlacialCarve * MountainW);
 	Out.Orogeny = FMath::Max(Out.Orogeny, WorldBelt);
 
 	const float NormH = FMath::Lerp(OceanFloor + Shelf, LandH, LandMask);
