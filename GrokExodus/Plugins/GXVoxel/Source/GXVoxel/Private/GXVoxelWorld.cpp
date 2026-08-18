@@ -967,8 +967,21 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 		const float IR = IB.IsValid ? IB.GetExtent().GetMax() : (BrushR + FGXEditIsland::CollarM);
 		Punched = CrustTiles->ConsumeWhere(
 			IC, IR,
-			[this](const FVector& P) { return EditIsland.Contains(P); },
+			[this](const FVector& P)
+			{
+				return EditIsland.Contains(P) && CaveMeshNear(P, 1.35f);
+			},
 			TerrainMaterial.Get());
+		// Lid is gone. Remesh again so MC floor/walls fill only the hole
+		// (unfiltered 32 m lid was culled or z-fought, leaving a window).
+		bFilterIslandAgainstTiles = true;
+		{
+			const int32 SavedCreates = MaxMeshCreatesPerTick;
+			MaxMeshCreatesPerTick = MeshCreatesThisTick + 8;
+			RemeshIsland();
+			MaxMeshCreatesPerTick = SavedCreates;
+		}
+		bFilterIslandAgainstTiles = false;
 	}
 	else
 	{
@@ -1790,7 +1803,7 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 		const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
 		const FVector C((Coord.X + 0.5f) * ChunkM, (Coord.Y + 0.5f) * ChunkM, (Coord.Z + 0.5f) * ChunkM);
 		const FBox Box(C - FVector(ChunkM * 0.5f), C + FVector(ChunkM * 0.5f));
-		if (!EditIsland.OverlapsBox(Box))
+		if (bFilterIslandAgainstTiles || !EditIsland.OverlapsBox(Box))
 		{
 			const int32 Before = MeshData.Indices.Num();
 			FilterMeshToCarveBalls(Coord, MeshData);
@@ -1940,6 +1953,48 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 	return true;
 }
 
+bool AGXVoxelWorld::CaveMeshNear(const FVector& LocalM, float RadiusM) const
+{
+	const float R2 = FMath::Square(FMath::Max(RadiusM, 0.25f));
+	const FGXSphereStamp* Stamp = Volume ? &Volume->GetStamp() : nullptr;
+	for (const auto& Pair : ChunkActors)
+	{
+		const AGXVoxelChunkProxy* Proxy = Pair.Value.Get();
+		if (!Proxy || !CaveChunks.Contains(Pair.Key) || !Proxy->Mesh)
+		{
+			continue;
+		}
+		const FProcMeshSection* Sec = Proxy->Mesh->GetProcMeshSection(0);
+		if (!Sec)
+		{
+			continue;
+		}
+		const FTransform Xf = Proxy->GetActorTransform();
+		for (const FProcMeshVertex& V : Sec->ProcVertexBuffer)
+		{
+			const FVector P = WorldToLocalMeters(Xf.TransformPosition(V.Position));
+			if (FVector::DistSquared(P, LocalM) > R2)
+			{
+				continue;
+			}
+			// Lid verts of the 32 m MC sit on the stamp and would mark every
+			// nearby grass quad as "covered" (0.13.27 consumed 269 @ 12 m).
+			// Only excavated surface (below the stamp) may open a tile.
+			if (Stamp)
+			{
+				const FVector3f D(P.GetSafeNormal());
+				const float StampR = Stamp->SampleSurfaceRadius(D);
+				if (StampR - P.Size() < 0.70f)
+				{
+					continue;
+				}
+			}
+			return true;
+		}
+	}
+	return false;
+}
+
 bool AGXVoxelWorld::ApplyCaveProxyMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshBuffers&& MeshData)
 {
 	UWorld* World = GetWorld();
@@ -1979,6 +2034,29 @@ bool AGXVoxelWorld::ApplyCaveProxyMesh(const FGXChunkKey& Coord, int32 LOD, FGXM
 		M->SetBoundsScale(4.0f);
 		M->bUseAsyncCooking = false;
 	}
+	// Same A-C-B rule as walk tiles: Cross toward the core is the UE
+	// front face. Outward MC winding culled the lid so consume opened
+	// a window through the planet (0.13.25 hole).
+	int32 Flipped = 0;
+	for (int32 T = 0; T + 2 < MeshData.Indices.Num(); T += 3)
+	{
+		const int32 IA = MeshData.Indices[T];
+		const int32 IB = MeshData.Indices[T + 1];
+		const int32 IC = MeshData.Indices[T + 2];
+		if (!MeshData.Positions.IsValidIndex(IA) || !MeshData.Positions.IsValidIndex(IB)
+			|| !MeshData.Positions.IsValidIndex(IC))
+		{
+			continue;
+		}
+		const FVector FN = FVector::CrossProduct(
+			MeshData.Positions[IB] - MeshData.Positions[IA],
+			MeshData.Positions[IC] - MeshData.Positions[IA]);
+		if (FVector::DotProduct(FN, MeshData.Positions[IA]) > 0.0f)
+		{
+			Swap(MeshData.Indices[T + 1], MeshData.Indices[T + 2]);
+			++Flipped;
+		}
+	}
 	Proxy->ApplyMesh(MeshData, OriginM, GMetersToUU, TerrainMaterial.Get(), true);
 	HollowChunks.Remove(Coord);
 	EmptyRetries.Remove(Coord);
@@ -1990,8 +2068,8 @@ bool AGXVoxelWorld::ApplyCaveProxyMesh(const FGXChunkKey& Coord, int32 LOD, FGXM
 	V.VertCount = MeshData.Positions.Num();
 	V.IndexCount = MeshData.Indices.Num();
 	MeshQueued.Remove(Coord);
-	GX_PERF(1, TEXT("GX-cave proxy %d_%d_%d verts=%d tris=%d"),
-		Coord.X, Coord.Y, Coord.Z, V.VertCount, V.IndexCount / 3);
+	GX_PERF(1, TEXT("GX-cave proxy %d_%d_%d verts=%d tris=%d flip=%d"),
+		Coord.X, Coord.Y, Coord.Z, V.VertCount, V.IndexCount / 3, Flipped);
 	return true;
 }
 
@@ -2591,7 +2669,7 @@ void AGXVoxelWorld::RestoreEditedSurfaces()
 	RemeshIsland();
 	int32 Hidden = CrustTiles->ConsumeWhere(
 		IB.GetCenter(), FMath::Max(IB.GetExtent().GetMax(), 4.0f),
-		[this](const FVector& P) { return EditIsland.Contains(P); },
+		[this](const FVector& P) { return EditIsland.Contains(P) && CaveMeshNear(P, 1.35f); },
 		TerrainMaterial.Get());
 	MaxMeshCreatesPerTick = SavedCreates;
 	bLoadRestorePending = false;

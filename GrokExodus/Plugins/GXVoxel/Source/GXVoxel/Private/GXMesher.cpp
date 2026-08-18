@@ -55,23 +55,11 @@ FGXMeshBuffers FGXMesher::MeshChunk(
 					Materials[Idx] = Packed.Material;
 					Auth[Idx] = 1;
 				}
-				else if (Snapshot.Atlas.IsValid())
-				{
-					float AtlasD = 0.0f;
-					uint8 AtlasMat = 1;
-					if (Snapshot.Atlas->TrySample(Corner, AtlasD, AtlasMat))
-					{
-						Densities[Idx] = AtlasD;
-						Materials[Idx] = AtlasMat;
-					}
-					else
-					{
-						Densities[Idx] = Stamp.SampleDensity(Corner);
-						Materials[Idx] = Densities[Idx] > 0.0f ? 1 : 0;
-					}
-				}
 				else
 				{
+					// Live stamp only. A stale crust atlas sat the MC lid
+					// metres off the walk tiles so consume opened a window
+					// through the planet (0.13.25 hole).
 					Densities[Idx] = Stamp.SampleDensity(Corner);
 					Materials[Idx] = Densities[Idx] > 0.0f ? 1 : 0;
 				}

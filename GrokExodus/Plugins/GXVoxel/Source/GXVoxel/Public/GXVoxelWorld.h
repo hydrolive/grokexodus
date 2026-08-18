@@ -285,6 +285,8 @@ protected:
 	FString LastSaveToast;
 	float AutoSaveAccum = 0.0f;
 	bool bPersistDirty = false;
+	/** After consume, remesh again and drop MC floor that still sits under live tiles. */
+	bool bFilterIslandAgainstTiles = false;
 
 	FVector CachedViewerWorld = FVector::ZeroVector;
 	FVector LastStreamViewerWorld = FVector(1e12f, 0, 0);
@@ -335,6 +337,7 @@ protected:
 	void DrainPendingMeshes(int32 Budget);
 	bool ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshBuffers&& MeshData);
 	bool ApplyCaveProxyMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshBuffers&& MeshData);
+	bool CaveMeshNear(const FVector& LocalM, float RadiusM) const;
 	void DeferMeshApply(const FGXChunkKey& Coord, int32 LOD, FGXMeshBuffers&& MeshData);
 	void EnsureMeshBanks();
 	void GrowMeshBanks(int32 TargetBanks);

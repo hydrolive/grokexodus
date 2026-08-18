@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-18** · On-screen build stamp: **GX 0.13.25**  
+Last updated: **2026-08-18** · On-screen build stamp: **GX 0.13.28**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,9 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.13.28** 0.13.27 still ate the rim: MC lid verts sit on the stamp so CaveMeshNear was true for every nearby quad (consume 269 @ 12 m). Only verts ≥0.70 m below the stamp count as cave cover.
+- **GX 0.13.27** Crater exists but consume still punched rim quads the cave does not cover (black triangles). Consume only if island contains the centroid AND a cave vert is within 1.35 m.
+- **GX 0.13.26** Dig still left a window: MC lid used a stale atlas and outward winding (culled from the sky) so consume showed night through the grass. Mesher is stamp-only; island tris flip if FN·Pos>0; after consume, remesh filters MC floor under live tiles.
 - **GX 0.13.25** Dig opened the lid onto the globe (black 0.5 km facets). Island remesh was a 60 km mesh-bank section so the cave culled. Cave chunks are localized `AGXVoxelChunkProxy` actors (same as walk tiles). Consume reach uses LOD scale.
 - **GX 0.13.24** 0.13.23 was still a ziggurat: ArcM Basin + HillGate is a circular bowl around +X, so every grid row is a height isoline. Basin/HillGate gone; near ridges miss +X (look at a flank). LOD1 is 1 m to 420 m.
 - **GX 0.13.23** Ground horizon was a 16 m clipmap ziggurat. Mid field is LOD1 cube-sphere tiles (2 m, 120–560 m); clipmap starts at 500 m. Near hills get an anisotropic ridge so the 1 km swell is a crest, not a cone.
