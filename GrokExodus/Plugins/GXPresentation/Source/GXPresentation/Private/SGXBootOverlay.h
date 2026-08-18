@@ -15,6 +15,23 @@ public:
 	void SetState(float InOverlayAlpha, float InProgress, const FString& InStatus, const FString& InExtra);
 	void SetFlight(const FString& InFlight);
 
+	struct FStarDot
+	{
+		FVector2f UV = FVector2f::ZeroVector;
+		float SizePx = 2.0f;
+		float Alpha = 1.0f;
+	};
+	void SetStars(const TArray<FStarDot>& InStars);
+
+	virtual int32 OnPaint(
+		const FPaintArgs& Args,
+		const FGeometry& AllottedGeometry,
+		const FSlateRect& MyCullingRect,
+		FSlateWindowElementList& OutDrawElements,
+		int32 LayerId,
+		const FWidgetStyle& InWidgetStyle,
+		bool bParentEnabled) const override;
+
 private:
 	FSlateColor GetDimColor() const;
 	EVisibility GetLoadVisibility() const;
@@ -27,4 +44,5 @@ private:
 	TSharedPtr<STextBlock> StatusLine;
 	TSharedPtr<STextBlock> Stamp;
 	TSharedPtr<STextBlock> Flight;
+	TArray<FStarDot> Stars;
 };

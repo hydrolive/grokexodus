@@ -44,3 +44,28 @@ const FGXStar FGXStarCatalog::Stars[FGXStarCatalog::Count] = {
 	{ TEXT("Alhena"), 6.628f, 16.40f, 1.93f },
 	{ TEXT("Peacock"), 20.427f, -56.74f, 1.94f },
 };
+
+FVector3d FGXStarCatalog::Dir(int32 Index)
+{
+	if (Index >= 0 && Index < Count)
+	{
+		return Stars[Index].InertialDir();
+	}
+	const int32 I = FMath::Max(0, Index - Count);
+	const double K = static_cast<double>(I) + 0.5;
+	const double N = static_cast<double>(FieldCount);
+	const double Phi = FMath::Acos(1.0 - 2.0 * K / N);
+	const double Theta = PI * (1.0 + FMath::Sqrt(5.0)) * K;
+	const double S = FMath::Sin(Phi);
+	return FVector3d(S * FMath::Cos(Theta), S * FMath::Sin(Theta), FMath::Cos(Phi));
+}
+
+float FGXStarCatalog::Magnitude(int32 Index)
+{
+	if (Index >= 0 && Index < Count)
+	{
+		return Stars[Index].Mag;
+	}
+	const int32 I = FMath::Max(0, Index - Count);
+	return 2.4f + static_cast<float>((I * 17) % 29) * 0.11f;
+}

@@ -39,8 +39,10 @@ public:
 	AGXVessel* GetFollowedVessel() const;
 	int32 GetFollowIndex() const { return FollowIndex; }
 
-	/** Star unit vector in the body-fixed scene. */
+	/** Star unit vector in the body-fixed scene. Named + field catalog. */
 	FVector3d StarBodyDir(int32 Index) const;
+	int32 StarCount() const;
+	float StarMagnitude(int32 Index) const;
 
 	UFUNCTION(BlueprintCallable, Category = "GX|Sky")
 	void SetWarpIndex(int32 Index);
@@ -104,6 +106,7 @@ private:
 
 	TWeakObjectPtr<ADirectionalLight> SunLight;
 	TWeakObjectPtr<AStaticMeshActor> MoonImpostor;
+	TWeakObjectPtr<class UMaterialInstanceDynamic> MoonMID;
 	TWeakObjectPtr<AGXVessel> DemoVessel;
 	TWeakObjectPtr<AActor> StarHost;
 	TWeakObjectPtr<class UInstancedStaticMeshComponent> StarISM;

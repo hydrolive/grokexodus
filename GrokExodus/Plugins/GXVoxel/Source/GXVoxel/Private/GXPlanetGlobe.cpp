@@ -2,6 +2,7 @@
 
 #include "GXPlanetGlobe.h"
 #include "GXVoxel.h"
+#include "GXPerf.h"
 #include "ProceduralMeshComponent.h"
 #include "GameFramework/Actor.h"
 
@@ -43,10 +44,12 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 	PMC->RegisterComponent();
 	Comp = PMC;
 
-	// 6×48². ~1.25° / 1.3 km cells so ranges read from orbit.
-	constexpr int32 N = 48;
-	constexpr float SinkM = 25.0f;
+	// 6×80². ~0.75° / 0.8 km cells. Sink under near-field so digs do not
+	// need a 1 km punch (that cut orbital holes through the crust).
+	constexpr int32 N = 80;
+	constexpr float SinkM = 80.0f;
 	const float R0 = Stamp.GetParams().Radius;
+	const float Relief = FMath::Max(1.0f, Stamp.GetParams().MaxRelief);
 	TArray<FVector> Pos, Nrm;
 	TArray<FVector2D> UV;
 	TArray<FLinearColor> Col;
@@ -69,6 +72,34 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 		}
 	};
 
+	auto Sample = [&Stamp](const FVector& Dir) -> float
+	{
+		return Stamp.SampleSurfaceRadius(FVector3f(Dir.X, Dir.Y, Dir.Z));
+	};
+
+	auto Biome = [R0, Relief](float Surf, float Slope) -> FLinearColor
+	{
+		const float Alt = (Surf - R0) / Relief;
+		if (Alt < -0.05f)
+		{
+			return FLinearColor(0.16f, 0.26f, 0.28f, 1.0f);
+		}
+		if (Alt < 0.015f)
+		{
+			return FLinearColor(0.30f, 0.44f, 0.28f, 1.0f);
+		}
+		if (Slope > 0.18f || Alt > 0.22f)
+		{
+			return FLinearColor(0.50f, 0.46f, 0.40f, 1.0f);
+		}
+		if (Slope > 0.10f)
+		{
+			return FLinearColor(0.48f, 0.38f, 0.26f, 1.0f);
+		}
+		return FLinearColor(0.40f, 0.50f, 0.28f, 1.0f);
+	};
+
+	const float Eps = 0.0035f;
 	for (int32 Face = 0; Face < 6; ++Face)
 	{
 		const int32 Base = Pos.Num();
@@ -79,15 +110,28 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 				const float U = static_cast<float>(I) / static_cast<float>(N);
 				const float V = static_cast<float>(J) / static_cast<float>(N);
 				FVector Dir = FaceDir(Face, U, V).GetSafeNormal();
-				const float Surf = Stamp.SampleSurfaceRadius(FVector3f(Dir.X, Dir.Y, Dir.Z));
+				const float Surf = Sample(Dir);
+				FVector Tangent, Bitangent;
+				Dir.FindBestAxisVectors(Tangent, Bitangent);
+				const FVector Dt = (Dir + Tangent * Eps).GetSafeNormal();
+				const FVector Db = (Dir + Bitangent * Eps).GetSafeNormal();
+				const float Rt = Sample(Dt);
+				const float Rb = Sample(Db);
+				const FVector P = Dir * Surf;
+				FVector NrmS = FVector::CrossProduct(Dt * Rt - P, Db * Rb - P).GetSafeNormal();
+				if (NrmS.IsNearlyZero() || FVector::DotProduct(NrmS, Dir) < 0.0f)
+				{
+					NrmS = Dir;
+				}
+				const float Slope = 1.0f - FMath::Abs(FVector::DotProduct(NrmS, Dir));
 				Pos.Add(Dir * (Surf - SinkM) * 100.0f);
-				Nrm.Add(Dir);
-				UV.Add(FVector2D(1.0f, 0.0f));
-				Col.Add(FLinearColor(0.45f, 0.52f, 0.30f, 1.0f));
-				FVector T = FVector::CrossProduct(Dir, FVector::ZAxisVector);
+				Nrm.Add(NrmS);
+				UV.Add(FVector2D(0.0f, 0.0f));
+				Col.Add(Biome(Surf, Slope));
+				FVector T = FVector::CrossProduct(NrmS, FVector::ZAxisVector);
 				if (T.SizeSquared() < 1e-6f)
 				{
-					T = FVector::CrossProduct(Dir, FVector::YAxisVector);
+					T = FVector::CrossProduct(NrmS, FVector::YAxisVector);
 				}
 				Tan.Add(FProcMeshTangent(T.GetSafeNormal(), false));
 			}
@@ -120,54 +164,14 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 		PMC->SetMaterial(0, Material);
 	}
 	bReady = true;
-	UE_LOG(LogGXVoxel, Warning, TEXT("GXPlanetGlobe ready verts=%d (stamp crust, sink=%.0fm)"),
+	UE_LOG(LogGXVoxel, Warning, TEXT("GXPlanetGlobe ready verts=%d (stamp crust, sink=%.0fm, no punch)"),
 		Positions.Num(), SinkM);
+	GX_PERF(1, TEXT("GX-globe verts=%d sink=%.0f far-mat"), Positions.Num(), SinkM);
 }
 
 int32 FGXPlanetGlobe::PunchIsland(const FGXEditIsland& Island, UMaterialInterface* Material)
 {
-	UProceduralMeshComponent* PMC = Comp.Get();
-	if (!PMC || !bReady || Island.IsEmpty() || Indices.Num() < 3)
-	{
-		return 0;
-	}
-	TArray<int32> Kept;
-	Kept.Reserve(LiveIndices.Num());
-	int32 Dropped = 0;
-	const TArray<int32>& Src = LiveIndices.Num() > 0 ? LiveIndices : Indices;
-	for (int32 T = 0; T + 2 < Src.Num(); T += 3)
-	{
-		const int32 A = Src[T], B = Src[T + 1], C = Src[T + 2];
-		if (!Positions.IsValidIndex(A) || !Positions.IsValidIndex(B) || !Positions.IsValidIndex(C))
-		{
-			continue;
-		}
-		const FVector AM = Positions[A] * 0.01f;
-		const FVector BM = Positions[B] * 0.01f;
-		const FVector CM = Positions[C] * 0.01f;
-		FBox Tri(ForceInit);
-		Tri += AM;
-		Tri += BM;
-		Tri += CM;
-		if (Island.OverlapsBox(Tri))
-		{
-			++Dropped;
-			continue;
-		}
-		Kept.Add(A);
-		Kept.Add(B);
-		Kept.Add(C);
-	}
-	if (Dropped == 0)
-	{
-		return 0;
-	}
-	LiveIndices = MoveTemp(Kept);
-	PMC->CreateMeshSection_LinearColor(0, Positions, LiveIndices, Normals, UV0, Colors, Tangents, false);
-	if (Material)
-	{
-		PMC->SetMaterial(0, Material);
-	}
-	UE_LOG(LogGXVoxel, Warning, TEXT("GXPlanetGlobe punch n=%d left=%d"), Dropped, LiveIndices.Num() / 3);
-	return Dropped;
+	(void)Island;
+	(void)Material;
+	return 0;
 }

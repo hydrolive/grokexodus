@@ -361,9 +361,15 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	// rings every few metres of LEO ground-track (500 ms / 3 FPS).
 	CachedViewerWorld = GetPrimaryInvokerLocation();
 	EnsureCrustAtlas();
-	if (PlanetGlobe && Volume && TerrainMaterial)
+	if (PlanetGlobe && Volume)
 	{
-		PlanetGlobe->Ensure(this, Volume->GetStamp(), TerrainMaterial.Get());
+		UMaterialInterface* GlobeMat = LoadObject<UMaterialInterface>(nullptr,
+			TEXT("/Game/Voxel/Materials/M_VoxelHorizonFar.M_VoxelHorizonFar"));
+		if (!GlobeMat)
+		{
+			GlobeMat = TerrainMaterial.Get();
+		}
+		PlanetGlobe->Ensure(this, Volume->GetStamp(), GlobeMat);
 	}
 
 	if (bAtlasReady && ActiveStreamRadius < StreamRadius)
@@ -948,10 +954,6 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			IC, IR,
 			[this](const FVector& P) { return EditIsland.Contains(P); },
 			TerrainMaterial.Get());
-		if (PlanetGlobe)
-		{
-			PlanetGlobe->PunchIsland(EditIsland, TerrainMaterial.Get());
-		}
 	}
 	else
 	{
@@ -2505,10 +2507,6 @@ void AGXVoxelWorld::RestoreEditedSurfaces()
 		IB.GetCenter(), FMath::Max(IB.GetExtent().GetMax(), 4.0f),
 		[this](const FVector& P) { return EditIsland.Contains(P); },
 		TerrainMaterial.Get());
-	if (PlanetGlobe)
-	{
-		PlanetGlobe->PunchIsland(EditIsland, TerrainMaterial.Get());
-	}
 	MaxMeshCreatesPerTick = SavedCreates;
 	bLoadRestorePending = false;
 	bRevealedTileEdits = true;

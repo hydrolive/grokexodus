@@ -23,5 +23,10 @@ struct FGXStar
 struct GXCELESTIAL_API FGXStarCatalog
 {
 	static constexpr int32 Count = 40;
+	static constexpr int32 FieldCount = 320;
+	static constexpr int32 TotalCount = Count + FieldCount;
 	static const FGXStar Stars[Count];
+
+	static FVector3d Dir(int32 Index);
+	static float Magnitude(int32 Index);
 };

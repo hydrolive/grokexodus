@@ -4,11 +4,13 @@
 #include "GXCelestial.h"
 #include "GXFrameSubsystem.h"
 #include "GXPerf.h"
+#include "GXSunLambert.h"
 #include "GXVersion.h"
 #include "GXVessel.h"
 #include "GXStarCatalog.h"
 #include "GameFramework/PlayerController.h"
 #include "Engine/DirectionalLight.h"
+#include "Engine/SkyLight.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
@@ -17,12 +19,14 @@
 #include "Camera/PlayerCameraManager.h"
 #include "Components/DirectionalLightComponent.h"
 #include "Components/InstancedStaticMeshComponent.h"
+#include "Components/SkyLightComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/Pawn.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/IConsoleManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "Materials/MaterialInterface.h"
 #include "DrawDebugHelpers.h"
 
@@ -170,11 +174,21 @@ FString UGXSkySubsystem::FlightStrip() const
 
 FVector3d UGXSkySubsystem::StarBodyDir(int32 Index) const
 {
-	if (Index < 0 || Index >= FGXStarCatalog::Count)
+	if (Index < 0 || Index >= FGXStarCatalog::TotalCount)
 	{
 		return FVector3d::ZeroVector;
 	}
-	return Eph.InertialToBody(UniversalTime).RotateVector(FGXStarCatalog::Stars[Index].InertialDir());
+	return Eph.InertialToBody(UniversalTime).RotateVector(FGXStarCatalog::Dir(Index));
+}
+
+int32 UGXSkySubsystem::StarCount() const
+{
+	return FGXStarCatalog::TotalCount;
+}
+
+float UGXSkySubsystem::StarMagnitude(int32 Index) const
+{
+	return FGXStarCatalog::Magnitude(Index);
 }
 
 AGXVessel* UGXSkySubsystem::GetFollowedVessel() const
@@ -335,91 +349,18 @@ void UGXSkySubsystem::ApplyFollowView()
 
 void UGXSkySubsystem::EnsureStarField()
 {
-	if (StarISM.IsValid())
+	// Stars are Slate dots with planet-sphere occlusion. 3D ISM spheres
+	// read as black squares and were never occluded by the limb.
+	if (!bStarsPlaced)
 	{
-		return;
+		bStarsPlaced = true;
+		UE_LOG(LogGXCelestial, Warning, TEXT("GX-%s stars: slate + planet occlusion n=%d"),
+			GX_VERSION_STRING, FGXStarCatalog::TotalCount);
 	}
-	UWorld* World = GetWorld();
-	if (!World)
-	{
-		return;
-	}
-	FActorSpawnParameters SP;
-	SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-	AStaticMeshActor* Host = World->SpawnActor<AStaticMeshActor>(
-		AStaticMeshActor::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, SP);
-	if (!Host)
-	{
-		return;
-	}
-	Host->SetActorLabel(TEXT("GX_StarField"));
-	Host->SetActorLocation(FVector::ZeroVector);
-	Host->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
-	Host->GetRootComponent()->SetMobility(EComponentMobility::Movable);
-	Host->GetStaticMeshComponent()->SetVisibility(false);
-	Host->GetStaticMeshComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	UInstancedStaticMeshComponent* ISM = NewObject<UInstancedStaticMeshComponent>(Host, TEXT("Stars"));
-	ISM->SetMobility(EComponentMobility::Movable);
-	if (UStaticMesh* Sphere = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere")))
-	{
-		ISM->SetStaticMesh(Sphere);
-	}
-	UMaterialInterface* StarMat = LoadObject<UMaterialInterface>(nullptr,
-		TEXT("/Engine/EngineMaterials/Widget3DPassThrough.Widget3DPassThrough"));
-	if (StarMat)
-	{
-		StarMat->CheckMaterialUsage(MATUSAGE_InstancedStaticMeshes);
-		ISM->SetMaterial(0, StarMat);
-	}
-	ISM->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	ISM->SetCastShadow(false);
-	ISM->bNeverDistanceCull = true;
-	ISM->SetCullDistance(0.0f);
-	ISM->SetupAttachment(Host->GetRootComponent());
-	ISM->RegisterComponent();
-	// Inertial local space. Host rotation = R_inertial_to_body. Depth vs globe.
-	const double StarRM = Eph.PlanetRadius + 80000.0;
-	for (int32 I = 0; I < FGXStarCatalog::Count; ++I)
-	{
-		const FVector3d D = FGXStarCatalog::Stars[I].InertialDir();
-		const float Mag = FGXStarCatalog::Stars[I].Mag;
-		const float Scale = FMath::Clamp(220.0f - Mag * 40.0f, 80.0f, 280.0f);
-		const FVector Loc(
-			static_cast<float>(D.X * StarRM * 100.0),
-			static_cast<float>(D.Y * StarRM * 100.0),
-			static_cast<float>(D.Z * StarRM * 100.0));
-		ISM->AddInstance(FTransform(FRotator::ZeroRotator, Loc, FVector(Scale)));
-	}
-	StarHost = Host;
-	StarISM = ISM;
-	bStarsPlaced = true;
 }
 
 void UGXSkySubsystem::UpdateStarField()
 {
-	AActor* Host = StarHost.Get();
-	UInstancedStaticMeshComponent* ISM = StarISM.Get();
-	if (!Host || !ISM)
-	{
-		return;
-	}
-	const FQuat4d Q = Eph.InertialToBody(UniversalTime);
-	Host->SetActorRotation(FQuat(Q.X, Q.Y, Q.Z, Q.W));
-	FVector CamLoc = FVector::ZeroVector;
-	if (UWorld* World = GetWorld())
-	{
-		if (APlayerController* PC = World->GetFirstPlayerController())
-		{
-			if (PC->PlayerCameraManager)
-			{
-				CamLoc = PC->PlayerCameraManager->GetCameraLocation();
-			}
-		}
-	}
-	const FVector Up = CamLoc.GetSafeNormal();
-	const float SunUp = static_cast<float>(
-		LastSunBody.X * Up.X + LastSunBody.Y * Up.Y + LastSunBody.Z * Up.Z);
-	ISM->SetVisibility(SunUp < 0.05f);
 }
 
 void UGXSkySubsystem::BindConsole()
@@ -606,6 +547,8 @@ void UGXSkySubsystem::EnsureActors()
 			Moon->GetStaticMeshComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 			Moon->GetStaticMeshComponent()->SetCastShadow(false);
 			Moon->SetActorEnableCollision(false);
+			MoonMID = FGXSunLambert::Apply(
+				Moon->GetStaticMeshComponent(), FLinearColor(0.70f, 0.70f, 0.66f, 1.0f));
 			MoonImpostor = Moon;
 		}
 	}
@@ -629,9 +572,24 @@ void UGXSkySubsystem::PoseSun()
 	if (UDirectionalLightComponent* C = Light->GetComponent())
 	{
 		C->SetMobility(EComponentMobility::Movable);
+		C->SetUseTemperature(false);
+		C->SetLightColor(FLinearColor(1.0f, 0.99f, 0.97f));
+		C->SetIntensity(12.0f);
 		C->SetAtmosphereSunLight(true);
 		C->SetAtmosphereSunLightIndex(0);
 		C->MarkRenderStateDirty();
+	}
+	if (UWorld* World = GetWorld())
+	{
+		for (TActorIterator<ASkyLight> It(World); It; ++It)
+		{
+			if (USkyLightComponent* SC = It->GetLightComponent())
+			{
+				SC->SetIntensity(0.28f);
+				SC->bLowerHemisphereIsBlack = true;
+			}
+			break;
+		}
 	}
 }
 
@@ -656,6 +614,12 @@ void UGXSkySubsystem::PoseMoon()
 	Moon->SetActorLocation(Loc);
 	const float S = static_cast<float>((RVis * 100.0) / 50.0);
 	Moon->SetActorScale3D(FVector(S));
+	if (!MoonMID.IsValid())
+	{
+		MoonMID = FGXSunLambert::Apply(
+			Moon->GetStaticMeshComponent(), FLinearColor(0.70f, 0.70f, 0.66f, 1.0f));
+	}
+	FGXSunLambert::SetSunDir(MoonMID.Get(), LastSunBody);
 }
 
 void UGXSkySubsystem::SyncFrame() const

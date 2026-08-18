@@ -8,11 +8,13 @@
 #include "GXMath.h"
 #include "GXPerf.h"
 #include "GXSkySubsystem.h"
+#include "GXSunLambert.h"
 #include "GXVersion.h"
 #include "Camera/CameraComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
+#include "Materials/MaterialInstanceDynamic.h"
 #include "UObject/ConstructorHelpers.h"
 #include "HAL/PlatformTime.h"
 
@@ -43,9 +45,20 @@ AGXVessel::AGXVessel()
 void AGXVessel::BeginPlay()
 {
 	Super::BeginPlay();
+	EnsureSunMaterial();
 	UE_LOG(LogGXCelestial, Warning, TEXT("GX-%s vessel %s mode=%s"),
 		GX_VERSION_STRING, *GetName(),
 		Mode == EGXVesselMode::OnRails ? TEXT("rails") : TEXT("int"));
+}
+
+void AGXVessel::EnsureSunMaterial()
+{
+	if (HullMID.IsValid() || !Hull)
+	{
+		return;
+	}
+	Hull->SetCastShadow(false);
+	HullMID = FGXSunLambert::Apply(Hull, FLinearColor(0.78f, 0.78f, 0.76f, 1.0f));
 }
 
 void AGXVessel::SetCircularOrbit(double RadiusM, double InclinationRad, double Mu, double UniversalTime)
@@ -176,6 +189,8 @@ void AGXVessel::Tick(float DeltaSeconds)
 
 	LastAltitude = RInertial.Size() - Sky->GetEphemeris().PlanetRadius;
 	PoseFromInertial(Sky);
+	EnsureSunMaterial();
+	FGXSunLambert::SetSunDir(HullMID.Get(), Sky->GetSunBodyDir());
 	const float Ms = static_cast<float>((FPlatformTime::Seconds() - T0) * 1000.0);
 	static double LastVLog = -1.0e9;
 	const double Now = FPlatformTime::Seconds();

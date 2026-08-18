@@ -99,4 +99,7 @@ protected:
 
 	void StepIntegrated(double Dt, UGXSkySubsystem* Sky);
 	void PoseFromInertial(UGXSkySubsystem* Sky);
+	void EnsureSunMaterial();
+
+	TWeakObjectPtr<class UMaterialInstanceDynamic> HullMID;
 };

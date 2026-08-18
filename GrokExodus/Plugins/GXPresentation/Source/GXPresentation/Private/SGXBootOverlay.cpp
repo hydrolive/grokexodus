@@ -2,6 +2,8 @@
 
 #include "SGXBootOverlay.h"
 #include "GXVersion.h"
+#include "Rendering/DrawElements.h"
+#include "Rendering/SlateLayoutTransform.h"
 #include "Styling/CoreStyle.h"
 #include "Styling/SlateBrush.h"
 #include "Widgets/SBoxPanel.h"
@@ -131,6 +133,49 @@ void SGXBootOverlay::SetFlight(const FString& InFlight)
 	{
 		Flight->SetText(FText::FromString(InFlight));
 	}
+}
+
+void SGXBootOverlay::SetStars(const TArray<FStarDot>& InStars)
+{
+	Stars = InStars;
+}
+
+int32 SGXBootOverlay::OnPaint(
+	const FPaintArgs& Args,
+	const FGeometry& AllottedGeometry,
+	const FSlateRect& MyCullingRect,
+	FSlateWindowElementList& OutDrawElements,
+	int32 LayerId,
+	const FWidgetStyle& InWidgetStyle,
+	bool bParentEnabled) const
+{
+	int32 Layer = SCompoundWidget::OnPaint(
+		Args, AllottedGeometry, MyCullingRect, OutDrawElements,
+		LayerId, InWidgetStyle, bParentEnabled);
+	if (OverlayAlpha > 0.20f || Stars.Num() == 0)
+	{
+		return Layer;
+	}
+	static FSlateColorBrush StarBrush(FLinearColor::White);
+	const FVector2D Size = AllottedGeometry.GetLocalSize();
+	const int32 StarLayer = Layer + 1;
+	for (const FStarDot& S : Stars)
+	{
+		if (S.Alpha <= 0.01f)
+		{
+			continue;
+		}
+		const float Px = FMath::Clamp(S.SizePx, 1.2f, 6.0f);
+		const FVector2D Pos(S.UV.X * Size.X - Px * 0.5f, S.UV.Y * Size.Y - Px * 0.5f);
+		FSlateDrawElement::MakeBox(
+			OutDrawElements,
+			StarLayer,
+			AllottedGeometry.ToPaintGeometry(FVector2f(Px, Px), FSlateLayoutTransform(FVector2f(Pos))),
+			&StarBrush,
+			ESlateDrawEffect::None,
+			FLinearColor(0.92f, 0.95f, 1.0f, S.Alpha));
+	}
+	return StarLayer;
 }
 
 FSlateColor SGXBootOverlay::GetDimColor() const

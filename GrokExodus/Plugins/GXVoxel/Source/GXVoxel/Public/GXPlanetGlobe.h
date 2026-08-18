@@ -18,7 +18,7 @@ public:
 	void Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMaterialInterface* Material);
 	void Shutdown();
 	bool IsReady() const { return bReady; }
-	/** Drop globe tris whose AABB overlaps the edit island (cells are ~1 km). */
+	/** Kept for call-site compat. Globe is no longer punched (1 km cells ≠ 14 m island). */
 	int32 PunchIsland(const FGXEditIsland& Island, UMaterialInterface* Material);
 
 private:

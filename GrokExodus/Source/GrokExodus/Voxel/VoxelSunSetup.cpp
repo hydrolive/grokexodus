@@ -62,9 +62,9 @@ void AVoxelSunSetup::ConfigureSun(ADirectionalLight* Light) const
 	{
 		C->SetMobility(EComponentMobility::Movable);
 		C->SetIntensity(SunIntensity);
-		C->SetUseTemperature(true);
-		C->SetTemperature(SunTemperature);
-		C->SetLightColor(FLinearColor(1.0f, 0.96f, 0.84f));
+		C->SetUseTemperature(false);
+		C->SetTemperature(6500.0f);
+		C->SetLightColor(FLinearColor(1.0f, 0.99f, 0.97f));
 		C->SetAtmosphereSunLight(true);
 		C->SetAtmosphereSunLightIndex(0);
 		C->SetCastShadows(true);
@@ -175,8 +175,8 @@ void AVoxelSunSetup::EnsurePlanetLighting()
 		{
 			SC->SetMobility(EComponentMobility::Movable);
 			SC->bRealTimeCapture = true;
-			SC->SetIntensity(1.4f);
-			SC->bLowerHemisphereIsBlack = false;
+			SC->SetIntensity(0.28f);
+			SC->bLowerHemisphereIsBlack = true;
 			SC->MarkRenderStateDirty();
 		}
 	}

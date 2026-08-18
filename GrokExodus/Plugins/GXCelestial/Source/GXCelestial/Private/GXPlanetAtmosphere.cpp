@@ -19,8 +19,10 @@ void FGXPlanetAtmosphere::ConfigureSphericalSky(
 	}
 
 	const float RadiusKm = static_cast<float>(FMath::Max(PlanetRadiusMeters, 1000.0) / 1000.0);
-	// Short visual column so noon zenith is blue. Drag still uses 18 km.
-	const float HeightKm = 4.5f;
+	// Visual column only. Drag still uses the 18 km ephemeris model.
+	// 60 km R makes Earth-scale Rayleigh look like sunset at noon — drop
+	// the coefficient and Mie so zenith is blue while the limb stays.
+	const float HeightKm = 8.0f;
 	(void)AtmosphereHeightMeters;
 
 	Atmosphere->TransformMode = ESkyAtmosphereTransformMode::PlanetCenterAtComponentTransform;
@@ -32,25 +34,25 @@ void FGXPlanetAtmosphere::ConfigureSphericalSky(
 	Atmosphere->SetGroundAlbedo(FColor(22, 36, 20));
 	Atmosphere->SetMultiScatteringFactor(0.0f);
 
-	Atmosphere->SetRayleighScatteringScale(1.0f);
+	Atmosphere->SetRayleighScatteringScale(0.12f);
 	Atmosphere->SetRayleighScattering(FLinearColor(0.175287f, 0.409607f, 1.0f));
-	Atmosphere->SetRayleighExponentialDistribution(2.2f);
+	Atmosphere->SetRayleighExponentialDistribution(1.35f);
 
-	Atmosphere->SetMieScatteringScale(0.00025f);
+	Atmosphere->SetMieScatteringScale(0.0f);
 	Atmosphere->SetMieScattering(FLinearColor(1.0f, 0.96f, 0.90f));
-	Atmosphere->SetMieAbsorptionScale(0.0002f);
+	Atmosphere->SetMieAbsorptionScale(0.0f);
 	Atmosphere->SetMieAbsorption(FLinearColor(0.90f, 0.90f, 0.90f));
 	Atmosphere->SetMieAnisotropy(0.76f);
-	Atmosphere->SetMieExponentialDistribution(0.55f);
+	Atmosphere->SetMieExponentialDistribution(0.40f);
 
-	Atmosphere->SetAerialPespectiveViewDistanceScale(0.06f);
-	Atmosphere->SetAerialPerspectiveStartDepth(0.04f);
+	Atmosphere->SetAerialPespectiveViewDistanceScale(0.02f);
+	Atmosphere->SetAerialPerspectiveStartDepth(0.12f);
 	Atmosphere->SetHeightFogContribution(0.0f);
 
 	Atmosphere->MarkRenderStateDirty();
 
 	UE_LOG(LogGXCelestial, Warning,
-		TEXT("GXPlanetAtmosphere: spherical R=%.2fkm H=%.2fkm rayleigh=2.2km mie=0.55km (noon blue)"),
+		TEXT("GXPlanetAtmosphere: spherical R=%.2fkm H=%.2fkm rayleigh=0.12x/1.35km mie=0 (noon blue)"),
 		RadiusKm, HeightKm);
 }
 
