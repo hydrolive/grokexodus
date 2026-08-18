@@ -676,11 +676,11 @@ void UGXSkySubsystem::PoseSun()
 		C->SetAtmosphereSunLight(true);
 		C->SetAtmosphereSunLightIndex(0);
 		C->SetCastShadows(true);
-		// Default CSM is ~200 m — past that the sun lights the far side
-		// of every hill (0.13.8 "sun through the ground").
-		C->DynamicShadowDistanceMovableLight = 800000.0f;
+		// 8 km CSM + planet PMCs overflowed VSM (0.13.9–11). 2 km covers
+		// the walk tiles and the 4 m hill ring.
+		C->DynamicShadowDistanceMovableLight = 200000.0f;
 		C->DynamicShadowCascades = 4;
-		C->CascadeDistributionExponent = 2.8f;
+		C->CascadeDistributionExponent = 3.0f;
 		C->MarkRenderStateDirty();
 	}
 	if (UWorld* World = GetWorld())
