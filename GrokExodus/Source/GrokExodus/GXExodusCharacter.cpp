@@ -78,6 +78,7 @@ void AGrokExodusSurvivor::BeginPlay()
 	bUseControllerRotationRoll = false;
 	ConfigureCamera();
 	JumpMaxHoldTime = 0.22f;
+	LookPitch = 0.0f;
 	if (UGXBodyMovement* Move = GetBodyMove())
 	{
 		Move->bAlignCapsuleToGravity = false;
@@ -86,6 +87,17 @@ void AGrokExodusSurvivor::BeginPlay()
 		Move->JumpZVelocity = 700.0f;
 		Move->AirControl = 0.55f;
 		Move->TryFindField();
+	}
+	if (UWorld* World = GetWorld())
+	{
+		if (UGXSkySubsystem* Sky = World->GetSubsystem<UGXSkySubsystem>())
+		{
+			Sky->ClearFollow();
+		}
+		if (APlayerController* PC = Cast<APlayerController>(Controller))
+		{
+			PC->SetViewTarget(this);
+		}
 	}
 	EnsureLookBasis();
 	ApplyLookAndBody();

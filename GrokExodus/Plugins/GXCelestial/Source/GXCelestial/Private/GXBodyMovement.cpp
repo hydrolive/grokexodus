@@ -472,7 +472,7 @@ void UGXBodyMovement::TickComponent(float DeltaTime, ELevelTick TickType, FActor
 			const float BelowCm = FVector::DotProduct(
 				StampSurf - UpdatedComponent->GetComponentLocation(), GetUpDir());
 			const float AboveCm = -BelowCm;
-			if (BelowCm > 250.0f || AboveCm > 450.0f)
+			if (BelowCm > 250.0f || AboveCm > 200.0f)
 			{
 				SnapToSurface(false);
 				AirborneSeconds = 0.0f;

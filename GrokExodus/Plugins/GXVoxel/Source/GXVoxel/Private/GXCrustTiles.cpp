@@ -50,7 +50,9 @@ namespace
 		PMC->SetCollisionObjectType(ECC_WorldStatic);
 		PMC->SetCollisionResponseToAllChannels(ECR_Block);
 		PMC->SetCastShadow(true);
-		PMC->SetVisibleInRayTracing(true);
+		// Only near-field collision voxel chunks opt into HW RT (AGENTS).
+		// Walk tiles as BLAS was the 3 FPS after ready (tick 0.1 ms, dt 333).
+		PMC->SetVisibleInRayTracing(false);
 		PMC->bUseAsyncCooking = false;
 		PMC->bNeverDistanceCull = true;
 		PMC->SetCullDistance(0.0f);
@@ -2632,8 +2634,7 @@ void FGXCrustTiles::Update(
 			}
 		}
 	};
-	AddBand(0, 0.0f, 200.0f);
-	AddBand(1, 170.0f, 640.0f);
+	AddBand(0, 0.0f, 128.0f);
 
 	TArray<FGXCrustTileKey> Evict;
 	for (const auto& Pair : Live)

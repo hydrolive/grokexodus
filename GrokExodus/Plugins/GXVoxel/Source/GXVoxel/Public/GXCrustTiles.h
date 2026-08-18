@@ -107,10 +107,11 @@ public:
 	int32 NumLive() const { return Live.Num(); }
 
 	static constexpr float TileM = 64.0f;
-	static constexpr float CellM = 0.50f;
-	/** First sculpt rebuilds this tile at 0.5 m. 0.35 m was 34 k verts and missed strokes. */
-	static constexpr float FineCellM = 0.50f;
-	static constexpr float StreamM = 256.0f;
+	// 0.5 m + LOD1 to 640 m was ~10 M verts and 3 FPS (0.13.20).
+	static constexpr float CellM = 1.00f;
+	/** First sculpt rebuilds this tile at 1 m. */
+	static constexpr float FineCellM = 1.00f;
+	static constexpr float StreamM = 128.0f;
 	static constexpr int32 ReadyMin = 9;
 
 private:

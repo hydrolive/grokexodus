@@ -446,11 +446,11 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	{
 		// 5×5 tiles = 320 m square. A 140 m circle stuck out past a 4×4
 		// (0.9.9 live: hole through the planet). Hole 100 m only after 5×5.
-		const float ClipInnerM = (CrustTiles && CrustTiles->NumLive() >= 24)
-			? 560.0f
+		const float ClipInnerM = (CrustTiles && CrustTiles->NumLive() >= 9)
+			? 110.0f
 			: ((CrustTiles && CrustTiles->HasNeighborhood(
 				WorldToLocalMeters(CachedViewerWorld), 2))
-				? 160.0f
+				? 80.0f
 				: 0.0f);
 		HorizonClipmap->Update(
 			this,
@@ -519,8 +519,19 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			StallSeconds = 0;
 		}
 		LastInFlightLogged = InF;
+		float CamRM = 0.0f;
+		if (UWorld* World = GetWorld())
+		{
+			if (APlayerController* PC = World->GetFirstPlayerController())
+			{
+				if (APlayerCameraManager* CM = PC->PlayerCameraManager)
+				{
+					CamRM = WorldToLocalMeters(CM->GetCameraLocation()).Size();
+				}
+			}
+		}
 		UE_LOG(LogGXVoxel, Warning,
-			TEXT("GX-%s perf tick=%.1fms stream=%.1fms meshApply=%.1fms dt=%.1fms fps~%.1f chunks=%d hollow=%d near=%d/%d settled=%d queue=%d->%d inflight=%d jobs=%d mailbox=%d cache=%d/%d ready=%d status=%s playerR=%.0fm"),
+			TEXT("GX-%s perf tick=%.1fms stream=%.1fms meshApply=%.1fms dt=%.1fms fps~%.1f chunks=%d hollow=%d near=%d/%d settled=%d queue=%d->%d inflight=%d jobs=%d mailbox=%d cache=%d/%d ready=%d status=%s playerR=%.0fm camR=%.0fm tiles=%d"),
 			GX_VERSION_STRING,
 			TickMs, StreamMs, MeshMs,
 			DeltaSeconds * 1000.0,
@@ -532,7 +543,9 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			CacheHits, CacheMisses,
 			bWorldReady ? 1 : 0,
 			*LoadStatus,
-			WorldToLocalMeters(CachedViewerWorld).Size());
+			WorldToLocalMeters(CachedViewerWorld).Size(),
+			CamRM,
+			CrustTiles ? CrustTiles->NumLive() : 0);
 		if (StallSeconds >= 3)
 		{
 			GX_PERF(1, TEXT("GX-mesh STALL %ds inflight=%d jobs=%d mailbox=%d nearQ=%d farQ=%d desired=%d meshed=%d hollow=%d"),
@@ -571,28 +584,9 @@ FVector AGXVoxelWorld::GetPrimaryInvokerLocation() const
 
 FVector AGXVoxelWorld::GetViewFocusWorld() const
 {
-	FVector Cam = GetPrimaryInvokerLocation();
-	if (UWorld* World = GetWorld())
-	{
-		if (APlayerController* PC = World->GetFirstPlayerController())
-		{
-			if (APlayerCameraManager* CM = PC->PlayerCameraManager)
-			{
-				const FVector C = CM->GetCameraLocation();
-				if (!C.IsNearlyZero())
-				{
-					Cam = C;
-				}
-			}
-		}
-	}
-	const FVector Local = WorldToLocalMeters(Cam);
-	const float R = Local.Size();
-	if (R > PlanetRadius + 400.0f && R > 1.0f)
-	{
-		return LocalMetersToWorld(Local.GetSafeNormal() * PlanetRadius);
-	}
-	return Cam;
+	// Always the pawn. Camera-follow rebuilt the clipmap from orbit
+	// (500 ms / 3 FPS) and from a look-down made a dartboard (0.13.19).
+	return GetPrimaryInvokerLocation();
 }
 
 FVector AGXVoxelWorld::WorldToLocalMeters(const FVector& WorldCm) const
@@ -612,15 +606,8 @@ float AGXVoxelWorld::SampleDensityMeters(const FVector3d& PlanetLocalMeters) con
 	{
 		return Stored.ToDensityMeters();
 	}
-	if (CrustAtlas.IsValid())
-	{
-		float Dens = 0.0f;
-		uint8 Mat = 0;
-		if (CrustAtlas->TrySample(PlanetLocalMeters, Dens, Mat))
-		{
-			return Dens;
-		}
-	}
+	// Never the baked atlas. A stale height field sat the pawn 70 m above
+	// the walk mesh (0.13.21: PlacePawn 60027 then snap to atlas 60097).
 	return Volume ? Volume->GetStamp().SampleDensity(PlanetLocalMeters) : -1.0f;
 }
 
@@ -906,18 +893,10 @@ FVector AGXVoxelWorld::FindSurfaceWorldLocation(FVector RadialDirection) const
 	FVector Dir = RadialDirection.GetSafeNormal();
 	if (Dir.IsNearlyZero()) Dir = FVector(1, 0, 0);
 	const FVector3f D(Dir.X, Dir.Y, Dir.Z);
+	// Live stamp, never the baked atlas — a stale height field spawned the
+	// pawn 97 m above the walk mesh (0.13.20 "still in the sky").
 	float SurfaceR = PlanetRadius;
-	if (CrustAtlas.IsValid())
-	{
-		float Dens = 0.0f;
-		uint8 Mat = 0;
-		const FVector3d Probe(Dir.X * PlanetRadius, Dir.Y * PlanetRadius, Dir.Z * PlanetRadius);
-		if (CrustAtlas->TrySample(Probe, Dens, Mat))
-		{
-			SurfaceR = PlanetRadius + Dens;
-		}
-	}
-	else if (Volume)
+	if (Volume)
 	{
 		SurfaceR = Volume->GetStamp().SampleSurfaceRadius(D);
 	}
