@@ -2477,7 +2477,9 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 			StampDir.Add(Dir);
 			StampSurfM.Add(SurfR);
 			Normals.Add(Dir);
-			UV0.Add(GXCrustUV::MatSurf(1.0f, SurfR));
+			UV0.Add(GXCrustUV::MatSurf(
+				static_cast<float>(Stamp.SampleSurfaceMaterial(FVector3f(Dir.X, Dir.Y, Dir.Z))),
+				SurfR));
 			const float Slope = 0.0f;
 			(void)Slope;
 			Colors.Add(FLinearColor(0.58f, 0.66f, 0.38f, 1.0f));
@@ -2506,18 +2508,33 @@ void FGXCrustTiles::BuildTile(FTile& Tile, const FGXSphereStamp& Stamp, UMateria
 			Indices.Add(Bv); Indices.Add(C); Indices.Add(D);
 		}
 	}
-	const float Relief = FMath::Max(Stamp.GetParams().MaxRelief, 1.0f);
 	for (int32 VI = 0; VI < Positions.Num(); ++VI)
 	{
 		// Radial N so shared tile edges light the same (face AccN was a crease).
 		const FVector Radial = Positions[VI].GetSafeNormal();
 		Normals[VI] = Radial.IsNearlyZero() ? FaceN : Radial;
-		const float HeightM = Positions[VI].Size() * 0.01f - R0;
-		const float Alt = HeightM / Relief;
-		if (Alt > 0.16f)
+		const FVector3f D(Radial.X, Radial.Y, Radial.Z);
+		const int32 Mid = Stamp.SampleSurfaceMaterial(D);
+		if (UV0.IsValidIndex(VI))
+		{
+			UV0[VI] = GXCrustUV::MatSurf(static_cast<float>(Mid),
+				StampSurfM.IsValidIndex(VI) ? StampSurfM[VI] : 0.0f);
+		}
+		if (Mid == 2)
 		{
 			Colors[VI] = FLinearColor(0.58f, 0.50f, 0.44f);
-			UV0[VI] = GXCrustUV::MatSurf(2.0f, StampSurfM.IsValidIndex(VI) ? StampSurfM[VI] : 0.0f);
+		}
+		else if (Mid == 4)
+		{
+			Colors[VI] = FLinearColor(0.82f, 0.72f, 0.48f);
+		}
+		else if (Mid == 5)
+		{
+			Colors[VI] = FLinearColor(0.78f, 0.84f, 0.88f);
+		}
+		else if (Mid == 6)
+		{
+			Colors[VI] = FLinearColor(0.36f, 0.30f, 0.22f);
 		}
 	}
 

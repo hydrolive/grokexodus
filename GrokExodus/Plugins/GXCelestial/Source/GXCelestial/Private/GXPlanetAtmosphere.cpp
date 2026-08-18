@@ -20,9 +20,8 @@ void FGXPlanetAtmosphere::ConfigureSphericalSky(
 
 	const float RadiusKm = static_cast<float>(FMath::Max(PlanetRadiusMeters, 1000.0) / 1000.0);
 	// Visual column only. Drag still uses the 18 km ephemeris model.
-	// 60 km R makes Earth-scale Rayleigh look like sunset at noon — drop
-	// the coefficient and Mie so zenith is blue while the limb stays.
-	const float HeightKm = 8.0f;
+	// Short 1.35 km Rayleigh quantized the terminator into blocky bands.
+	const float HeightKm = 12.0f;
 	(void)AtmosphereHeightMeters;
 
 	Atmosphere->TransformMode = ESkyAtmosphereTransformMode::PlanetCenterAtComponentTransform;
@@ -32,11 +31,11 @@ void FGXPlanetAtmosphere::ConfigureSphericalSky(
 	Atmosphere->SetBottomRadius(RadiusKm);
 	Atmosphere->SetAtmosphereHeight(HeightKm);
 	Atmosphere->SetGroundAlbedo(FColor(22, 36, 20));
-	Atmosphere->SetMultiScatteringFactor(0.0f);
+	Atmosphere->SetMultiScatteringFactor(0.25f);
 
-	Atmosphere->SetRayleighScatteringScale(0.12f);
+	Atmosphere->SetRayleighScatteringScale(0.20f);
 	Atmosphere->SetRayleighScattering(FLinearColor(0.175287f, 0.409607f, 1.0f));
-	Atmosphere->SetRayleighExponentialDistribution(1.35f);
+	Atmosphere->SetRayleighExponentialDistribution(4.0f);
 
 	Atmosphere->SetMieScatteringScale(0.0f);
 	Atmosphere->SetMieScattering(FLinearColor(1.0f, 0.96f, 0.90f));
@@ -45,14 +44,14 @@ void FGXPlanetAtmosphere::ConfigureSphericalSky(
 	Atmosphere->SetMieAnisotropy(0.76f);
 	Atmosphere->SetMieExponentialDistribution(0.40f);
 
-	Atmosphere->SetAerialPespectiveViewDistanceScale(0.02f);
-	Atmosphere->SetAerialPerspectiveStartDepth(0.12f);
+	Atmosphere->SetAerialPespectiveViewDistanceScale(0.04f);
+	Atmosphere->SetAerialPerspectiveStartDepth(0.08f);
 	Atmosphere->SetHeightFogContribution(0.0f);
 
 	Atmosphere->MarkRenderStateDirty();
 
 	UE_LOG(LogGXCelestial, Warning,
-		TEXT("GXPlanetAtmosphere: spherical R=%.2fkm H=%.2fkm rayleigh=0.12x/1.35km mie=0 (noon blue)"),
+		TEXT("GXPlanetAtmosphere: spherical R=%.2fkm H=%.2fkm rayleigh=0.20x/4.0km multi=0.25 (smooth dusk)"),
 		RadiusKm, HeightKm);
 }
 

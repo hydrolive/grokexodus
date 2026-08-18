@@ -413,14 +413,25 @@ void UGXSkySubsystem::EnsureStarField()
 	ISM->SetBoundsScale(256.0f);
 	ISM->SetupAttachment(Host->GetRootComponent());
 	ISM->RegisterComponent();
-	// Slate draws the visible dots (ISM at 240 km was culled / sub-pixel).
-	// Keep a hidden host so rotation still drives inertial frame.
-	ISM->SetVisibility(false);
+	const double StarRM = Eph.PlanetRadius + 80000.0;
+	for (int32 I = 0; I < FGXStarCatalog::TotalCount; ++I)
+	{
+		const FVector3d D = FGXStarCatalog::Dir(I);
+		const float Mag = FGXStarCatalog::Magnitude(I);
+		const float Scale = FMath::Clamp(900.0f - Mag * 90.0f, 280.0f, 1100.0f);
+		const FVector Loc(
+			static_cast<float>(D.X * StarRM * 100.0),
+			static_cast<float>(D.Y * StarRM * 100.0),
+			static_cast<float>(D.Z * StarRM * 100.0));
+		ISM->AddInstance(FTransform(FRotator::ZeroRotator, Loc, FVector(Scale)));
+	}
+	ISM->UpdateBounds();
+	ISM->MarkRenderStateDirty();
 	StarHost = Host;
 	StarISM = ISM;
 	bStarsPlaced = true;
-	UE_LOG(LogGXCelestial, Warning, TEXT("GX-%s stars: slate + planet/vessel occlusion n=%d"),
-		GX_VERSION_STRING, FGXStarCatalog::TotalCount);
+	UE_LOG(LogGXCelestial, Warning, TEXT("GX-%s stars: depth ISM n=%d r=%.0fkm mat=%s"),
+		GX_VERSION_STRING, FGXStarCatalog::TotalCount, StarRM / 1000.0, *GetNameSafe(StarMat));
 }
 
 void UGXSkySubsystem::UpdateStarField()
@@ -433,7 +444,21 @@ void UGXSkySubsystem::UpdateStarField()
 	}
 	const FQuat4d Q = Eph.InertialToBody(UniversalTime);
 	Host->SetActorRotation(FQuat(Q.X, Q.Y, Q.Z, Q.W));
-	ISM->SetVisibility(false);
+	FVector CamLoc = FVector::ZeroVector;
+	if (UWorld* World = GetWorld())
+	{
+		if (APlayerController* PC = World->GetFirstPlayerController())
+		{
+			if (PC->PlayerCameraManager)
+			{
+				CamLoc = PC->PlayerCameraManager->GetCameraLocation();
+			}
+		}
+	}
+	const FVector Up = CamLoc.GetSafeNormal();
+	const float SunUp = static_cast<float>(
+		LastSunBody.X * Up.X + LastSunBody.Y * Up.Y + LastSunBody.Z * Up.Z);
+	ISM->SetVisibility(SunUp < 0.15f);
 }
 
 void UGXSkySubsystem::BindConsole()

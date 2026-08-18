@@ -186,6 +186,9 @@ bool FGXVoxelEarthGeomorphology::RunTest(const FString& Parameters)
 		TestTrue(TEXT("spawn plains are grass, not sand"),
 			SpawnMat == static_cast<int32>(EGXVoxelMaterial::TemperateGrass)
 			|| SpawnMat == static_cast<int32>(EGXVoxelMaterial::DryDirt));
+		const int32 SpawnSurfMat = Stamp.SampleSurfaceMaterial(FVector3f(1, 0, 0));
+		TestTrue(TEXT("spawn surface is land, not ice ocean"),
+			SpawnSurfMat != static_cast<int32>(EGXVoxelMaterial::SnowIce));
 	}
 
 	float F1 = 0.0f;

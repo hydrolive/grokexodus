@@ -648,9 +648,7 @@ void FGXHorizonClipmap::BuildRing(
 			Ring.StampPos.Add(P);
 			Ring.StampDir.Add(Dir);
 			Ring.StampSurfM.Add(SurfR);
-			// Always grass atlas cell. Hard 1/2/3 ids made 8–36 m quads
-			// into blocky dirt/rock slabs (#1/#2). PBR slope blends dirt/rock.
-			const float AtlasId = 1.0f;
+			const float AtlasId = static_cast<float>(Stamp.SampleSurfaceMaterial(Df));
 			UV0.Add(FVector2D(AtlasId, 0.0f));
 			Colors.Add(FLinearColor(0.52f, 0.60f, 0.34f, 1.0f));
 			FVector T = FVector::CrossProduct(Dir, FVector::ZAxisVector);

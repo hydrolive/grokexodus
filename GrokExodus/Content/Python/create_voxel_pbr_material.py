@@ -182,6 +182,9 @@ def main():
     grass_tex = layers.get("T_TemperateGrass_A") or albedo_tex
     rock_tex = layers.get("T_RockyCliff_A") or albedo_tex
     dirt_tex = layers.get("T_DryDirt_A") or albedo_tex
+    sand_tex = layers.get("T_SandCoastal_A") or albedo_tex
+    ice_tex = layers.get("T_SnowIce_A") or albedo_tex
+    mud_tex = layers.get("T_WetMud_A") or albedo_tex
     grass_r_tex = layers.get("T_TemperateGrass_R") or rough_tex
     rock_r_tex = layers.get("T_RockyCliff_R") or rough_tex
 
@@ -488,6 +491,9 @@ def main():
     rock_n = wrap_triplanar("RockAlbedo", rock_tex, rock_near, x0 + 1900, 400)
     rock_f = wrap_sample("RockAlbedo", rock_tex, rot_u, rot_v, rock_far, x0 + 1900, 640, False)
     dirt_n = wrap_triplanar("DirtAlbedo", dirt_tex, tile, x0 + 1900, 800)
+    sand_n = wrap_triplanar("SandAlbedo", sand_tex, tile, x0 + 1900, 2000)
+    ice_n = wrap_triplanar("IceAlbedo", ice_tex, tile, x0 + 1900, 2400)
+    mud_n = wrap_triplanar("MudAlbedo", mud_tex, tile, x0 + 1900, 2800)
 
     # Macro as variation up close (breaks repeats) then take over with distance.
     half = const(0.5, x0 + 7500, -200, "0.5")
@@ -545,6 +551,8 @@ def main():
     w_id_snow = id_gate(5.0, x0 + 2100, 1480, "idSnow")
     w_id_volc = id_gate(7.0, x0 + 2100, 1640, "idVolc")
     w_id_dirt = id_gate(3.0, x0 + 2100, 1800, "idDirt")
+    w_id_sand = id_gate(4.0, x0 + 2100, 1960, "idSand")
+    w_id_mud = id_gate(6.0, x0 + 2100, 2120, "idMud")
     w_hard = add(add(w_id_rock, "", w_id_volc, "", x0 + 3100, 1400), "", w_id_snow, "", x0 + 3340, 1400, "wHard")
     w_dirt = sat(add(w_dirt, "", w_id_dirt, "", x0 + 3580, 1240), "", x0 + 3820, 1240, "wDirtId")
     w_dirt = mul(w_dirt, "", sub(one, "", sat(w_hard, "", x0 + 3580, 1320), "", x0 + 3820, 1320), "", x0 + 4060, 1320, "wDirtGated")
@@ -559,6 +567,19 @@ def main():
     connect(skirt, "", albedo, "A")
     connect(rock, "", albedo, "B")
     connect(w_rock, "", albedo, "Alpha")
+    albedo_mud = node(unreal.MaterialExpressionLinearInterpolate, x0 + 9340, 80, "AlbedoMud")
+    connect(albedo, "", albedo_mud, "A")
+    connect(mud_n, "", albedo_mud, "B")
+    connect(w_id_mud, "", albedo_mud, "Alpha")
+    albedo_sand = node(unreal.MaterialExpressionLinearInterpolate, x0 + 9580, 80, "AlbedoSand")
+    connect(albedo_mud, "", albedo_sand, "A")
+    connect(sand_n, "", albedo_sand, "B")
+    connect(w_id_sand, "", albedo_sand, "Alpha")
+    albedo_ice = node(unreal.MaterialExpressionLinearInterpolate, x0 + 9820, 80, "AlbedoIce")
+    connect(albedo_sand, "", albedo_ice, "A")
+    connect(ice_n, "", albedo_ice, "B")
+    connect(w_id_snow, "", albedo_ice, "Alpha")
+    albedo = albedo_ice
 
     # Light biome tint only — do not replace texture at distance.
     tint = add(mul(vc, "RGB", const(0.18, x0 + 9100, 280), "", x0 + 9360, 280),

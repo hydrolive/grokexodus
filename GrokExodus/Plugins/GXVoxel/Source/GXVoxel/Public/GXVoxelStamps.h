@@ -153,6 +153,8 @@ public:
 	float SampleMoisture(const FVector3f& UnitDir) const;
 	float SampleDensity(const FVector3d& PlanetLocalM) const;
 	int32 SampleMaterial(const FVector3d& PlanetLocalM, float Density) const;
+	/** Surface biome id (1–7) from height / land / slope. No depth/ore. */
+	int32 SampleSurfaceMaterial(const FVector3f& UnitDir) const;
 	FGXVoxelPacked SamplePacked(const FVector3d& PlanetLocalM) const;
 	FGXEarthField SampleEarthField(const FVector3f& UnitDir, bool bNeedMoisture) const;
 

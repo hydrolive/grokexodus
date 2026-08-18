@@ -87,8 +87,9 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	const float SpawnLand = FGXNoise::Smooth01((Ux - 0.08f) / 0.72f);
 	Continents += SpawnLand * 0.40f;
 
-	// Wide coastal ramp — land emerges from sea level, it does not cliff out of the abyss.
-	const float LandMask = FGXNoise::Smooth01((Continents + 0.12f) / 0.70f);
+	// Earth-like basins (~70% ocean) with a wide coastal ramp. +X spawn
+	// stays land via SpawnLand. Ice/sand are materials, not deeper voxels.
+	const float LandMask = FGXNoise::Smooth01((Continents - 0.20f) / 0.58f);
 	const float OceanMask = 1.0f - LandMask;
 	const float Coast = 4.0f * LandMask * OceanMask;
 	Out.LandMask = LandMask;
@@ -447,9 +448,12 @@ int32 FGXSphereStamp::SampleEarthMaterial(const FVector3d& PlanetLocalM, float D
 		return static_cast<int32>(EGXVoxelMaterial::SnowIce);
 	}
 
-	// Sand is a beach, not the inland spawn pad. Height<108 m was the
-	// grainy dirt "plains" in the 0.7.16 shots.
-	if (Field.LandMask < 0.42f)
+	if (Field.LandMask < 0.28f || HeightAboveSea < -8.0f)
+	{
+		return static_cast<int32>(EGXVoxelMaterial::SnowIce);
+	}
+	// Sand is a beach, not the inland spawn pad.
+	if (Field.LandMask < 0.54f || (HeightAboveSea < 55.0f && Field.LandMask < 0.68f))
 	{
 		if (Field.RiverCarve > 0.03f || Field.Moisture > 0.62f)
 		{
@@ -467,6 +471,52 @@ int32 FGXSphereStamp::SampleEarthMaterial(const FVector3d& PlanetLocalM, float D
 	if (Field.Moisture < 0.22f)
 	{
 		return static_cast<int32>(EGXVoxelMaterial::DryDirt);
+	}
+	return static_cast<int32>(EGXVoxelMaterial::TemperateGrass);
+}
+
+int32 FGXSphereStamp::SampleSurfaceMaterial(const FVector3f& UnitDir) const
+{
+	const FVector3f Dir = UnitDir.GetSafeNormal();
+	const FGXEarthField Field = SampleEarthField(Dir, true);
+	const float Height = Field.HeightM;
+	const float Lat = FMath::Abs(Dir.Z);
+	const float Relief = FMath::Max(Params.MaxRelief, 1.0f);
+	const float SnowLine = Relief * (0.48f - Lat * 0.28f);
+
+	// Ice oceans (Earth water fraction). Spawn +X is forced land.
+	if (Field.LandMask < 0.28f || Height < -8.0f)
+	{
+		return static_cast<int32>(EGXVoxelMaterial::SnowIce);
+	}
+	if (Lat > 0.80f || Height > SnowLine)
+	{
+		return static_cast<int32>(EGXVoxelMaterial::SnowIce);
+	}
+	// Sand ring around basins.
+	if (Field.LandMask < 0.54f || (Height < 55.0f && Field.LandMask < 0.68f))
+	{
+		return static_cast<int32>(EGXVoxelMaterial::SandCoastal);
+	}
+	if (Field.Volcano > 0.18f)
+	{
+		return static_cast<int32>(EGXVoxelMaterial::RockyCliff);
+	}
+	// Rock on mountain sides; dirt along the foot.
+	if (Field.SlopeProxy > 0.15f || Field.Orogeny > 0.16f || Field.CanyonCarve > 0.08f)
+	{
+		return static_cast<int32>(EGXVoxelMaterial::RockyCliff);
+	}
+	if (Field.SlopeProxy > 0.07f || (Field.Orogeny > 0.05f && Height < Relief * 0.22f))
+	{
+		return static_cast<int32>(EGXVoxelMaterial::DryDirt);
+	}
+	// Mud breaks up continuous grass (rivers + wet noise).
+	const float MudN = FGXNoise::FBm(
+		Dir.X * 18.0f, Dir.Y * 18.0f, Dir.Z * 18.0f, Params.Seed + 91u, 3);
+	if (Field.RiverCarve > 0.02f || Field.Moisture > 0.72f || MudN > 0.42f)
+	{
+		return static_cast<int32>(EGXVoxelMaterial::WetMud);
 	}
 	return static_cast<int32>(EGXVoxelMaterial::TemperateGrass);
 }

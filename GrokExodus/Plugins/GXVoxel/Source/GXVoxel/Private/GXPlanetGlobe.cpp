@@ -46,9 +46,9 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 	PMC->RegisterComponent();
 	Comp = PMC;
 
-	// 6×80². Sink under tiles/clipmap. Do not punch — 1 km cells cut orbit.
-	constexpr int32 N = 80;
-	constexpr float SinkM = 45.0f;
+	// 6×128². ~0.74 km cells. Sink under tiles. Do not punch.
+	constexpr int32 N = 128;
+	constexpr float SinkM = 12.0f;
 	const float R0 = Stamp.GetParams().Radius;
 	const float Relief = FMath::Max(1.0f, Stamp.GetParams().MaxRelief);
 	TArray<FVector> Pos, Nrm;
@@ -126,15 +126,12 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 				}
 				// Keep a little slope for dirt skirts; mostly radial so PBR
 				// does not treat every km cell as a cliff (tan rock sheet).
-				NrmS = (NrmS * 0.18f + Dir * 0.82f).GetSafeNormal();
-				const float Slope = 1.0f - FMath::Abs(FVector::DotProduct(NrmS, Dir));
-				const FLinearColor Bio = Biome(Surf, Slope);
-				const float Alt = (Surf - R0) / Relief;
-				const float Layer = (Alt < -0.04f) ? 3.0f : (Alt > 0.20f || Slope > 0.16f) ? 2.0f : 1.0f;
+				NrmS = (NrmS * 0.15f + Dir * 0.85f).GetSafeNormal();
+				const int32 Layer = Stamp.SampleSurfaceMaterial(FVector3f(Dir.X, Dir.Y, Dir.Z));
+				const FLinearColor Bio = Biome(Surf, 1.0f - FMath::Abs(FVector::DotProduct(NrmS, Dir)));
 				Pos.Add(Dir * (Surf - SinkM) * 100.0f);
 				Nrm.Add(Dir);
-				// UV.x = PBR layer id. UV.y = stamp radius so triplanar locks.
-				UV.Add(FVector2D(Layer, Surf));
+				UV.Add(FVector2D(static_cast<float>(Layer), Surf));
 				Col.Add(Bio);
 				FVector T = FVector::CrossProduct(NrmS, FVector::ZAxisVector);
 				if (T.SizeSquared() < 1e-6f)
@@ -153,9 +150,10 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 				const int32 Bv = A + 1;
 				const int32 C = A + Stride;
 				const int32 D = C + 1;
-				// Same order as the clipmap (visible from outside).
-				Idx.Add(A); Idx.Add(Bv); Idx.Add(C);
-				Idx.Add(Bv); Idx.Add(D); Idx.Add(C);
+				// Same order as walk tiles: A-C-B is clockwise from the sky
+				// (Cross toward the core). A-B-C was culled on +X (0.9.10).
+				Idx.Add(A); Idx.Add(C); Idx.Add(Bv);
+				Idx.Add(Bv); Idx.Add(C); Idx.Add(D);
 			}
 		}
 	}
@@ -171,7 +169,8 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 			continue;
 		}
 		const FVector FN = FVector::CrossProduct(Pos[IB] - Pos[IA], Pos[IC] - Pos[IA]);
-		if (FVector::DotProduct(FN, Pos[IA]) < 0.0f)
+		// UE front face wants Cross toward the core (tile comment 0.9.10).
+		if (FVector::DotProduct(FN, Pos[IA]) > 0.0f)
 		{
 			Swap(Idx[T + 1], Idx[T + 2]);
 			++Flipped;
@@ -198,9 +197,10 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 	PMC->UpdateBounds();
 	bReady = true;
 	UE_LOG(LogGXVoxel, Warning,
-		TEXT("GXPlanetGlobe ready verts=%d sink=%.0fm wind=ABC flip=%d n=radial mat=%s"),
-		Positions.Num(), SinkM, Flipped, *GetNameSafe(UseMat));
-	GX_PERF(1, TEXT("GX-globe verts=%d sink=%.0f wind=ABC flip=%d"), Positions.Num(), SinkM, Flipped);
+		TEXT("GXPlanetGlobe ready verts=%d sink=%.0fm n=%d wind=ACB flip=%d n=radial mat=%s"),
+		Positions.Num(), SinkM, N, Flipped, *GetNameSafe(UseMat));
+	GX_PERF(1, TEXT("GX-globe verts=%d n=%d sink=%.0f wind=ACB flip=%d"),
+		Positions.Num(), N, SinkM, Flipped);
 }
 
 int32 FGXPlanetGlobe::PunchIsland(const FGXEditIsland& Island, UMaterialInterface* Material)

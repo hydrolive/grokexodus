@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-screen build stamp: **GX 0.12.10**  
+Last updated: **2026-08-17** · On-screen build stamp: **GX 0.13.0**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.13.0** Orbital crust wave. Globe is N=128 / sink 12 m / tile winding (A-C-B, flip if FN points off-core). One `SampleSurfaceMaterial` for globe, tiles, clipmap: ice oceans (~70% basins, +X spawn stays land), sand coasts, grass+mud patches, rock flanks + dirt feet. PBR wires ice/sand/mud. Stars are depth ISM at R+80 km with huge bounds (no Slate). Sunset Rayleigh 4 km / multi 0.25. Wiped save `bak_pre_0130`.
 - **GX 0.12.10** Shots 204012–204131: A-C-B opened whole cube faces (blue sky bands). Globe is clipmap A-B-C plus per-tri outward flip. Radial normals stay. Star occlusion sphere is R+5 km so dots do not sit on hills.
 - **GX 0.12.9** Globe winding is clockwise-from-outside (A-C-B); normals are radial so PBR is grass not a tan inside-out bowl. Stars are culled by ray-sphere vs planet, moon, and vessel (they were painting on both spheres).
 - **GX 0.12.8** Whole-planet crust is the stamp globe with **PBR kilometre tiles** (same atlas as walk mesh). 3D ISM stars at 240 km were culled / sub-pixel — night stars are Slate again, occluded by the planet disk (R+2.4 km) and the vessel. Wiped `earth_default.gxsav` (bak_pre_0128) so leftover island punches stop opening hillside voids.
