@@ -13,11 +13,16 @@
 #include "Engine/StaticMeshActor.h"
 #include "Engine/World.h"
 #include "EngineUtils.h"
+#include "Camera/CameraComponent.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Components/DirectionalLightComponent.h"
+#include "Components/InstancedStaticMeshComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerController.h"
 #include "HAL/IConsoleManager.h"
 #include "Kismet/GameplayStatics.h"
+#include "Materials/MaterialInterface.h"
 
 const double UGXSkySubsystem::WarpSteps[UGXSkySubsystem::WarpCount] = {
 	1.0, 2.0, 5.0, 10.0, 50.0, 100.0, 1000.0
@@ -87,6 +92,7 @@ void UGXSkySubsystem::Tick(float DeltaTime)
 	}
 
 	ApplyFollowView();
+	UpdateStarField();
 
 	SkyMs = static_cast<float>((FPlatformTime::Seconds() - T0) * 1000.0);
 	static double LastLog = -1.0e9;
@@ -254,6 +260,18 @@ bool UGXSkySubsystem::ToggleParachuteOnFollowed()
 	return V->bParachute;
 }
 
+void UGXSkySubsystem::AddFollowOrbit(float YawDeg, float PitchDeg)
+{
+	FollowYawDeg = FMath::UnwindDegrees(FollowYawDeg + YawDeg);
+	FollowPitchDeg = FMath::Clamp(FollowPitchDeg + PitchDeg, -80.0f, 80.0f);
+}
+
+void UGXSkySubsystem::AddFollowZoom(float WheelSteps)
+{
+	const float F = FMath::Pow(0.85f, WheelSteps);
+	FollowDistM = FMath::Clamp(FollowDistM * F, 18.0f, 12000.0f);
+}
+
 void UGXSkySubsystem::ApplyFollowView()
 {
 	UWorld* World = GetWorld();
@@ -268,10 +286,39 @@ void UGXSkySubsystem::ApplyFollowView()
 	}
 	if (AGXVessel* V = GetFollowedVessel())
 	{
-		V->UpdateChaseCamera();
+		const FVector Target = V->GetActorLocation();
+		FVector Up = Target.GetSafeNormal();
+		if (Up.IsNearlyZero())
+		{
+			Up = FVector(1, 0, 0);
+		}
+		FVector East = FVector::CrossProduct(FVector(0, 0, 1), Up);
+		if (East.IsNearlyZero())
+		{
+			East = FVector::CrossProduct(FVector(0, 1, 0), Up);
+		}
+		East.Normalize();
+		const FVector North = FVector::CrossProduct(Up, East).GetSafeNormal();
+		const FQuat YawQ(Up, FMath::DegreesToRadians(FollowYawDeg));
+		const FVector Horiz = YawQ.RotateVector(North);
+		const FVector Right = FVector::CrossProduct(Horiz, Up).GetSafeNormal();
+		const FQuat PitchQ(Right, FMath::DegreesToRadians(FollowPitchDeg));
+		const FVector Out = PitchQ.RotateVector(Horiz).GetSafeNormal();
+		const FVector CamLoc = Target + Out * (FollowDistM * 100.0f) + Up * (FollowDistM * 8.0f);
+		if (UCameraComponent* Cam = V->GetChaseCam())
+		{
+			Cam->SetUsingAbsoluteLocation(true);
+			Cam->SetUsingAbsoluteRotation(true);
+			Cam->SetWorldLocation(CamLoc);
+			const FVector To = (Target - CamLoc).GetSafeNormal();
+			if (!To.IsNearlyZero())
+			{
+				Cam->SetWorldRotation(FRotationMatrix::MakeFromXZ(To, Up).Rotator());
+			}
+		}
 		if (PC->GetViewTarget() != V)
 		{
-			PC->SetViewTargetWithBlend(V, 0.35f);
+			PC->SetViewTarget(V);
 		}
 		return;
 	}
@@ -279,8 +326,99 @@ void UGXSkySubsystem::ApplyFollowView()
 	{
 		if (PC->GetViewTarget() != Pawn)
 		{
-			PC->SetViewTargetWithBlend(Pawn, 0.35f);
+			PC->SetViewTarget(Pawn);
 		}
+	}
+}
+
+void UGXSkySubsystem::EnsureStarField()
+{
+	if (StarISM.IsValid())
+	{
+		return;
+	}
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	FActorSpawnParameters SP;
+	SP.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+	AStaticMeshActor* Host = World->SpawnActor<AStaticMeshActor>(
+		AStaticMeshActor::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator, SP);
+	if (!Host)
+	{
+		return;
+	}
+	Host->SetActorLabel(TEXT("GX_StarField"));
+	Host->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+	Host->GetStaticMeshComponent()->SetVisibility(false);
+	Host->GetStaticMeshComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	UInstancedStaticMeshComponent* ISM = NewObject<UInstancedStaticMeshComponent>(Host, TEXT("Stars"));
+	ISM->SetMobility(EComponentMobility::Movable);
+	if (UStaticMesh* Sphere = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Sphere.Sphere")))
+	{
+		ISM->SetStaticMesh(Sphere);
+	}
+	if (UMaterialInterface* StarMat = LoadObject<UMaterialInterface>(nullptr,
+		TEXT("/Game/Voxel/Materials/M_GXStar.M_GXStar")))
+	{
+		ISM->SetMaterial(0, StarMat);
+	}
+	ISM->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	ISM->SetCastShadow(false);
+	ISM->bNeverDistanceCull = true;
+	ISM->SetupAttachment(Host->GetRootComponent());
+	ISM->RegisterComponent();
+	for (int32 I = 0; I < FGXStarCatalog::Count; ++I)
+	{
+		ISM->AddInstance(FTransform(FRotator::ZeroRotator, FVector::ZeroVector, FVector(20.f)));
+	}
+	StarISM = ISM;
+}
+
+void UGXSkySubsystem::UpdateStarField()
+{
+	UInstancedStaticMeshComponent* ISM = StarISM.Get();
+	UWorld* World = GetWorld();
+	if (!ISM || !World)
+	{
+		return;
+	}
+	FVector CamLoc = FVector::ZeroVector;
+	if (APlayerController* PC = World->GetFirstPlayerController())
+	{
+		if (PC->PlayerCameraManager)
+		{
+			CamLoc = PC->PlayerCameraManager->GetCameraLocation();
+		}
+	}
+	if (CamLoc.IsNearlyZero())
+	{
+		return;
+	}
+	const FVector Up = CamLoc.GetSafeNormal();
+	const FVector3d Sd = LastSunBody;
+	const float SunUp = static_cast<float>(Sd.X * Up.X + Sd.Y * Up.Y + Sd.Z * Up.Z);
+	const bool bNight = SunUp < 0.02f;
+	ISM->SetVisibility(bNight);
+	if (!bNight)
+	{
+		return;
+	}
+	const float FarCm = 450000.0f; // 4.5 km in front of camera
+	for (int32 I = 0; I < FGXStarCatalog::Count; ++I)
+	{
+		const FVector3d Bd = StarBodyDir(I);
+		const FVector Dir(Bd.X, Bd.Y, Bd.Z);
+		if (Dir.IsNearlyZero())
+		{
+			continue;
+		}
+		const float Mag = FGXStarCatalog::Stars[I].Mag;
+		const float Scale = FMath::Clamp(18.0f - Mag * 4.0f, 8.0f, 28.0f);
+		const FVector Loc = CamLoc + Dir * FarCm;
+		ISM->UpdateInstanceTransform(I, FTransform(FRotator::ZeroRotator, Loc, FVector(Scale)), true, I + 1 == FGXStarCatalog::Count, true);
 	}
 }
 
@@ -463,12 +601,15 @@ void UGXSkySubsystem::EnsureActors()
 			{
 				Moon->GetStaticMeshComponent()->SetStaticMesh(Sphere);
 			}
+			Moon->GetStaticMeshComponent()->SetMobility(EComponentMobility::Movable);
+			Moon->GetRootComponent()->SetMobility(EComponentMobility::Movable);
 			Moon->GetStaticMeshComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 			Moon->GetStaticMeshComponent()->SetCastShadow(false);
 			Moon->SetActorEnableCollision(false);
 			MoonImpostor = Moon;
 		}
 	}
+	EnsureStarField();
 	bActorsReady = SunLight.IsValid();
 }
 

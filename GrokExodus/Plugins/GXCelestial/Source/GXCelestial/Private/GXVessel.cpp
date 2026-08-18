@@ -174,7 +174,6 @@ void AGXVessel::Tick(float DeltaSeconds)
 
 	LastAltitude = RInertial.Size() - Sky->GetEphemeris().PlanetRadius;
 	PoseFromInertial(Sky);
-	UpdateChaseCamera();
 }
 
 void AGXVessel::StepIntegrated(double Dt, UGXSkySubsystem* Sky)

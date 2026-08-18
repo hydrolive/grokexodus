@@ -57,6 +57,8 @@ protected:
 	void StepWarp(int32 Delta);
 	void OnFollowVessel();
 	void OnToggleChute();
+	void OnFollowZoomIn();
+	void OnFollowZoomOut();
 
 	UGXBodyMovement* GetBodyMove() const;
 	FVector GetPlanetUp() const;

@@ -29,6 +29,8 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
+#include "GameFramework/PlayerController.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Components/CapsuleComponent.h"
 
 static constexpr float GMetersToUU = 100.0f;
@@ -258,6 +260,7 @@ void AGXVoxelWorld::BeginPlay()
 	Foliage->Initialize(this);
 	HorizonClipmap = MakeUnique<FGXHorizonClipmap>();
 	HorizonClipmap->Initialize(this);
+	PlanetGlobe = MakeUnique<FGXPlanetGlobe>();
 	CrustTiles = MakeUnique<FGXCrustTiles>();
 	CrustTiles->Initialize(this);
 	EnsureMeshBanks();
@@ -318,6 +321,11 @@ void AGXVoxelWorld::EndPlay(const EEndPlayReason::Type EndPlayReason)
 			CrustTiles.Reset();
 		}
 	}
+	if (PlanetGlobe)
+	{
+		PlanetGlobe->Shutdown();
+		PlanetGlobe.Reset();
+	}
 	if (Foliage)
 	{
 		Foliage->Shutdown();
@@ -349,8 +357,12 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 		WarmupTimeRemaining -= DeltaSeconds;
 	}
 
-	CachedViewerWorld = GetPrimaryInvokerLocation();
+	CachedViewerWorld = GetViewFocusWorld();
 	EnsureCrustAtlas();
+	if (PlanetGlobe && Volume && TerrainMaterial)
+	{
+		PlanetGlobe->Ensure(this, Volume->GetStamp(), TerrainMaterial.Get());
+	}
 
 	if (bAtlasReady && ActiveStreamRadius < StreamRadius)
 	{
@@ -406,12 +418,18 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			WorldToLocalMeters(CachedViewerWorld), 2))
 			? 100.0f
 			: 0.0f;
+		const FVector ViewLocal = WorldToLocalMeters(CachedViewerWorld);
+		const float AltM = FMath::Max(0.0f, ViewLocal.Size() - PlanetRadius);
+		const float HorizM = FMath::Sqrt(2.0f * PlanetRadius * AltM + AltM * AltM);
+		const float OuterUse = FMath::Clamp(
+			FMath::Max(HorizonOuterM, HorizM * 1.55f + 4000.0f),
+			HorizonOuterM, 90000.0f);
 		HorizonClipmap->Update(
 			this,
 			Volume->GetStamp(),
-			WorldToLocalMeters(CachedViewerWorld),
+			ViewLocal,
 			ClipInnerM,
-			HorizonOuterM,
+			OuterUse,
 			TerrainMaterial.Get(),
 			TerrainMaterial.Get(),
 			TerrainPBR ? TerrainPBR->GetPatchMaterial() : TerrainMaterial.Get(),
@@ -521,6 +539,32 @@ FVector AGXVoxelWorld::GetPrimaryInvokerLocation() const
 		return CachedViewerWorld;
 	}
 	return LocalMetersToWorld(FVector(PlanetRadius + 2.0f, 0.0f, 0.0f));
+}
+
+FVector AGXVoxelWorld::GetViewFocusWorld() const
+{
+	FVector Cam = GetPrimaryInvokerLocation();
+	if (UWorld* World = GetWorld())
+	{
+		if (APlayerController* PC = World->GetFirstPlayerController())
+		{
+			if (APlayerCameraManager* CM = PC->PlayerCameraManager)
+			{
+				const FVector C = CM->GetCameraLocation();
+				if (!C.IsNearlyZero())
+				{
+					Cam = C;
+				}
+			}
+		}
+	}
+	const FVector Local = WorldToLocalMeters(Cam);
+	const float R = Local.Size();
+	if (R > PlanetRadius + 400.0f && R > 1.0f)
+	{
+		return LocalMetersToWorld(Local.GetSafeNormal() * PlanetRadius);
+	}
+	return Cam;
 }
 
 FVector AGXVoxelWorld::WorldToLocalMeters(const FVector& WorldCm) const

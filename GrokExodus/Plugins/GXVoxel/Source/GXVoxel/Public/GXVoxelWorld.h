@@ -14,6 +14,7 @@
 #include "GXCrustAtlas.h"
 #include "GXCrustCache.h"
 #include "GXHorizonClipmap.h"
+#include "GXPlanetGlobe.h"
 #include "GXCrustTiles.h"
 #include "GXEditIsland.h"
 #include "GXVoxelWorld.generated.h"
@@ -236,6 +237,7 @@ protected:
 	TUniquePtr<FGXTerrainPBR> TerrainPBR;
 	TUniquePtr<FGXFoliageScatter> Foliage;
 	TUniquePtr<FGXHorizonClipmap> HorizonClipmap;
+	TUniquePtr<FGXPlanetGlobe> PlanetGlobe;
 	TUniquePtr<FGXCrustTiles> CrustTiles;
 
 	TMap<FGXChunkKey, TWeakObjectPtr<AGXVoxelChunkProxy>> ChunkActors;
@@ -342,6 +344,7 @@ protected:
 	FString GetSavePath() const;
 	void SetupDistantSphere();
 	FVector GetPrimaryInvokerLocation() const;
+	FVector GetViewFocusWorld() const;
 	void InvalidateHollow(const FGXChunkKey& Coord);
 	void MarkChunkEmpty(const FGXChunkKey& Coord, int32 LOD, const TCHAR* Reason);
 	bool ChunkOverlapsSurface(const FGXChunkKey& Coord, float ChunkM) const;

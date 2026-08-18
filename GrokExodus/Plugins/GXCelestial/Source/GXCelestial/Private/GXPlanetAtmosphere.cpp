@@ -19,7 +19,9 @@ void FGXPlanetAtmosphere::ConfigureSphericalSky(
 	}
 
 	const float RadiusKm = static_cast<float>(FMath::Max(PlanetRadiusMeters, 1000.0) / 1000.0);
-	const float HeightKm = static_cast<float>(FMath::Clamp(AtmosphereHeightMeters / 1000.0, 4.0, 80.0));
+	// Drag still uses 18 km. Visual height is Earth-like relative to 60 km
+	// or the sky is mustard soup (18/60 vs Earth's 100/6371).
+	const float HeightKm = 8.0f;
 
 	// Planet center = component transform (origin). Horizon is radial, not Z-up.
 	Atmosphere->TransformMode = ESkyAtmosphereTransformMode::PlanetCenterAtComponentTransform;
@@ -28,35 +30,30 @@ void FGXPlanetAtmosphere::ConfigureSphericalSky(
 
 	Atmosphere->SetBottomRadius(RadiusKm);
 	Atmosphere->SetAtmosphereHeight(HeightKm);
-	Atmosphere->SetGroundAlbedo(FColor(92, 118, 72));
-	Atmosphere->SetMultiScatteringFactor(1.0f);
+	Atmosphere->SetGroundAlbedo(FColor(38, 52, 34));
+	Atmosphere->SetMultiScatteringFactor(0.4f);
 
-	// Earth Rayleigh scale height is ~8 km. Shrink it so climbing a 2 km ridge
-	// actually thins the sky instead of sitting inside a 100 km Earth LUT.
-	const float RayleighKm = FMath::Clamp(HeightKm * 0.18f, 1.6f, 6.0f);
-	Atmosphere->SetRayleighScatteringScale(1.0f);
+	Atmosphere->SetRayleighScatteringScale(1.15f);
 	Atmosphere->SetRayleighScattering(FLinearColor(0.175287f, 0.409607f, 1.0f));
-	Atmosphere->SetRayleighExponentialDistribution(RayleighKm);
+	Atmosphere->SetRayleighExponentialDistribution(6.0f);
 
-	// Mie (aerosol / haze) lives in the first kilometre. Thick at the surface,
-	// almost gone on a high ridge — that is the "atmosphere fog".
-	const float MieKm = FMath::Clamp(HeightKm * 0.04f, 0.35f, 1.2f);
-	Atmosphere->SetMieScatteringScale(0.0064f);
-	Atmosphere->SetMieScattering(FLinearColor(1.0f, 0.92f, 0.82f));
-	Atmosphere->SetMieAbsorptionScale(0.0012f);
+	Atmosphere->SetMieScatteringScale(0.0012f);
+	Atmosphere->SetMieScattering(FLinearColor(1.0f, 0.95f, 0.88f));
+	Atmosphere->SetMieAbsorptionScale(0.0004f);
 	Atmosphere->SetMieAbsorption(FLinearColor(0.90f, 0.90f, 0.90f));
-	Atmosphere->SetMieAnisotropy(0.78f);
-	Atmosphere->SetMieExponentialDistribution(MieKm);
+	Atmosphere->SetMieAnisotropy(0.80f);
+	Atmosphere->SetMieExponentialDistribution(1.2f);
 
-	Atmosphere->SetAerialPespectiveViewDistanceScale(0.55f);
-	Atmosphere->SetAerialPerspectiveStartDepth(0.008f);
+	Atmosphere->SetAerialPespectiveViewDistanceScale(0.22f);
+	Atmosphere->SetAerialPerspectiveStartDepth(0.02f);
 	Atmosphere->SetHeightFogContribution(0.0f);
+	(void)AtmosphereHeightMeters;
 
 	Atmosphere->MarkRenderStateDirty();
 
 	UE_LOG(LogGXCelestial, Warning,
-		TEXT("GXPlanetAtmosphere: spherical R=%.2fkm H=%.2fkm rayleigh=%.2fkm mie=%.2fkm (PlanetCenter)"),
-		RadiusKm, HeightKm, RayleighKm, MieKm);
+		TEXT("GXPlanetAtmosphere: spherical R=%.2fkm H=%.2fkm rayleigh=6.0km mie=1.2km (visual Earth-blue)"),
+		RadiusKm, HeightKm);
 }
 
 void FGXPlanetAtmosphere::ConfigureSphericalSky(

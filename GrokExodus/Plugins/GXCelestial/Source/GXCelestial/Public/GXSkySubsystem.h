@@ -63,6 +63,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "GX|Sky")
 	bool ToggleParachuteOnFollowed();
 
+	void AddFollowOrbit(float YawDeg, float PitchDeg);
+	void AddFollowZoom(float WheelSteps);
+
 	/** Physics warp is refused in atmosphere or while thrusting. */
 	static bool ShouldRefusePhysicsWarp(double DensityKgM3, bool bThrusting);
 
@@ -82,11 +85,16 @@ private:
 	AGXVessel* FindFollowedVessel() const;
 	void ApplyFollowView();
 	void CollectVessels(TArray<AGXVessel*>& Out) const;
+	void EnsureStarField();
+	void UpdateStarField();
 
 	FGXEphemeris Eph;
 	double UniversalTime = 0.0;
 	int32 WarpIndex = 0;
 	int32 FollowIndex = -1;
+	float FollowYawDeg = 0.0f;
+	float FollowPitchDeg = 18.0f;
+	float FollowDistM = 220.0f;
 	bool bWarpRefused = false;
 	bool bActorsReady = false;
 	bool bDemoSpawned = false;
@@ -97,6 +105,7 @@ private:
 	TWeakObjectPtr<ADirectionalLight> SunLight;
 	TWeakObjectPtr<AStaticMeshActor> MoonImpostor;
 	TWeakObjectPtr<AGXVessel> DemoVessel;
+	TWeakObjectPtr<class UInstancedStaticMeshComponent> StarISM;
 
 	IConsoleObject* CmdWarp = nullptr;
 	IConsoleObject* CmdDump = nullptr;

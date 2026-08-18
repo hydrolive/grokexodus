@@ -182,6 +182,18 @@ void AGrokExodusSurvivor::ApplyLookAndBody()
 
 void AGrokExodusSurvivor::DoAim(float Yaw, float Pitch)
 {
+	if (UWorld* World = GetWorld())
+	{
+		if (UGXSkySubsystem* Sky = World->GetSubsystem<UGXSkySubsystem>())
+		{
+			if (Sky->GetFollowIndex() >= 0)
+			{
+				const float P = (bInvertLookPitch ? -Pitch : Pitch) * LookSensitivity;
+				Sky->AddFollowOrbit(Yaw * LookSensitivity, P);
+				return;
+			}
+		}
+	}
 	const FVector Up = GetPlanetUp().GetSafeNormal();
 	EnsureLookBasis();
 	if (!FMath::IsNearlyZero(Yaw))
@@ -270,6 +282,8 @@ void AGrokExodusSurvivor::SetupPlayerInputComponent(UInputComponent* PlayerInput
 	PlayerInputComponent->BindKey(EKeys::Hyphen, IE_Pressed, this, &AGrokExodusSurvivor::OnWarpDown);
 	PlayerInputComponent->BindKey(EKeys::V, IE_Pressed, this, &AGrokExodusSurvivor::OnFollowVessel);
 	PlayerInputComponent->BindKey(EKeys::P, IE_Pressed, this, &AGrokExodusSurvivor::OnToggleChute);
+	PlayerInputComponent->BindKey(EKeys::MouseScrollUp, IE_Pressed, this, &AGrokExodusSurvivor::OnFollowZoomIn);
+	PlayerInputComponent->BindKey(EKeys::MouseScrollDown, IE_Pressed, this, &AGrokExodusSurvivor::OnFollowZoomOut);
 }
 
 void AGrokExodusSurvivor::OnWarpUp()
@@ -311,6 +325,34 @@ void AGrokExodusSurvivor::OnToggleChute()
 		if (UGXSkySubsystem* Sky = World->GetSubsystem<UGXSkySubsystem>())
 		{
 			Sky->ToggleParachuteOnFollowed();
+		}
+	}
+}
+
+void AGrokExodusSurvivor::OnFollowZoomIn()
+{
+	if (UWorld* World = GetWorld())
+	{
+		if (UGXSkySubsystem* Sky = World->GetSubsystem<UGXSkySubsystem>())
+		{
+			if (Sky->GetFollowIndex() >= 0)
+			{
+				Sky->AddFollowZoom(1.0f);
+			}
+		}
+	}
+}
+
+void AGrokExodusSurvivor::OnFollowZoomOut()
+{
+	if (UWorld* World = GetWorld())
+	{
+		if (UGXSkySubsystem* Sky = World->GetSubsystem<UGXSkySubsystem>())
+		{
+			if (Sky->GetFollowIndex() >= 0)
+			{
+				Sky->AddFollowZoom(-1.0f);
+			}
 		}
 	}
 }
