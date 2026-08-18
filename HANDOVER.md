@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-17** · On-screen build stamp: **GX 0.12.9**  
+Last updated: **2026-08-17** · On-screen build stamp: **GX 0.12.10**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.12.10** Shots 204012–204131: A-C-B opened whole cube faces (blue sky bands). Globe is clipmap A-B-C plus per-tri outward flip. Radial normals stay. Star occlusion sphere is R+5 km so dots do not sit on hills.
 - **GX 0.12.9** Globe winding is clockwise-from-outside (A-C-B); normals are radial so PBR is grass not a tan inside-out bowl. Stars are culled by ray-sphere vs planet, moon, and vessel (they were painting on both spheres).
 - **GX 0.12.8** Whole-planet crust is the stamp globe with **PBR kilometre tiles** (same atlas as walk mesh). 3D ISM stars at 240 km were culled / sub-pixel — night stars are Slate again, occluded by the planet disk (R+2.4 km) and the vessel. Wiped `earth_default.gxsav` (bak_pre_0128) so leftover island punches stop opening hillside voids.
 - **GX 0.12.7** Shots 200014–200233: globe winding was inward (A-C-B) so cube faces vanished from orbit (black planet, light through digs to the far sky). Outward + flip repair. Unlit vertex-color globe so night side still reads as crust. Stars are depth-tested `M_GXStar` ISM (Slate painted over hills/vessel). Dig preview is unlit orange.

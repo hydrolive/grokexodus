@@ -113,7 +113,7 @@ void UGXBootOverlaySubsystem::Tick(float DeltaTime)
 						PC->GetPlayerViewPoint(CamLoc, CamRot);
 						const FVector CamFwd = CamRot.Vector();
 						const float PlanetRcm = static_cast<float>(
-							(Sky->GetEphemeris().PlanetRadius + 2400.0) * 100.0);
+							(Sky->GetEphemeris().PlanetRadius + 5000.0) * 100.0);
 						const FVector3d Sun = Sky->GetSunBodyDir();
 						const FVector Up = CamLoc.GetSafeNormal();
 						const float SunUp = Up.IsNearlyZero()
