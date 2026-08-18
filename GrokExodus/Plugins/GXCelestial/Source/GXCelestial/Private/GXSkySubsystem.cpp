@@ -418,7 +418,7 @@ void UGXSkySubsystem::EnsureStarField()
 	{
 		const FVector3d D = FGXStarCatalog::Dir(I);
 		const float Mag = FGXStarCatalog::Magnitude(I);
-		const float Scale = FMath::Clamp(900.0f - Mag * 90.0f, 280.0f, 1100.0f);
+		const float Scale = FMath::Clamp(220.0f - Mag * 28.0f, 70.0f, 280.0f);
 		const FVector Loc(
 			static_cast<float>(D.X * StarRM * 100.0),
 			static_cast<float>(D.Y * StarRM * 100.0),
@@ -458,7 +458,7 @@ void UGXSkySubsystem::UpdateStarField()
 	const FVector Up = CamLoc.GetSafeNormal();
 	const float SunUp = static_cast<float>(
 		LastSunBody.X * Up.X + LastSunBody.Y * Up.Y + LastSunBody.Z * Up.Z);
-	ISM->SetVisibility(SunUp < 0.15f);
+	ISM->SetVisibility(SunUp < -0.20f);
 }
 
 void UGXSkySubsystem::BindConsole()

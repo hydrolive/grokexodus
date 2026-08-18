@@ -506,19 +506,19 @@ int32 FGXSphereStamp::SampleSurfaceMaterial(const FVector3f& UnitDir) const
 	{
 		return static_cast<int32>(EGXVoxelMaterial::RockyCliff);
 	}
-	// Rock on mountain sides; dirt along the foot.
-	if (Field.SlopeProxy > 0.15f || Field.Orogeny > 0.16f || Field.CanyonCarve > 0.08f)
+	// Rock on steep flanks only. 0.13.2 dirt rule (slope>0.07 or any
+	// orogeny) painted spawn and most land brown (dirt=17619 grass=4005).
+	if (Field.SlopeProxy > 0.17f || Field.Orogeny > 0.20f || Field.CanyonCarve > 0.08f)
 	{
 		return static_cast<int32>(EGXVoxelMaterial::RockyCliff);
 	}
-	if (Field.SlopeProxy > 0.07f || (Field.Orogeny > 0.05f && Height < Relief * 0.22f))
+	if (Field.SlopeProxy > 0.11f && Field.Orogeny > 0.06f)
 	{
 		return static_cast<int32>(EGXVoxelMaterial::DryDirt);
 	}
-	// Mud breaks up continuous grass (rivers + wet noise).
 	const float MudN = FGXNoise::FBm(
 		Dir.X * 18.0f, Dir.Y * 18.0f, Dir.Z * 18.0f, Params.Seed + 91u, 3);
-	if (Field.RiverCarve > 0.02f || Field.Moisture > 0.72f || MudN > 0.42f)
+	if (Field.RiverCarve > 0.025f || (Field.Moisture > 0.78f && MudN > 0.35f) || MudN > 0.58f)
 	{
 		return static_cast<int32>(EGXVoxelMaterial::WetMud);
 	}
