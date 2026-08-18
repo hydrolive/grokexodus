@@ -84,8 +84,10 @@ FGXEarthField FGXSphereStamp::SampleEarthField(const FVector3f& UnitDir, bool bN
 	float Continents = FGXNoise::FBm(
 		Ux * Params.ContinentFreq, Uy * Params.ContinentFreq, Uz * Params.ContinentFreq,
 		Params.Seed, 3, 2.0f, 0.55f);
-	const float SpawnLand = FGXNoise::Smooth01((Ux - 0.08f) / 0.72f);
-	Continents += SpawnLand * 0.40f;
+	// Tight +X pad so spawn is land without painting the whole
+	// +X hemisphere as one continent (0.13.6 orbit was a tan disk).
+	const float SpawnLand = FGXNoise::Smooth01((Ux - 0.62f) / 0.28f);
+	Continents += SpawnLand * 0.22f;
 
 	// Majority ocean, but 0.13.0 (Continents-0.20) left 88% ice and no
 	// continents (globe ice=88396 grass=1076). SpawnLand still pins +X.
