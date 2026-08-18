@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-18** · On-screen build stamp: **GX 0.13.41**  
+Last updated: **2026-08-18** · On-screen build stamp: **GX 0.13.47**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,12 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.13.47** 0.13.46 near pit is a rock bowl but overlapping brushes merged into one 5 m sphere and punched slope tiles (black wedges). Island Add no longer merges overlaps — union of brush spheres. Collar 0.75 m, consume Contains, keep R+0.15. Wiped `bak_pre_01347`.
+- **GX 0.13.46** Dual-mesh XOR at 1 m kept stacking and punching holes. Island collar is 0.75 m (was 2 m). The island owns the mouth: consume every tile inside, keep every MC tri inside (R+0.15). No live-tile lid filter. Wiped `bak_pre_01346`.
+- **GX 0.13.45** 0.13.44 close-uncovered undid every punch (cover tris sat in the 0.72 m lid pad). Consume is island R−0.70 ∩ cave-cover. Close-uncovered keeps island interior open. Wiped `bak_pre_01345`.
+- **GX 0.13.44** 0.13.43 any-vert drop gutted the bowl (black pit). Surface lid uses a 0.72 m live-tile pad; walls use 0.40 m. CloseUncoveredBrush still restores punched quads with no cave cover. Wiped `bak_pre_01344`.
+- **GX 0.13.43** 0.13.42 still stacked 1 m MC slabs on grass (centroid filter missed tris that straddled live quads) and left black wedges (punched, no fill). Second remesh drops a tri if any vert is on live grass. `CloseUncoveredBrush` puts grass back on punched quads the filtered cave does not cover. Wiped `bak_pre_01343`.
+- **GX 0.13.42** Crater still layered + missing tris: `bFilterIslandAgainstTiles` was set after consume but never read, so cave walls stayed under live grass and punched quads had no fill. Second remesh now drops every MC tri on a remaining tile. Consume is island ∩ 0.95 m cave-cover. Wiped `bak_pre_01342`.
 - **GX 0.13.41** Far-slope sky windows: a pit wall 2 m down still “covered” hillside tiles 1.2 m away. Cave cover ignores verts more than 1.15 m below the tile unless they are within 0.70 m. Wiped `bak_pre_01341`.
 - **GX 0.13.40** Black wedges on the grass were tiles punched outside the MC keep (cover radius from a rim vert). Consume is now inside island R−0.25 ∩ cave-cover 1.20 m; MC keep stays R+1.25. Lid only drops on live grass. Wiped `bak_pre_01340`.
 - **GX 0.13.39** 0.13.38 dropped interior lid and opened globe windows at the rim. Lid over consumed tiles is back. Consume is island ∩ cave-cover 1.50 m (not 2.10 over-punch, not 1.15 under-open). Filter drops lid only on live grass. Wiped `bak_pre_01339`.

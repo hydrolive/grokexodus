@@ -68,11 +68,9 @@ void FGXEditIsland::Add(const FVector& Center, float RadiusM)
 			S.R = RadiusM;
 			return;
 		}
-		if (D < S.R + RadiusM + 1.25f)
-		{
-			Absorb(S, Center, RadiusM);
-			return;
-		}
+		// Do not merge overlapping brushes into one bounding sphere —
+		// that 5 m blob punched hillside tiles the cave never filled
+		// (0.13.46 black wedges on the slope).
 	}
 	if (Spheres.Num() >= MaxSpheres)
 	{

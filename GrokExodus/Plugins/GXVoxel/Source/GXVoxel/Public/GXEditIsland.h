@@ -13,7 +13,7 @@ struct FGXEditSphere
 
 struct FGXEditIsland
 {
-	static constexpr float CollarM = 2.0f;
+	static constexpr float CollarM = 0.75f;
 	static constexpr int32 MaxSpheres = 64;
 
 	TArray<FGXEditSphere> Spheres;
