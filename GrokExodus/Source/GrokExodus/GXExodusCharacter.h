@@ -55,6 +55,8 @@ protected:
 	void OnWarpUp();
 	void OnWarpDown();
 	void StepWarp(int32 Delta);
+	void OnFollowVessel();
+	void OnToggleChute();
 
 	UGXBodyMovement* GetBodyMove() const;
 	FVector GetPlanetUp() const;

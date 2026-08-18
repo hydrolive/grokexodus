@@ -9,6 +9,7 @@
 #include "GXPerf.h"
 #include "GXSkySubsystem.h"
 #include "GXVersion.h"
+#include "Camera/CameraComponent.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
@@ -29,6 +30,13 @@ AGXVessel::AGXVessel()
 	Hull->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 	Hull->SetCastShadow(true);
 	Hull->SetWorldScale3D(FVector(50.0f)); // 25 m visual so a pass is visible
+
+	ChaseCam = CreateDefaultSubobject<UCameraComponent>(TEXT("ChaseCam"));
+	ChaseCam->SetupAttachment(Hull);
+	ChaseCam->SetRelativeLocation(FVector(-12000.f, 0.f, 4000.f));
+	ChaseCam->SetRelativeRotation(FRotator(-12.f, 0.f, 0.f));
+	ChaseCam->bUsePawnControlRotation = false;
+	ChaseCam->FieldOfView = 80.f;
 }
 
 void AGXVessel::BeginPlay()
@@ -52,6 +60,47 @@ void AGXVessel::SetCircularOrbit(double RadiusM, double InclinationRad, double M
 void AGXVessel::DeployParachute(bool bOn)
 {
 	bParachute = bOn;
+	if (bOn && Mode == EGXVesselMode::OnRails)
+	{
+		Mode = EGXVesselMode::Integrated;
+		UE_LOG(LogGXCelestial, Warning, TEXT("GX-%s %s rails→int (chute)"),
+			GX_VERSION_STRING, *GetName());
+	}
+}
+
+void AGXVessel::UpdateChaseCamera()
+{
+	if (!ChaseCam)
+	{
+		return;
+	}
+	const FVector Loc = GetActorLocation();
+	const FVector Rad = Loc.GetSafeNormal();
+	UGXSkySubsystem* Sky = GetWorld() ? GetWorld()->GetSubsystem<UGXSkySubsystem>() : nullptr;
+	FVector Back = FVector::ZeroVector;
+	if (Sky)
+	{
+		if (UGXFrameSubsystem* Frame = GetWorld()->GetSubsystem<UGXFrameSubsystem>())
+		{
+			const FVector3d Vs = Frame->InertialVelocityToScene(RInertial, VInertial);
+			Back = -FVector(Vs.X, Vs.Y, Vs.Z).GetSafeNormal();
+		}
+	}
+	if (Back.IsNearlyZero())
+	{
+		Back = FVector::VectorPlaneProject(-FVector::UpVector, Rad).GetSafeNormal();
+	}
+	if (Back.IsNearlyZero())
+	{
+		Back = FVector::CrossProduct(Rad, FVector(0, 0, 1)).GetSafeNormal();
+	}
+	const FVector Cam = Loc + Back * 14000.f + Rad * 4500.f;
+	ChaseCam->SetWorldLocation(Cam);
+	const FVector ToShip = (Loc - Cam).GetSafeNormal();
+	if (!ToShip.IsNearlyZero() && !Rad.IsNearlyZero())
+	{
+		ChaseCam->SetWorldRotation(FRotationMatrix::MakeFromXZ(ToShip, Rad).Rotator());
+	}
 }
 
 void AGXVessel::BreakApart(const TCHAR* Reason)
@@ -125,6 +174,7 @@ void AGXVessel::Tick(float DeltaSeconds)
 
 	LastAltitude = RInertial.Size() - Sky->GetEphemeris().PlanetRadius;
 	PoseFromInertial(Sky);
+	UpdateChaseCamera();
 }
 
 void AGXVessel::StepIntegrated(double Dt, UGXSkySubsystem* Sky)

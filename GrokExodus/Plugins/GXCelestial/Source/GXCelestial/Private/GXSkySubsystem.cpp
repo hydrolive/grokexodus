@@ -6,6 +6,8 @@
 #include "GXPerf.h"
 #include "GXVersion.h"
 #include "GXVessel.h"
+#include "GXStarCatalog.h"
+#include "GameFramework/PlayerController.h"
 #include "Engine/DirectionalLight.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
@@ -60,7 +62,7 @@ void UGXSkySubsystem::Tick(float DeltaTime)
 
 	double Warp = GetWarp();
 	bWarpRefused = false;
-	if (AGXVessel* Follow = FindFollowedVessel())
+	if (AGXVessel* Follow = GetFollowedVessel())
 	{
 		if (ShouldRefusePhysicsWarp(Follow->LastDensity, Follow->bThrusting) && Warp > 1.0)
 		{
@@ -84,15 +86,19 @@ void UGXSkySubsystem::Tick(float DeltaTime)
 		bDemoSpawned = true;
 	}
 
+	ApplyFollowView();
+
 	SkyMs = static_cast<float>((FPlatformTime::Seconds() - T0) * 1000.0);
 	static double LastLog = -1.0e9;
-	if (UniversalTime - LastLog > 1.0)
+	if (UniversalTime - LastLog > 10.0)
 	{
 		LastLog = UniversalTime;
-		GX_PERF(1, TEXT("GX-sky ut=%.1f warp=%.0f%s sun=(%.2f,%.2f,%.2f) moon=(%.2f,%.2f,%.2f) ms=%.2f"),
+		GX_PERF(1, TEXT("GX-sky ut=%.1f warp=%.0f%s sun=(%.2f,%.2f,%.2f) %s dec=%.1f follow=%d ms=%.2f"),
 			UniversalTime, Warp, bWarpRefused ? TEXT(" refuse") : TEXT(""),
 			LastSunBody.X, LastSunBody.Y, LastSunBody.Z,
-			LastMoonBody.X, LastMoonBody.Y, LastMoonBody.Z, SkyMs);
+			*Eph.SeasonName(UniversalTime),
+			FMath::RadiansToDegrees(Eph.SolarDeclination(UniversalTime)),
+			FollowIndex, SkyMs);
 	}
 }
 
@@ -147,10 +153,135 @@ FString UGXSkySubsystem::FlightStrip() const
 	const int32 Hh = (Sec / 3600) % 100;
 	const int32 Mm = (Sec / 60) % 60;
 	const int32 Ss = Sec % 60;
-	return FString::Printf(TEXT("UT %02d:%02d:%02d  W×%.0f%s  SUN %.0f°"),
+	const double Dec = FMath::RadiansToDegrees(Eph.SolarDeclination(UniversalTime));
+	return FString::Printf(TEXT("UT %02d:%02d:%02d  W×%.0f%s  %s dec%+.0f°"),
 		Hh, Mm, Ss, GetWarp(),
 		bWarpRefused ? TEXT("!") : TEXT(""),
-		FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(LastSunBody.X, -1.0, 1.0))));
+		*Eph.SeasonName(UniversalTime), Dec);
+}
+
+FVector3d UGXSkySubsystem::StarBodyDir(int32 Index) const
+{
+	if (Index < 0 || Index >= FGXStarCatalog::Count)
+	{
+		return FVector3d::ZeroVector;
+	}
+	return Eph.InertialToBody(UniversalTime).RotateVector(FGXStarCatalog::Stars[Index].InertialDir());
+}
+
+AGXVessel* UGXSkySubsystem::GetFollowedVessel() const
+{
+	TArray<AGXVessel*> Vessels;
+	CollectVessels(Vessels);
+	if (Vessels.IsValidIndex(FollowIndex))
+	{
+		return Vessels[FollowIndex];
+	}
+	return nullptr;
+}
+
+void UGXSkySubsystem::CollectVessels(TArray<AGXVessel*>& Out) const
+{
+	Out.Reset();
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	for (TActorIterator<AGXVessel> It(World); It; ++It)
+	{
+		if (*It && !It->bBroken)
+		{
+			Out.Add(*It);
+		}
+	}
+}
+
+void UGXSkySubsystem::CycleFollow()
+{
+	TArray<AGXVessel*> Vessels;
+	CollectVessels(Vessels);
+	if (Vessels.Num() == 0)
+	{
+		FollowIndex = -1;
+		ApplyFollowView();
+		return;
+	}
+	FollowIndex += 1;
+	if (FollowIndex >= Vessels.Num())
+	{
+		FollowIndex = -1;
+	}
+	UE_LOG(LogGXCelestial, Warning, TEXT("GX-%s follow %s"),
+		GX_VERSION_STRING,
+		FollowIndex < 0 ? TEXT("pawn") : *Vessels[FollowIndex]->GetName());
+	ApplyFollowView();
+}
+
+void UGXSkySubsystem::ClearFollow()
+{
+	FollowIndex = -1;
+	ApplyFollowView();
+}
+
+void UGXSkySubsystem::JumpToSeason(int32 SeasonIndex)
+{
+	UniversalTime = Eph.SeasonStartUT(SeasonIndex);
+	LastSunBody = Eph.SunBodyDir(UniversalTime);
+	SyncFrame();
+	PoseSun();
+	UE_LOG(LogGXCelestial, Warning, TEXT("GX-%s season %s ut=%.0f dec=%.1f"),
+		GX_VERSION_STRING, *Eph.SeasonName(UniversalTime), UniversalTime,
+		FMath::RadiansToDegrees(Eph.SolarDeclination(UniversalTime)));
+}
+
+bool UGXSkySubsystem::ToggleParachuteOnFollowed()
+{
+	AGXVessel* V = GetFollowedVessel();
+	if (!V)
+	{
+		TArray<AGXVessel*> Vessels;
+		CollectVessels(Vessels);
+		V = Vessels.Num() > 0 ? Vessels[0] : nullptr;
+	}
+	if (!V)
+	{
+		return false;
+	}
+	V->DeployParachute(!V->bParachute);
+	UE_LOG(LogGXCelestial, Warning, TEXT("GX-%s chute %s on %s"),
+		GX_VERSION_STRING, V->bParachute ? TEXT("ON") : TEXT("off"), *V->GetName());
+	return V->bParachute;
+}
+
+void UGXSkySubsystem::ApplyFollowView()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+	APlayerController* PC = World->GetFirstPlayerController();
+	if (!PC)
+	{
+		return;
+	}
+	if (AGXVessel* V = GetFollowedVessel())
+	{
+		V->UpdateChaseCamera();
+		if (PC->GetViewTarget() != V)
+		{
+			PC->SetViewTargetWithBlend(V, 0.35f);
+		}
+		return;
+	}
+	if (APawn* Pawn = UGameplayStatics::GetPlayerPawn(World, 0))
+	{
+		if (PC->GetViewTarget() != Pawn)
+		{
+			PC->SetViewTargetWithBlend(Pawn, 0.35f);
+		}
+	}
 }
 
 void UGXSkySubsystem::BindConsole()
@@ -228,6 +359,45 @@ void UGXSkySubsystem::BindConsole()
 				AGXVessel::SpawnDemo(World, Mode, R, Mu, UT);
 			}),
 		ECVF_Default);
+
+	CmdFollow = IConsoleManager::Get().RegisterConsoleCommand(
+		TEXT("gx.follow"),
+		TEXT("Cycle camera: pawn → vessels."),
+		FConsoleCommandWithWorldDelegate::CreateLambda(
+			[](UWorld* World)
+			{
+				if (UGXSkySubsystem* Sky = World ? World->GetSubsystem<UGXSkySubsystem>() : nullptr)
+				{
+					Sky->CycleFollow();
+				}
+			}),
+		ECVF_Default);
+
+	CmdChute = IConsoleManager::Get().RegisterConsoleCommand(
+		TEXT("gx.vessel.chute"),
+		TEXT("Toggle parachute on followed / first vessel (rails → integrated)."),
+		FConsoleCommandWithWorldDelegate::CreateLambda(
+			[](UWorld* World)
+			{
+				if (UGXSkySubsystem* Sky = World ? World->GetSubsystem<UGXSkySubsystem>() : nullptr)
+				{
+					Sky->ToggleParachuteOnFollowed();
+				}
+			}),
+		ECVF_Default);
+
+	CmdSeason = IConsoleManager::Get().RegisterConsoleCommand(
+		TEXT("gx.sky.season"),
+		TEXT("Jump UT: gx.sky.season 0..3 (spring summer autumn winter)."),
+		FConsoleCommandWithWorldAndArgsDelegate::CreateLambda(
+			[](const TArray<FString>& Args, UWorld* World)
+			{
+				if (UGXSkySubsystem* Sky = World ? World->GetSubsystem<UGXSkySubsystem>() : nullptr)
+				{
+					Sky->JumpToSeason(Args.Num() > 0 ? FCString::Atoi(*Args[0]) : 1);
+				}
+			}),
+		ECVF_Default);
 }
 
 void UGXSkySubsystem::UnbindConsole()
@@ -246,6 +416,21 @@ void UGXSkySubsystem::UnbindConsole()
 	{
 		IConsoleManager::Get().UnregisterConsoleObject(CmdSpawn);
 		CmdSpawn = nullptr;
+	}
+	if (CmdFollow)
+	{
+		IConsoleManager::Get().UnregisterConsoleObject(CmdFollow);
+		CmdFollow = nullptr;
+	}
+	if (CmdChute)
+	{
+		IConsoleManager::Get().UnregisterConsoleObject(CmdChute);
+		CmdChute = nullptr;
+	}
+	if (CmdSeason)
+	{
+		IConsoleManager::Get().UnregisterConsoleObject(CmdSeason);
+		CmdSeason = nullptr;
 	}
 }
 

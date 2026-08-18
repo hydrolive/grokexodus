@@ -36,6 +36,11 @@ public:
 	bool WasWarpRefused() const { return bWarpRefused; }
 	FVector3d GetSunBodyDir() const { return LastSunBody; }
 	FVector3d GetMoonBodyDir() const { return LastMoonBody; }
+	AGXVessel* GetFollowedVessel() const;
+	int32 GetFollowIndex() const { return FollowIndex; }
+
+	/** Star unit vector in the body-fixed scene. */
+	FVector3d StarBodyDir(int32 Index) const;
 
 	UFUNCTION(BlueprintCallable, Category = "GX|Sky")
 	void SetWarpIndex(int32 Index);
@@ -45,6 +50,18 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "GX|Sky")
 	void SetUniversalTime(double Seconds);
+
+	UFUNCTION(BlueprintCallable, Category = "GX|Sky")
+	void CycleFollow();
+
+	UFUNCTION(BlueprintCallable, Category = "GX|Sky")
+	void ClearFollow();
+
+	UFUNCTION(BlueprintCallable, Category = "GX|Sky")
+	void JumpToSeason(int32 SeasonIndex);
+
+	UFUNCTION(BlueprintCallable, Category = "GX|Sky")
+	bool ToggleParachuteOnFollowed();
 
 	/** Physics warp is refused in atmosphere or while thrusting. */
 	static bool ShouldRefusePhysicsWarp(double DensityKgM3, bool bThrusting);
@@ -63,10 +80,13 @@ private:
 	void SyncFrame() const;
 	void SpawnDemoVessel();
 	AGXVessel* FindFollowedVessel() const;
+	void ApplyFollowView();
+	void CollectVessels(TArray<AGXVessel*>& Out) const;
 
 	FGXEphemeris Eph;
 	double UniversalTime = 0.0;
 	int32 WarpIndex = 0;
+	int32 FollowIndex = -1;
 	bool bWarpRefused = false;
 	bool bActorsReady = false;
 	bool bDemoSpawned = false;
@@ -81,4 +101,7 @@ private:
 	IConsoleObject* CmdWarp = nullptr;
 	IConsoleObject* CmdDump = nullptr;
 	IConsoleObject* CmdSpawn = nullptr;
+	IConsoleObject* CmdFollow = nullptr;
+	IConsoleObject* CmdChute = nullptr;
+	IConsoleObject* CmdSeason = nullptr;
 };

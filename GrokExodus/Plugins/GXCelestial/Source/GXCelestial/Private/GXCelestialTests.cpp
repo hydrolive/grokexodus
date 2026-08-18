@@ -92,3 +92,17 @@ bool FGXCelestialWarpRefuse::RunTest(const FString& Parameters)
 	TestTrue(TEXT("thrust refuse"), UGXSkySubsystem::ShouldRefusePhysicsWarp(0.0, true));
 	return true;
 }
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FGXCelestialSeason, "GX.Celestial.Season",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FGXCelestialSeason::RunTest(const FString& Parameters)
+{
+	const FGXEphemeris E = FGXEphemeris::PlayableEarth();
+	const double Dec0 = FMath::RadiansToDegrees(E.SolarDeclination(0.0));
+	TestTrue(TEXT("UT0 near equinox"), FMath::Abs(Dec0) < 4.0);
+	const double DecS = FMath::RadiansToDegrees(E.SolarDeclination(E.SeasonStartUT(1)));
+	TestTrue(TEXT("quarter-year tilts the sun"), FMath::Abs(DecS) > 15.0);
+	TestTrue(TEXT("season name"), E.SeasonName(E.SeasonStartUT(1)).Len() > 0);
+	return true;
+}

@@ -8,6 +8,7 @@
 #include "GXVessel.generated.h"
 
 class UStaticMeshComponent;
+class UCameraComponent;
 class UGXSkySubsystem;
 
 UENUM(BlueprintType)
@@ -76,6 +77,8 @@ public:
 
 	void SetCircularOrbit(double RadiusM, double InclinationRad, double Mu, double UniversalTime);
 	void DeployParachute(bool bOn);
+	void UpdateChaseCamera();
+	UCameraComponent* GetChaseCam() const { return ChaseCam; }
 	void BreakApart(const TCHAR* Reason);
 	FGXOrbitalState CurrentOrbit(double Mu) const;
 	FString StatusLine() const;
@@ -90,6 +93,9 @@ public:
 protected:
 	UPROPERTY(VisibleAnywhere, Category = "GX|Vessel")
 	TObjectPtr<UStaticMeshComponent> Hull;
+
+	UPROPERTY(VisibleAnywhere, Category = "GX|Vessel")
+	TObjectPtr<UCameraComponent> ChaseCam;
 
 	void StepIntegrated(double Dt, UGXSkySubsystem* Sky);
 	void PoseFromInertial(UGXSkySubsystem* Sky);

@@ -82,3 +82,38 @@ double FGXEphemeris::MoonAngularRadius() const
 {
 	return 16000.0 / FMath::Max(MoonEci.SemiMajorAxis, 1.0);
 }
+
+FVector3d FGXEphemeris::NorthInertial() const
+{
+	const FQuat4d Tilt(FVector3d(1, 0, 0), -EarthRot.ObliquityRad);
+	return Tilt.Inverse().RotateVector(FVector3d(0, 0, 1));
+}
+
+double FGXEphemeris::SolarDeclination(double UniversalTime) const
+{
+	const FVector3d S = SunInertialDir(UniversalTime);
+	const FVector3d N = NorthInertial();
+	return FMath::Asin(FMath::Clamp(FVector3d::DotProduct(S, N), -1.0, 1.0));
+}
+
+FString FGXEphemeris::SeasonName(double UniversalTime) const
+{
+	const double Dec = FMath::RadiansToDegrees(SolarDeclination(UniversalTime));
+	const double Year = YearSeconds();
+	const double Phase = FMath::Fmod(UniversalTime, Year) / Year;
+	if (Dec > 12.0)
+	{
+		return TEXT("summer");
+	}
+	if (Dec < -12.0)
+	{
+		return TEXT("winter");
+	}
+	return (Phase < 0.5) ? TEXT("spring") : TEXT("autumn");
+}
+
+double FGXEphemeris::SeasonStartUT(int32 SeasonIndex) const
+{
+	const int32 I = ((SeasonIndex % 4) + 4) % 4;
+	return YearSeconds() * (static_cast<double>(I) * 0.25);
+}

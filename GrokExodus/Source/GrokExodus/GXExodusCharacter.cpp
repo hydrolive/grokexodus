@@ -268,6 +268,8 @@ void AGrokExodusSurvivor::SetupPlayerInputComponent(UInputComponent* PlayerInput
 	PlayerInputComponent->BindKey(EKeys::Comma, IE_Pressed, this, &AGrokExodusSurvivor::OnWarpDown);
 	PlayerInputComponent->BindKey(EKeys::Equals, IE_Pressed, this, &AGrokExodusSurvivor::OnWarpUp);
 	PlayerInputComponent->BindKey(EKeys::Hyphen, IE_Pressed, this, &AGrokExodusSurvivor::OnWarpDown);
+	PlayerInputComponent->BindKey(EKeys::V, IE_Pressed, this, &AGrokExodusSurvivor::OnFollowVessel);
+	PlayerInputComponent->BindKey(EKeys::P, IE_Pressed, this, &AGrokExodusSurvivor::OnToggleChute);
 }
 
 void AGrokExodusSurvivor::OnWarpUp()
@@ -287,6 +289,28 @@ void AGrokExodusSurvivor::StepWarp(int32 Delta)
 		if (UGXSkySubsystem* Sky = World->GetSubsystem<UGXSkySubsystem>())
 		{
 			Sky->StepWarp(Delta);
+		}
+	}
+}
+
+void AGrokExodusSurvivor::OnFollowVessel()
+{
+	if (UWorld* World = GetWorld())
+	{
+		if (UGXSkySubsystem* Sky = World->GetSubsystem<UGXSkySubsystem>())
+		{
+			Sky->CycleFollow();
+		}
+	}
+}
+
+void AGrokExodusSurvivor::OnToggleChute()
+{
+	if (UWorld* World = GetWorld())
+	{
+		if (UGXSkySubsystem* Sky = World->GetSubsystem<UGXSkySubsystem>())
+		{
+			Sky->ToggleParachuteOnFollowed();
 		}
 	}
 }

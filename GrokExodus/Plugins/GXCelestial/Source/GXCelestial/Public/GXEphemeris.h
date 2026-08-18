@@ -34,4 +34,17 @@ struct GXCELESTIAL_API FGXEphemeris
 
 	/** Angular size (rad) of the playable Moon. */
 	double MoonAngularRadius() const;
+
+	/** Earth's north pole in inertial (after obliquity). */
+	FVector3d NorthInertial() const;
+
+	/** Solar declination (rad). + = northern summer. */
+	double SolarDeclination(double UniversalTime) const;
+
+	/** spring / summer / autumn / winter from declination + orbit. */
+	FString SeasonName(double UniversalTime) const;
+
+	/** UT of season index 0..3 (spring equinox at 0). */
+	double SeasonStartUT(int32 SeasonIndex) const;
+	double YearSeconds() const { return 365.25 * EarthRot.SiderealPeriod; }
 };

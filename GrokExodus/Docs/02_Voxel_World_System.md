@@ -324,7 +324,7 @@ Automation (editor): `Automation RunTests GX`
 |---|---|---|
 | **A** — plugin skeletons + math | **Done** | Core / Voxel volume / Celestial math / Construct types / Presentation shell |
 | **B** — walkable planet | **Done** | DynamicMesh, invokers, async stamps, tools, `UGXBodyMovement`, `AGXGameMode` |
-| **C** — sky that tells the truth | **First ship 0.12.0** | `UGXSkySubsystem`, `AGXVessel` rails/int, drag/heat/breakup, navball + map, time warp |
+| **C** — sky that tells the truth | **0.12.1** | Ephemeris sun/moon, rails/int vessels, stars, follow cam, chute reentry, seasons, navball, warp |
 | **D** — creative industry + ships | After C | Place / weld / conveyors / typed thrusters |
 | **E** — Earth → Moon vertical slice | After D | Drop-pod, Moon stamps, delete legacy `Voxel/` |
 

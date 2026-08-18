@@ -5,6 +5,7 @@
 #include "GXVersion.h"
 #include "GXVoxelWorld.h"
 #include "GXSkySubsystem.h"
+#include "GXStarCatalog.h"
 #include "GXVessel.h"
 #include "GXFrameSubsystem.h"
 #include "GXKepler.h"
@@ -63,7 +64,7 @@ void AGXHUDLayout::DrawHUD()
 	{
 		Canvas->SetDrawColor(FColor(220, 230, 240));
 		Canvas->DrawText(GEngine->GetSmallFont(),
-			TEXT("LMB drill/place  |  RMB mode  |  R material  |  F5 save  |  ,/. warp"),
+			TEXT("LMB drill  |  RMB mode  |  F5 save  |  ,/. warp  |  V follow  |  P chute"),
 			16.f, 36.f, 1.1f, 1.1f);
 		DrawFlightInstruments();
 	}
@@ -241,4 +242,55 @@ void AGXHUDLayout::DrawFlightInstruments()
 	}
 	Canvas->SetDrawColor(FColor(180, 200, 210));
 	Canvas->DrawText(GEngine->GetSmallFont(), TEXT("MAP"), Mx - 14.f, My + Mr + 4.f, 0.9f, 0.9f);
+
+	if (Sky)
+	{
+		APlayerController* PC = World->GetFirstPlayerController();
+		if (!PC)
+		{
+			return;
+		}
+		FVector CamLoc = Loc;
+		FVector CamLook = Look;
+		if (PC && PC->PlayerCameraManager)
+		{
+			CamLoc = PC->PlayerCameraManager->GetCameraLocation();
+			CamLook = PC->PlayerCameraManager->GetCameraRotation().Vector();
+		}
+		const FVector LocalUp = CamLoc.GetSafeNormal();
+		const bool bDay = FVector::DotProduct(
+			FVector(Sky->GetSunBodyDir().X, Sky->GetSunBodyDir().Y, Sky->GetSunBodyDir().Z),
+			LocalUp) > 0.08f;
+		const float MagCut = bDay ? 0.2f : 2.0f;
+		for (int32 I = 0; I < FGXStarCatalog::Count; ++I)
+		{
+			if (FGXStarCatalog::Stars[I].Mag > MagCut)
+			{
+				continue;
+			}
+			const FVector3d Bd = Sky->StarBodyDir(I);
+			const FVector Dir(Bd.X, Bd.Y, Bd.Z);
+			if (FVector::DotProduct(Dir, LocalUp) < 0.04f || FVector::DotProduct(Dir, CamLook) < 0.18f)
+			{
+				continue;
+			}
+			FVector2D Sp;
+			const FVector WorldPt = CamLoc + Dir * 80000000.f;
+			if (!UGameplayStatics::ProjectWorldToScreen(PC, WorldPt, Sp, false))
+			{
+				continue;
+			}
+			const float Size = FMath::Clamp(2.6f - FGXStarCatalog::Stars[I].Mag * 0.55f, 1.2f, 3.4f);
+			const float A = bDay ? 0.25f : 0.9f;
+			Canvas->K2_DrawBox(Sp - FVector2D(Size, Size), FVector2D(Size * 2.f, Size * 2.f), 1.2f,
+				FLinearColor(0.92f, 0.94f, 1.f, A));
+		}
+		if (AGXVessel* Follow = Sky->GetFollowedVessel())
+		{
+			Canvas->SetDrawColor(FColor(255, 200, 80));
+			Canvas->DrawText(GEngine->GetSmallFont(),
+				FString::Printf(TEXT("FOLLOW %s"), *Follow->GetName()),
+				16.f, 54.f, 1.1f, 1.1f);
+		}
+	}
 }
