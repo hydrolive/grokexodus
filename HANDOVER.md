@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-18** · On-screen build stamp: **GX 0.13.28**  
+Last updated: **2026-08-18** · On-screen build stamp: **GX 0.13.34**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,12 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.13.34** 0.13.33 crater is a rock bowl again but the outer consume ring left rim windows. Consume is now island R−0.55 m; MC keep stays R+1.25 so the collar covers the lip. Wiped `bak_pre_01334`.
+- **GX 0.13.33** 0.13.32 dropped the island lid and only punched 6 tiles (CaveMeshNear skips lid verts) — dark globe window in the grass. Island again owns the mouth: keep every MC tri inside the island (collar+lip+cave), consume every tile centroid inside the island, compact verts. Hill outside the island stays tiles. Wiped `bak_pre_01333`.
+- **GX 0.13.32** 0.13.31 kept the stamp lid inside the island (40–60 dark tris/chunk) and punched tiles under it — hill gash + missing pit faces (globe through the lid). Filter now keeps excavated walls/floor and rim over consumed tiles only; drops lid on live grass; compacts verts so CaveMeshNear cannot see leftover lid. Island merge is a real bounding sphere (midpoint merge lost the mouth). Wiped `bak_pre_01332`.
+- **GX 0.13.31** Filter was a no-op: CarveBalls is never filled by island remesh, so it returned before dropping the 32 m lid. Filter now keeps only tris inside the edit island.
+- **GX 0.13.30** Hill still shattered: sloped MC lid failed the radial “floor” test so filter kept 2898/2898 tris. Filter now drops any stamp-surface tri outside the island. No FN·Pos flip (that culled the cave floor).
+- **GX 0.13.29** Dig fragmented the hill and left black faces in the pit. FN·Pos flip inverted the cave floor. Full 32 m MC lid drew over the tiles (filter pad 0.5 m missed). Filter drops stamp-lid outside the island; remesh includes face neighbors (cap 16).
 - **GX 0.13.28** 0.13.27 still ate the rim: MC lid verts sit on the stamp so CaveMeshNear was true for every nearby quad (consume 269 @ 12 m). Only verts ≥0.70 m below the stamp count as cave cover.
 - **GX 0.13.27** Crater exists but consume still punched rim quads the cave does not cover (black triangles). Consume only if island contains the centroid AND a cave vert is within 1.35 m.
 - **GX 0.13.26** Dig still left a window: MC lid used a stale atlas and outward winding (culled from the sky) so consume showed night through the grass. Mesher is stamp-only; island tris flip if FN·Pos>0; after consume, remesh filters MC floor under live tiles.

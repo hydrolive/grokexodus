@@ -28,13 +28,33 @@ bool FGXEditIsland::OverlapsBox(const FBox& Box) const
 
 void FGXEditIsland::Add(const FVector& Center, float RadiusM)
 {
-	if (RadiusM <= 0.0f || Center.IsNearlyZero() && RadiusM < 0.01f)
+	if (RadiusM <= 0.0f)
 	{
-		if (RadiusM <= 0.0f)
+		return;
+	}
+	auto Absorb = [](FGXEditSphere& S, const FVector& C, float R)
+	{
+		const float D = FVector::Dist(S.C, C);
+		if (D + R <= S.R + 0.05f)
 		{
 			return;
 		}
-	}
+		if (D + S.R <= R + 0.05f)
+		{
+			S.C = C;
+			S.R = R;
+			return;
+		}
+		const float NewR = (D + S.R + R) * 0.5f;
+		const FVector Dir = (C - S.C).GetSafeNormal();
+		if (Dir.IsNearlyZero())
+		{
+			S.R = FMath::Max(S.R, R);
+			return;
+		}
+		S.C = S.C + Dir * (NewR - S.R);
+		S.R = NewR + 0.05f;
+	};
 	for (FGXEditSphere& S : Spheres)
 	{
 		const float D = FVector::Dist(Center, S.C);
@@ -50,10 +70,7 @@ void FGXEditIsland::Add(const FVector& Center, float RadiusM)
 		}
 		if (D < S.R + RadiusM + 1.25f)
 		{
-			const FVector Mid = (S.C * S.R + Center * RadiusM) / FMath::Max(S.R + RadiusM, 0.01f);
-			S.C = (S.C + Center) * 0.5f;
-			S.R = FMath::Max(S.R, D * 0.5f + FMath::Max(S.R, RadiusM));
-			(void)Mid;
+			Absorb(S, Center, RadiusM);
 			return;
 		}
 	}
@@ -70,10 +87,7 @@ void FGXEditIsland::Add(const FVector& Center, float RadiusM)
 				Worst = I;
 			}
 		}
-		FGXEditSphere& S = Spheres[Worst];
-		const float D = FVector::Dist(Center, S.C);
-		S.C = (S.C + Center) * 0.5f;
-		S.R = FMath::Max(S.R, D * 0.5f + FMath::Max(S.R, RadiusM));
+		Absorb(Spheres[Worst], Center, RadiusM);
 		return;
 	}
 	FGXEditSphere& N = Spheres.AddDefaulted_GetRef();

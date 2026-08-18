@@ -969,7 +969,17 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			IC, IR,
 			[this](const FVector& P)
 			{
-				return EditIsland.Contains(P) && CaveMeshNear(P, 1.35f);
+				// Punch inside the island, but leave a 0.55 m tile ring so the
+				// MC collar (kept to R+1.25) covers the lip. Full Contains
+				// opened rim windows onto the globe (0.13.33 left/bottom).
+				for (const FGXEditSphere& S : EditIsland.Spheres)
+				{
+					if (S.R > 0.80f && FVector::DistSquared(P, S.C) <= FMath::Square(S.R - 0.55f))
+					{
+						return true;
+					}
+				}
+				return false;
 			},
 			TerrainMaterial.Get());
 		// Lid is gone. Remesh again so MC floor/walls fill only the hole
@@ -1803,7 +1813,6 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 		const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
 		const FVector C((Coord.X + 0.5f) * ChunkM, (Coord.Y + 0.5f) * ChunkM, (Coord.Z + 0.5f) * ChunkM);
 		const FBox Box(C - FVector(ChunkM * 0.5f), C + FVector(ChunkM * 0.5f));
-		if (bFilterIslandAgainstTiles || !EditIsland.OverlapsBox(Box))
 		{
 			const int32 Before = MeshData.Indices.Num();
 			FilterMeshToCarveBalls(Coord, MeshData);
@@ -2034,29 +2043,8 @@ bool AGXVoxelWorld::ApplyCaveProxyMesh(const FGXChunkKey& Coord, int32 LOD, FGXM
 		M->SetBoundsScale(4.0f);
 		M->bUseAsyncCooking = false;
 	}
-	// Same A-C-B rule as walk tiles: Cross toward the core is the UE
-	// front face. Outward MC winding culled the lid so consume opened
-	// a window through the planet (0.13.25 hole).
-	int32 Flipped = 0;
-	for (int32 T = 0; T + 2 < MeshData.Indices.Num(); T += 3)
-	{
-		const int32 IA = MeshData.Indices[T];
-		const int32 IB = MeshData.Indices[T + 1];
-		const int32 IC = MeshData.Indices[T + 2];
-		if (!MeshData.Positions.IsValidIndex(IA) || !MeshData.Positions.IsValidIndex(IB)
-			|| !MeshData.Positions.IsValidIndex(IC))
-		{
-			continue;
-		}
-		const FVector FN = FVector::CrossProduct(
-			MeshData.Positions[IB] - MeshData.Positions[IA],
-			MeshData.Positions[IC] - MeshData.Positions[IA]);
-		if (FVector::DotProduct(FN, MeshData.Positions[IA]) > 0.0f)
-		{
-			Swap(MeshData.Indices[T + 1], MeshData.Indices[T + 2]);
-			++Flipped;
-		}
-	}
+	// Do not flip FN·Pos>0. That inverted the cave floor (air-facing) and
+	// punched black triangles in the pit (0.13.28 frag shot).
 	Proxy->ApplyMesh(MeshData, OriginM, GMetersToUU, TerrainMaterial.Get(), true);
 	HollowChunks.Remove(Coord);
 	EmptyRetries.Remove(Coord);
@@ -2068,8 +2056,8 @@ bool AGXVoxelWorld::ApplyCaveProxyMesh(const FGXChunkKey& Coord, int32 LOD, FGXM
 	V.VertCount = MeshData.Positions.Num();
 	V.IndexCount = MeshData.Indices.Num();
 	MeshQueued.Remove(Coord);
-	GX_PERF(1, TEXT("GX-cave proxy %d_%d_%d verts=%d tris=%d flip=%d"),
-		Coord.X, Coord.Y, Coord.Z, V.VertCount, V.IndexCount / 3, Flipped);
+	GX_PERF(1, TEXT("GX-cave proxy %d_%d_%d verts=%d tris=%d"),
+		Coord.X, Coord.Y, Coord.Z, V.VertCount, V.IndexCount / 3);
 	return true;
 }
 
@@ -2669,7 +2657,7 @@ void AGXVoxelWorld::RestoreEditedSurfaces()
 	RemeshIsland();
 	int32 Hidden = CrustTiles->ConsumeWhere(
 		IB.GetCenter(), FMath::Max(IB.GetExtent().GetMax(), 4.0f),
-		[this](const FVector& P) { return EditIsland.Contains(P) && CaveMeshNear(P, 1.35f); },
+		[this](const FVector& P) { return EditIsland.Contains(P); },
 		TerrainMaterial.Get());
 	MaxMeshCreatesPerTick = SavedCreates;
 	bLoadRestorePending = false;
@@ -2758,35 +2746,18 @@ void AGXVoxelWorld::RemeshAroundLocal(const FVector& LocalM, float RadiusM)
 
 void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const
 {
-	const TArray<FVector4>* Balls = CarveBalls.Find(Coord);
-	if (!Balls || Balls->Num() == 0 || Mesh.IsEmpty())
+	if (Mesh.IsEmpty())
 	{
 		return;
 	}
-	TArray<FVector> AliveLid;
-	if (CrustTiles)
+	if (EditIsland.Spheres.Num() > 0)
 	{
-		const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
-		const FVector Center(
-			(Coord.X + 0.5f) * ChunkM,
-			(Coord.Y + 0.5f) * ChunkM,
-			(Coord.Z + 0.5f) * ChunkM);
-		CrustTiles->CollectAliveQuadCentroidsNear(Center, ChunkM * 0.75f, AliveLid);
+		const FGXEditSphere& S0 = EditIsland.Spheres[0];
+		GX_PERF(1, TEXT("GX-filter isle n=%d r=%.2f c=%.1f"),
+			EditIsland.Spheres.Num(), S0.R, S0.C.Size());
 	}
-	const float LidPad2 = 0.50f * 0.50f;
 	TArray<int32> Kept;
 	Kept.Reserve(Mesh.Indices.Num());
-	auto OnAliveLid = [&AliveLid, LidPad2](const FVector& P) -> bool
-	{
-		for (const FVector& C : AliveLid)
-		{
-			if (FVector::DistSquared(P, C) <= LidPad2)
-			{
-				return true;
-			}
-		}
-		return false;
-	};
 	for (int32 T = 0; T + 2 < Mesh.Indices.Num(); T += 3)
 	{
 		const int32 IA = Mesh.Indices[T];
@@ -2798,16 +2769,19 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 			continue;
 		}
 		const FVector Cent = (Mesh.Positions[IA] + Mesh.Positions[IB] + Mesh.Positions[IC]) * (1.0f / 3.0f);
-		// Keep the whole excavated MC except floor lid sheets. Requiring
-		// Inside(carve ball) dropped 1990→0 tris so punch windows showed
-		// the orange ball (GX-shot-0133).
-		FVector FaceN = FVector::CrossProduct(
-			Mesh.Positions[IB] - Mesh.Positions[IA],
-			Mesh.Positions[IC] - Mesh.Positions[IA]);
-		const FVector Rad = Cent.GetSafeNormal();
-		const bool bFloorLike = !FaceN.IsNearlyZero() && !Rad.IsNearlyZero()
-			&& FMath::Abs(FVector::DotProduct(FaceN.GetSafeNormal(), Rad)) > 0.55f;
-		if (bFloorLike && OnAliveLid(Cent))
+		// Island owns collar + lip + cave. Drop only the 32 m stamp lid
+		// outside the island so the hill tiles stay. Keep every mouth tri
+		// (0.13.32 dropped the lid and opened a globe window).
+		bool bInMouth = false;
+		for (const FGXEditSphere& S : EditIsland.Spheres)
+		{
+			if (S.R > 0.0f && FVector::DistSquared(Cent, S.C) <= FMath::Square(S.R + 1.25f))
+			{
+				bInMouth = true;
+				break;
+			}
+		}
+		if (!bInMouth)
 		{
 			continue;
 		}
@@ -2819,7 +2793,9 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 	if (Mesh.Indices.Num() < 3)
 	{
 		Mesh.Reset();
+		return;
 	}
+	Mesh.CompactUnusedVertices();
 }
 
 void AGXVoxelWorld::RemeshIsland()
@@ -2838,28 +2814,28 @@ void AGXVoxelWorld::RemeshIsland()
 		FGXVoxelVolume::WorldToVoxel(FVector3d(IB.Min.X, IB.Min.Y, IB.Min.Z), VoxelSize));
 	const FGXChunkKey B = FGXVoxelVolume::VoxelToChunk(
 		FGXVoxelVolume::WorldToVoxel(FVector3d(IB.Max.X, IB.Max.Y, IB.Max.Z), VoxelSize));
-	const int32 X0 = FMath::Min(A.X, B.X);
-	const int32 X1 = FMath::Max(A.X, B.X);
-	const int32 Y0 = FMath::Min(A.Y, B.Y);
-	const int32 Y1 = FMath::Max(A.Y, B.Y);
-	const int32 Z0 = FMath::Min(A.Z, B.Z);
-	const int32 Z1 = FMath::Max(A.Z, B.Z);
-	int32 N = 0;
-	const double Now = FPlatformTime::Seconds();
-	for (int32 Z = Z0; Z <= Z1 && N < 8; ++Z)
+	const int32 X0 = FMath::Min(A.X, B.X) - 1;
+	const int32 X1 = FMath::Max(A.X, B.X) + 1;
+	const int32 Y0 = FMath::Min(A.Y, B.Y) - 1;
+	const int32 Y1 = FMath::Max(A.Y, B.Y) + 1;
+	const int32 Z0 = FMath::Min(A.Z, B.Z) - 1;
+	const int32 Z1 = FMath::Max(A.Z, B.Z) + 1;
+	const FVector Focus = IB.GetCenter();
+	TArray<TPair<float, FGXChunkKey>> Cands;
+	for (int32 Z = Z0; Z <= Z1; ++Z)
 	{
-		for (int32 Y = Y0; Y <= Y1 && N < 8; ++Y)
+		for (int32 Y = Y0; Y <= Y1; ++Y)
 		{
-			for (int32 X = X0; X <= X1 && N < 8; ++X)
+			for (int32 X = X0; X <= X1; ++X)
 			{
 				const FGXChunkKey CC(X, Y, Z);
 				const FVector C((X + 0.5f) * ChunkM, (Y + 0.5f) * ChunkM, (Z + 0.5f) * ChunkM);
 				const FBox Box(C - FVector(ChunkM * 0.5f), C + FVector(ChunkM * 0.5f));
-				if (!EditIsland.OverlapsBox(Box))
+				const bool bEdited = Volume->ChunkHasEdits(CC);
+				if (!bEdited && !EditIsland.OverlapsBox(Box))
 				{
 					continue;
 				}
-				const bool bEdited = Volume->ChunkHasEdits(CC);
 				if (!bEdited && !ChunkOverlapsSurface(CC, ChunkM))
 				{
 					continue;
@@ -2868,18 +2844,33 @@ void AGXVoxelWorld::RemeshIsland()
 				{
 					continue;
 				}
-				CaveChunks.Add(CC);
-				HollowChunks.Remove(CC);
-				BrushForceLOD0.Add(CC);
-				LastRemeshAt.Remove(CC);
-				MeshQueued.Remove(CC);
-				NearMeshQueue.Remove(CC);
-				MeshQueue.Remove(CC);
-				LastRemeshAt.Add(CC, Now);
-				BuildChunkMeshSync(CC);
-				++N;
+				Cands.Add(TPair<float, FGXChunkKey>(FVector::DistSquared(C, Focus), CC));
 			}
 		}
+	}
+	Cands.Sort([](const TPair<float, FGXChunkKey>& L, const TPair<float, FGXChunkKey>& R)
+	{
+		return L.Key < R.Key;
+	});
+	int32 N = 0;
+	const double Now = FPlatformTime::Seconds();
+	for (const TPair<float, FGXChunkKey>& Item : Cands)
+	{
+		if (N >= 16)
+		{
+			break;
+		}
+		const FGXChunkKey CC = Item.Value;
+		CaveChunks.Add(CC);
+		HollowChunks.Remove(CC);
+		BrushForceLOD0.Add(CC);
+		LastRemeshAt.Remove(CC);
+		MeshQueued.Remove(CC);
+		NearMeshQueue.Remove(CC);
+		MeshQueue.Remove(CC);
+		LastRemeshAt.Add(CC, Now);
+		BuildChunkMeshSync(CC);
+		++N;
 	}
 	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s island remesh n=%d spheres=%d"),
 		GX_VERSION_STRING, N, EditIsland.Spheres.Num());
