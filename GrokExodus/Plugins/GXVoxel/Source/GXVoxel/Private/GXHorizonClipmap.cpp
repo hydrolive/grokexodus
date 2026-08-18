@@ -227,9 +227,9 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 		{
 			continue;
 		}
-		// Only the near rings cast. Globe-sized far PMCs overflow VSM
-		// (0.13.9 on-screen marking-queue warning).
-		PMC->SetCastShadow(S.Cell <= 12.0f);
+		// Clipmap verts live at ±60 km from the origin. Any ring overflows
+		// VSM (0.13.10 still toasted). Walk tiles own shadows.
+		PMC->SetCastShadow(false);
 		FRing Ring;
 		Ring.Comp = PMC;
 		Ring.InnerM = S.Inner;
