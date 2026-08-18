@@ -624,10 +624,13 @@ void FGXHorizonClipmap::BuildRing(
 	{
 		// Half-cell offset so a grid edge does not run through the pawn
 		// (that was the dark seam down the view in 0.7.31).
+		// Stagger odd rows so long U-edges are not screen-horizontal
+		// contour stairs (0.13.13–15 spawn mountain).
 		const float V = (static_cast<float>(J - Half) + 0.5f) * CellM;
+		const float UOff = ((J & 1) != 0) ? (0.5f * CellM) : 0.0f;
 		for (int32 I = 0; I < Dim; ++I)
 		{
-			const float U = (static_cast<float>(I - Half) + 0.5f) * CellM;
+			const float U = (static_cast<float>(I - Half) + 0.5f) * CellM + UOff;
 			const float D2 = U * U + V * V;
 			if (D2 > OuterPad * 1.21f)
 			{
@@ -715,9 +718,10 @@ void FGXHorizonClipmap::BuildRing(
 		const FVector FN = FVector::CrossProduct(Positions[IB] - Positions[IA], Positions[IC] - Positions[IA]);
 		AccN[IA] += FN; AccN[IB] += FN; AccN[IC] += FN;
 	}
-	// Enough radial to keep rolling hills grassy; not so much that mountains
-	// lose slope and the shader cannot blend to rock.
-	const float KeepRadial = (CellM > 3.0f) ? FMath::Clamp((CellM - 3.0f) / 80.0f, 0.08f, 0.35f) : 0.0f;
+	// Faceted face N + slope vertex-color bands turned every clipmap
+	// row into a contour shelf (0.13.13–15). Bias toward radial and
+	// color from the stamp layer only.
+	const float KeepRadial = FMath::Clamp(0.40f + CellM / 50.0f, 0.40f, 0.80f);
 	for (int32 V = 0; V < Positions.Num(); ++V)
 	{
 		FVector N = AccN[V].GetSafeNormal();
@@ -730,27 +734,39 @@ void FGXHorizonClipmap::BuildRing(
 		{
 			N = -N;
 		}
-		if (KeepRadial > 0.0f && !Radial.IsNearlyZero())
+		if (!Radial.IsNearlyZero())
 		{
 			N = (N * (1.0f - KeepRadial) + Radial * KeepRadial).GetSafeNormal();
 		}
 		Normals[V] = N;
-		const float Slope = 1.0f - FMath::Abs(FVector::DotProduct(N, Radial));
-		const float HeightM = Positions[V].Size() * 0.01f + Sink - R0;
-		const float Alt = HeightM / Relief;
 		const float Biome = UV0[V].X;
-		// No snow-white: yellow atmosphere turned it into the teal gumdrop.
-		if (Biome > 1.5f || Alt > 0.16f || Slope > 0.14f)
+		if (Biome > 6.5f)
 		{
-			Colors[V] = FLinearColor(0.58f, 0.50f, 0.44f); // rock
+			Colors[V] = FLinearColor(0.28f, 0.24f, 0.22f);
 		}
-		else if (Slope > 0.09f)
+		else if (Biome > 5.5f)
 		{
-			Colors[V] = FLinearColor(0.54f, 0.42f, 0.28f); // dirt skirt
+			Colors[V] = FLinearColor(0.30f, 0.24f, 0.16f);
+		}
+		else if (Biome > 4.5f)
+		{
+			Colors[V] = FLinearColor(0.78f, 0.86f, 0.92f);
+		}
+		else if (Biome > 3.5f)
+		{
+			Colors[V] = FLinearColor(0.84f, 0.72f, 0.42f);
+		}
+		else if (Biome > 2.5f)
+		{
+			Colors[V] = FLinearColor(0.55f, 0.40f, 0.24f);
+		}
+		else if (Biome > 1.5f)
+		{
+			Colors[V] = FLinearColor(0.50f, 0.46f, 0.40f);
 		}
 		else
 		{
-			Colors[V] = FLinearColor(0.58f, 0.66f, 0.38f); // grass — valleys were too dark
+			Colors[V] = FLinearColor(0.58f, 0.66f, 0.38f);
 		}
 	}
 

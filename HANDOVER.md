@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-18** · On-screen build stamp: **GX 0.13.15**  
+Last updated: **2026-08-18** · On-screen build stamp: **GX 0.13.16**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.13.16** Stair mountains were the clipmap’s regular rows: faceted quads + slope vertex-color bands drew contour shelves. Odd rows are staggered; normals bias radial; color is stamp layer only.
 - **GX 0.13.15** 0.13.14's cap released in 1.4 km and the 24 m ring turned that into the stair wall in the spawn view. Domain eases 0.40→0.82 over 7 km. 8 m clipmap out to 2.2 km. Wiped `bak_pre_0135`.
 - **GX 0.13.14** Ground mountains were still contour stairs. Rise/Feet of the +X range rebuilt Domain after the near-stream cap and meshed an 80° wall 200 m out. Cap is last; first 2.8 km stays hills. Clipmap 2.5 m to 480 m. Wiped `bak_pre_0134`.
 - **GX 0.13.13** Mid hills were still Minecraft because clipmap A-B-C was culled and the N=192 globe showed through. Clipmap is A-C-B (same as tiles). VSM off (`r.Shadow.Virtual.Enable=0`) — the NonNaniteVSM cvar was a dummy in 5.8.
