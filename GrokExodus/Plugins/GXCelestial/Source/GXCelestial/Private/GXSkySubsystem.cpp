@@ -675,6 +675,12 @@ void UGXSkySubsystem::PoseSun()
 		C->SetIntensity(12.0f);
 		C->SetAtmosphereSunLight(true);
 		C->SetAtmosphereSunLightIndex(0);
+		C->SetCastShadows(true);
+		// Default CSM is ~200 m — past that the sun lights the far side
+		// of every hill (0.13.8 "sun through the ground").
+		C->DynamicShadowDistanceMovableLight = 800000.0f;
+		C->DynamicShadowCascades = 4;
+		C->CascadeDistributionExponent = 2.8f;
 		C->MarkRenderStateDirty();
 	}
 	if (UWorld* World = GetWorld())

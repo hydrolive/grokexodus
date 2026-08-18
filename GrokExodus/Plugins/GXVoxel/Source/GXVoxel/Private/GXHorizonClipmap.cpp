@@ -18,7 +18,7 @@ namespace
 			return nullptr;
 		}
 		PMC->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-		PMC->SetCastShadow(false);
+		PMC->SetCastShadow(true);
 		PMC->SetVisibleInRayTracing(false);
 		PMC->bUseAsyncCooking = true;
 		PMC->bNeverDistanceCull = true;
@@ -212,10 +212,13 @@ void FGXHorizonClipmap::Initialize(AActor* Owner)
 	// Visible annulus starts inside the tile disk (140 m) at a small sink
 	// so the 8 m ring is not a second skin on the 2 m tiles (0.9.6–0.9.8
 	// fins). Farther rings sit deeper and barely overlap.
+	// 8/32/96 m cells were Minecraft stairs on every hill (0.13.8).
+	// 3 m near the walk tiles, then 8 / 24 / 64 m out to 10 km.
 	const FSpec Specs[] = {
-		{ 140.0f, 800.0f, 8.0f, 2.5f },
-		{ 780.0f, 2800.0f, 32.0f, 8.0f },
-		{ 2700.0f, 10000.0f, 96.0f, 16.0f },
+		{ 70.0f, 360.0f, 3.0f, 1.2f },
+		{ 340.0f, 1200.0f, 8.0f, 3.5f },
+		{ 1150.0f, 3800.0f, 24.0f, 8.0f },
+		{ 3600.0f, 10000.0f, 64.0f, 16.0f },
 	};
 	for (const FSpec& S : Specs)
 	{

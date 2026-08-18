@@ -19,7 +19,7 @@ UGXBodyMovement::UGXBodyMovement()
 	MaxWalkSpeed = 650.0f;
 	MaxAcceleration = 2048.0f;
 	JumpZVelocity = 700.0f;
-	MaxStepHeight = 50.0f;
+	MaxStepHeight = 90.0f;
 	SetWalkableFloorAngle(80.0f);
 	bMaintainHorizontalGroundVelocity = false;
 }

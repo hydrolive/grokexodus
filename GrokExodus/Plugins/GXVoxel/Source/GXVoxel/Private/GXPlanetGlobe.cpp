@@ -36,7 +36,7 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 		return;
 	}
 	PMC->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-	PMC->SetCastShadow(false);
+	PMC->SetCastShadow(true);
 	PMC->SetVisibleInRayTracing(false);
 	PMC->bNeverDistanceCull = true;
 	PMC->SetCullDistance(0.0f);
@@ -46,8 +46,8 @@ void FGXPlanetGlobe::Ensure(AActor* Owner, const FGXSphereStamp& Stamp, UMateria
 	PMC->RegisterComponent();
 	Comp = PMC;
 
-	// 6×128². ~0.74 km cells. Sink under tiles. Do not punch.
-	constexpr int32 N = 128;
+	// 6×192². ~0.49 km cells. 128² was a Minecraft globe at the limb.
+	constexpr int32 N = 192;
 	constexpr float SinkM = 12.0f;
 	const float R0 = Stamp.GetParams().Radius;
 	const float Relief = FMath::Max(1.0f, Stamp.GetParams().MaxRelief);

@@ -49,8 +49,8 @@ namespace
 		PMC->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
 		PMC->SetCollisionObjectType(ECC_WorldStatic);
 		PMC->SetCollisionResponseToAllChannels(ECR_Block);
-		PMC->SetCastShadow(false);
-		PMC->SetVisibleInRayTracing(false);
+		PMC->SetCastShadow(true);
+		PMC->SetVisibleInRayTracing(true);
 		PMC->bUseAsyncCooking = false;
 		PMC->bNeverDistanceCull = true;
 		PMC->SetCullDistance(0.0f);

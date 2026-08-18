@@ -174,7 +174,7 @@ void AGrokExodusSurvivor::ApplyLookAndBody()
 	const FQuat PitchQ(LookRight, FMath::DegreesToRadians(-FMath::Clamp(LookPitch, -89.f, 89.f)));
 	const FVector LookFwd = PitchQ.RotateVector(LookHoriz).GetSafeNormal();
 	const FRotator BodyRot = FRotationMatrix::MakeFromXZ(LookHoriz, Up).Rotator();
-	SetActorRotation(BodyRot);
+	SetActorRotation(BodyRot, ETeleportType::TeleportPhysics);
 	Cam->SetRelativeLocation(FVector(0.f, 0.f, 64.f));
 	// World rotation — never inherit the template head-socket (0, 90, -90).
 	Cam->SetWorldRotation(FRotationMatrix::MakeFromXZ(LookFwd, Up).Rotator());
@@ -207,6 +207,16 @@ void AGrokExodusSurvivor::DoAim(float Yaw, float Pitch)
 void AGrokExodusSurvivor::DoMove(float Right, float Forward)
 {
 	if (!Controller) return;
+	if (UWorld* World = GetWorld())
+	{
+		if (UGXSkySubsystem* Sky = World->GetSubsystem<UGXSkySubsystem>())
+		{
+			if (Sky->GetFollowIndex() >= 0)
+			{
+				Sky->ClearFollow();
+			}
+		}
+	}
 	UCharacterMovementComponent* MoveComp = GetCharacterMovement();
 	if (MoveComp && MoveComp->MovementMode == MOVE_None)
 	{
