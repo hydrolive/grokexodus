@@ -626,11 +626,15 @@ void FGXHorizonClipmap::BuildRing(
 		// (that was the dark seam down the view in 0.7.31).
 		// Stagger odd rows so long U-edges are not screen-horizontal
 		// contour stairs (0.13.13–15 spawn mountain).
-		const float V = (static_cast<float>(J - Half) + 0.5f) * CellM;
+		const float V0 = (static_cast<float>(J - Half) + 0.5f) * CellM;
 		const float UOff = ((J & 1) != 0) ? (0.5f * CellM) : 0.0f;
 		for (int32 I = 0; I < Dim; ++I)
 		{
-			const float U = (static_cast<float>(I - Half) + 0.5f) * CellM + UOff;
+			const uint32 H = 1103515245u * (static_cast<uint32>(I) * 197u + static_cast<uint32>(J) * 419u) + 12345u;
+			const float JitU = (static_cast<float>((H >> 16) & 255u) / 255.0f - 0.5f) * CellM * 0.35f;
+			const float JitV = (static_cast<float>((H >> 8) & 255u) / 255.0f - 0.5f) * CellM * 0.35f;
+			const float U = (static_cast<float>(I - Half) + 0.5f) * CellM + UOff + JitU;
+			const float V = V0 + JitV;
 			const float D2 = U * U + V * V;
 			if (D2 > OuterPad * 1.21f)
 			{
@@ -1168,6 +1172,16 @@ void FGXHorizonClipmap::Update(
 	}
 	FVector T, B;
 	CenterDir.FindBestAxisVectors(T, B);
+	// +X spawn looks along +Y; FindBestAxisVectors then puts one axis on
+	// +Z — screen-horizontal. Every V-row became a contour stair.
+	{
+		constexpr float Ca = 0.8750f; // cos ~29°
+		constexpr float Sa = 0.4848f;
+		const FVector Tr = (T * Ca + B * Sa).GetSafeNormal();
+		const FVector Br = (B * Ca - T * Sa).GetSafeNormal();
+		T = Tr;
+		B = Br;
+	}
 
 	if (Rings.Num() > 0)
 	{
