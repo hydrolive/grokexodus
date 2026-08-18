@@ -446,10 +446,12 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	{
 		// 5×5 tiles = 320 m square. A 140 m circle stuck out past a 4×4
 		// (0.9.9 live: hole through the planet). Hole 100 m only after 5×5.
-		const float ClipInnerM = (CrustTiles && CrustTiles->HasNeighborhood(
-			WorldToLocalMeters(CachedViewerWorld), 2))
-			? 100.0f
-			: 0.0f;
+		const float ClipInnerM = (CrustTiles && CrustTiles->NumLive() >= 24)
+			? 560.0f
+			: ((CrustTiles && CrustTiles->HasNeighborhood(
+				WorldToLocalMeters(CachedViewerWorld), 2))
+				? 160.0f
+				: 0.0f);
 		HorizonClipmap->Update(
 			this,
 			Volume->GetStamp(),

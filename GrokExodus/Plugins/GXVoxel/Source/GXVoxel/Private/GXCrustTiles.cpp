@@ -2599,30 +2599,41 @@ void FGXCrustTiles::Update(
 		return;
 	}
 	const FGXCrustTileKey Center = KeyAt(ViewerLocalM, 0);
-	const int32 Reach = FMath::CeilToInt(StreamM / TileM);
 	TSet<FGXCrustTileKey> Desired;
-	for (int32 DV = -Reach; DV <= Reach; ++DV)
+	// LOD 0 underfoot, LOD 1 past the walk disk. Viewer-centered clipmap
+	// from the air is a dartboard of concentric stairs (0.13.19 shot).
+	auto AddBand = [&](int32 Lod, float InnerM, float OuterM)
 	{
-		for (int32 DU = -Reach; DU <= Reach; ++DU)
+		const float Scale = TileM * static_cast<float>(1 << FMath::Max(0, Lod));
+		const FGXCrustTileKey BandC = KeyAt(ViewerLocalM, Lod);
+		const int32 Reach = FMath::CeilToInt(OuterM / Scale) + 1;
+		for (int32 DV = -Reach; DV <= Reach; ++DV)
 		{
-			FGXCrustTileKey K = Center;
-			K.U += DU;
-			K.V += DV;
-			const float CU = (static_cast<float>(K.U) + 0.5f) * TileM;
-			const float CV = (static_cast<float>(K.V) + 0.5f) * TileM;
-			FVector N, T, B;
-			FaceAxes(K.Face, N, T, B);
-			const FVector Approx = N * Stamp.GetParams().Radius + T * CU + B * CV;
-			if (HiddenKeys.Contains(K))
+			for (int32 DU = -Reach; DU <= Reach; ++DU)
 			{
-				continue;
-			}
-			if (FVector::DistSquared(Approx, ViewerLocalM) <= FMath::Square(StreamM + TileM))
-			{
-				Desired.Add(K);
+				FGXCrustTileKey K = BandC;
+				K.LOD = Lod;
+				K.U += DU;
+				K.V += DV;
+				const float CU = (static_cast<float>(K.U) + 0.5f) * Scale;
+				const float CV = (static_cast<float>(K.V) + 0.5f) * Scale;
+				FVector N, T, B;
+				FaceAxes(K.Face, N, T, B);
+				const FVector Approx = N * Stamp.GetParams().Radius + T * CU + B * CV;
+				if (HiddenKeys.Contains(K))
+				{
+					continue;
+				}
+				const float Dist = FVector::Dist(Approx, ViewerLocalM);
+				if (Dist >= InnerM && Dist <= OuterM + Scale * 0.55f)
+				{
+					Desired.Add(K);
+				}
 			}
 		}
-	}
+	};
+	AddBand(0, 0.0f, 200.0f);
+	AddBand(1, 170.0f, 640.0f);
 
 	TArray<FGXCrustTileKey> Evict;
 	for (const auto& Pair : Live)
@@ -2648,8 +2659,9 @@ void FGXCrustTiles::Update(
 		{
 			continue;
 		}
-		const float CU = (static_cast<float>(K.U) + 0.5f) * TileM;
-		const float CV = (static_cast<float>(K.V) + 0.5f) * TileM;
+		const float Scale = TileM * static_cast<float>(1 << FMath::Max(0, K.LOD));
+		const float CU = (static_cast<float>(K.U) + 0.5f) * Scale;
+		const float CV = (static_cast<float>(K.V) + 0.5f) * Scale;
 		FVector N, T, B;
 		FaceAxes(K.Face, N, T, B);
 		const FVector Approx = N * Stamp.GetParams().Radius + T * CU + B * CV;
