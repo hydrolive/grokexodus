@@ -364,13 +364,30 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	EnsureCrustAtlas();
 	if (PlanetGlobe && Volume && !PlanetGlobe->IsReady())
 	{
-		// Same walk PBR that already shows grass on spawn. A second MID
-		// with 0.00008 tile scale averaged the planet to one tan sheet.
-		UMaterialInterface* GlobeMat = TerrainMaterial.Get();
+		if (!GlobeMid)
+		{
+			UMaterialInterface* Asset = LoadObject<UMaterialInterface>(nullptr,
+				TEXT("/Game/Voxel/Materials/M_VoxelTerrain_PBR.M_VoxelTerrain_PBR"));
+			if (Asset && Cast<UMaterialInstanceDynamic>(Asset) == nullptr)
+			{
+				GlobeMid = UMaterialInstanceDynamic::Create(Asset, this);
+			}
+			if (GlobeMid)
+			{
+				GlobeMid->SetScalarParameterValue(TEXT("TileScale"), 0.0012f);
+				GlobeMid->SetScalarParameterValue(TEXT("MacroScale"), 0.028f);
+				GlobeMid->SetScalarParameterValue(TEXT("DistanceFadeStart"), 80000.0f);
+				GlobeMid->SetScalarParameterValue(TEXT("DistanceFadeEnd"), 250000.0f);
+				// Vertex biome colors (ice/grass/rock) so orbit is not one tan.
+				GlobeMid->SetScalarParameterValue(TEXT("BiomeTint"), 0.78f);
+				UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s globe MID=%s parent=%s"),
+					GX_VERSION_STRING, *GetNameSafe(GlobeMid), *GetNameSafe(Asset));
+			}
+		}
+		UMaterialInterface* GlobeMat = GlobeMid.Get();
 		if (!GlobeMat)
 		{
-			GlobeMat = LoadObject<UMaterialInterface>(nullptr,
-				TEXT("/Game/Voxel/Materials/M_VoxelTerrain_PBR.M_VoxelTerrain_PBR"));
+			GlobeMat = TerrainMaterial.Get();
 		}
 		PlanetGlobe->Ensure(this, Volume->GetStamp(), GlobeMat);
 	}

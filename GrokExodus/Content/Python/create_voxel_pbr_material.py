@@ -581,9 +581,13 @@ def main():
     connect(w_id_snow, "", albedo_ice, "Alpha")
     albedo = albedo_ice
 
-    # Light biome tint only — do not replace texture at distance.
-    tint = add(mul(vc, "RGB", const(0.18, x0 + 9100, 280), "", x0 + 9360, 280),
-               "", const(0.82, x0 + 9100, 340), "", x0 + 9620, 280, "tint")
+    # Walk stays textured (0.18). Globe MID raises BiomeTint so ice/grass
+    # continents read from orbit when 6 m tiles minify to one tan.
+    biome_k = scalar("BiomeTint", 0.18, x0 + 9100, 400)
+    rest_k = sub(const(1.0, x0 + 9100, 460, "1tint"), "", biome_k, "",
+                 x0 + 9360, 400, "restTint")
+    tint = add(mul(vc, "RGB", biome_k, "", x0 + 9360, 280),
+               "", rest_k, "", x0 + 9620, 280, "tint")
     albedo = mul(albedo, "", tint, "", x0 + 9880, 80, "Albedo*Tint")
 
     rgh_n = wrap_sample("GrassRough", grass_r_tex, rot_u, rot_v, tile, x0 + 1900, 880, True)

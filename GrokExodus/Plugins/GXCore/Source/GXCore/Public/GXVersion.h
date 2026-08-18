@@ -3,6 +3,6 @@
 #pragma once
 
 #ifndef GX_VERSION_STRING
-#define GX_VERSION_STRING TEXT("0.13.7")
+#define GX_VERSION_STRING TEXT("0.13.8")
 #define GX_VERSION_DATE TEXT("2026-08-17")
 #endif
