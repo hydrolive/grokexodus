@@ -435,11 +435,21 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 			{
 				return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z));
 			});
+		const int32 TilesRebuilt = CrustTiles->TakeRebuiltCount();
 		// Load-only. A live dig must not restore the whole 8 m page box
 		// (GX-shot-0139 hide-air r=6.04 punched the lawn).
 		if (bLoadRestorePending && CrustTiles->IsReady())
 		{
 			RestoreEditedSurfaces();
+		}
+		else if (TilesRebuilt > 0 && !EditIsland.IsEmpty() && CrustTiles->IsReady())
+		{
+			const int32 N = ConsumeIslandTiles();
+			if (N > 0)
+			{
+				RemeshIsland();
+				GX_PERF(1, TEXT("GX-island reapply consume=%d rebuilt=%d"), N, TilesRebuilt);
+			}
 		}
 	}
 	if (HorizonClipmap && Volume && bAtlasReady)
@@ -962,13 +972,7 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	}
 	if (CrustTiles && CaveTris >= 12)
 	{
-		const FBox IB = EditIsland.Bounds();
-		const FVector IC = IB.IsValid ? IB.GetCenter() : L;
-		const float IR = IB.IsValid ? IB.GetExtent().GetMax() : (BrushR + FGXEditIsland::CollarM);
-		Punched = CrustTiles->ConsumeWhere(
-			IC, IR,
-			[this](const FVector& P) { return EditIsland.Contains(P); },
-			TerrainMaterial.Get());
+		Punched = ConsumeIslandTiles();
 		// Island owns the mouth. Do not CloseUncovered / CaveMeshNear here —
 		// those predicates put tiles back inside the cut-out (0.13.28–51).
 		{
@@ -1801,6 +1805,7 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 		{
 			const int32 Before = MeshData.Indices.Num();
 			FilterMeshToCarveBalls(Coord, MeshData);
+			StitchIslandSkirt(Coord, MeshData);
 			GX_PERF(1, TEXT("GX-cave filter %d_%d_%d tris %d -> %d"),
 				Coord.X, Coord.Y, Coord.Z, Before / 3, MeshData.Indices.Num() / 3);
 			if (MeshData.IsEmpty())
@@ -2637,10 +2642,8 @@ void AGXVoxelWorld::RestoreEditedSurfaces()
 	const int32 SavedCreates = MaxMeshCreatesPerTick;
 	MaxMeshCreatesPerTick = MeshCreatesThisTick + 8;
 	RemeshIsland();
-	int32 Hidden = CrustTiles->ConsumeWhere(
-		IB.GetCenter(), FMath::Max(IB.GetExtent().GetMax(), 4.0f),
-		[this](const FVector& P) { return EditIsland.Contains(P); },
-		TerrainMaterial.Get());
+	int32 Hidden = ConsumeIslandTiles();
+	RemeshIsland();
 	MaxMeshCreatesPerTick = SavedCreates;
 	bLoadRestorePending = false;
 	bRevealedTileEdits = true;
@@ -2751,14 +2754,28 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 		{
 			continue;
 		}
-		const FVector Cent = (Mesh.Positions[IA] + Mesh.Positions[IB] + Mesh.Positions[IC]) * (1.0f / 3.0f);
-		// Drop the rest of the 32 m chunk. Keep the island (collar+lip+cave).
+		// Drop the rest of the 32 m chunk. Keep if any vert is in the island
+		// plus one voxel so the keep covers any-corner tile holes.
+		const float KeepPad = VoxelSize;
 		bool bInMouth = false;
+		const FVector Corners[3] = { Mesh.Positions[IA], Mesh.Positions[IB], Mesh.Positions[IC] };
 		for (const FGXEditSphere& S : EditIsland.Spheres)
 		{
-			if (S.R > 0.0f && FVector::DistSquared(Cent, S.C) <= FMath::Square(S.R + 1.25f))
+			if (S.R <= 0.0f)
 			{
-				bInMouth = true;
+				continue;
+			}
+			const float KeepR2 = FMath::Square(S.R + KeepPad);
+			for (int32 K = 0; K < 3; ++K)
+			{
+				if (FVector::DistSquared(Corners[K], S.C) <= KeepR2)
+				{
+					bInMouth = true;
+					break;
+				}
+			}
+			if (bInMouth)
+			{
 				break;
 			}
 		}
@@ -2782,6 +2799,145 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 	Mesh.CompactUnusedVertices();
 	GX_PERF(1, TEXT("GX-filter keep %d_%d_%d tris=%d dropOut=%d verts=%d"),
 		Coord.X, Coord.Y, Coord.Z, Mesh.Indices.Num() / 3, DropOut, Mesh.Positions.Num());
+}
+
+int32 AGXVoxelWorld::ConsumeIslandTiles()
+{
+	if (!CrustTiles || EditIsland.IsEmpty())
+	{
+		return 0;
+	}
+	const FBox IB = EditIsland.Bounds();
+	const FVector IC = IB.IsValid ? IB.GetCenter() : FVector::ZeroVector;
+	const float IR = IB.IsValid ? FMath::Max(IB.GetExtent().GetMax(), 4.0f) : 4.0f;
+	return CrustTiles->ConsumeWhere(
+		IC, IR,
+		[this](const FVector& P) { return EditIsland.Contains(P); },
+		TerrainMaterial.Get());
+}
+
+void AGXVoxelWorld::StitchIslandSkirt(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const
+{
+	if (!CrustTiles || EditIsland.IsEmpty())
+	{
+		return;
+	}
+	const FBox IB = EditIsland.Bounds();
+	if (!IB.IsValid)
+	{
+		return;
+	}
+	TArray<TPair<FVector, FVector>> Edges;
+	CrustTiles->CollectHoleBoundary(IB.GetCenter(), FMath::Max(IB.GetExtent().GetMax(), 4.0f) + 2.0f, Edges);
+	if (Edges.Num() == 0)
+	{
+		return;
+	}
+	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
+	const float Reach2 = FMath::Square(1.5f);
+	auto AddVert = [&](const FVector& P, const FVector& N, const FLinearColor& C) -> int32
+	{
+		const int32 I = Mesh.Positions.Add(P);
+		Mesh.Normals.SetNum(Mesh.Positions.Num());
+		Mesh.UV0.SetNum(Mesh.Positions.Num());
+		Mesh.Colors.SetNum(Mesh.Positions.Num());
+		Mesh.Normals[I] = N;
+		Mesh.UV0[I] = FVector2D(P.X * 0.08f, P.Z * 0.08f);
+		Mesh.Colors[I] = C;
+		if (Mesh.MaterialIds.Num() > 0)
+		{
+			Mesh.MaterialIds.SetNum(Mesh.Positions.Num());
+			Mesh.MaterialIds[I] = 3;
+		}
+		return I;
+	};
+	auto EmitOutward = [&](int32 IA, int32 IB, int32 IC)
+	{
+		if (!Mesh.Positions.IsValidIndex(IA) || !Mesh.Positions.IsValidIndex(IB)
+			|| !Mesh.Positions.IsValidIndex(IC))
+		{
+			return;
+		}
+		const FVector& PA = Mesh.Positions[IA];
+		const FVector& PB = Mesh.Positions[IB];
+		const FVector& PC = Mesh.Positions[IC];
+		FVector FN = FVector::CrossProduct(PB - PA, PC - PA);
+		const FVector Mid = (PA + PB + PC) * (1.0f / 3.0f);
+		if (!FN.IsNearlyZero() && FVector::DotProduct(FN, Mid) < 0.0f)
+		{
+			Swap(IB, IC);
+		}
+		Mesh.Indices.Add(IA);
+		Mesh.Indices.Add(IB);
+		Mesh.Indices.Add(IC);
+	};
+	int32 SkirtTris = 0;
+	int32 Miss = 0;
+	int32 Used = 0;
+	for (const TPair<FVector, FVector>& E : Edges)
+	{
+		const FVector Mid = (E.Key + E.Value) * 0.5f;
+		const FGXChunkKey EdgeChunk(
+			FMath::FloorToInt(Mid.X / ChunkM),
+			FMath::FloorToInt(Mid.Y / ChunkM),
+			FMath::FloorToInt(Mid.Z / ChunkM));
+		if (EdgeChunk.X != Coord.X || EdgeChunk.Y != Coord.Y || EdgeChunk.Z != Coord.Z)
+		{
+			continue;
+		}
+		++Used;
+		int32 BestI = INDEX_NONE;
+		int32 BestJ = INDEX_NONE;
+		float BestD2 = Reach2;
+		float BestD2b = Reach2;
+		for (int32 I = 0; I < Mesh.Positions.Num(); ++I)
+		{
+			const float D2 = FVector::DistSquared(Mesh.Positions[I], Mid);
+			if (D2 <= BestD2)
+			{
+				BestJ = BestI;
+				BestD2b = BestD2;
+				BestI = I;
+				BestD2 = D2;
+			}
+			else if (D2 <= BestD2b)
+			{
+				BestJ = I;
+				BestD2b = D2;
+			}
+		}
+		const FVector Radial = Mid.GetSafeNormal();
+		const FVector NA = E.Key.GetSafeNormal();
+		const FVector NB = E.Value.GetSafeNormal();
+		const FLinearColor Col = (BestI != INDEX_NONE && Mesh.Colors.IsValidIndex(BestI))
+			? Mesh.Colors[BestI] : FLinearColor(0.36f, 0.30f, 0.22f);
+		const int32 VA = AddVert(E.Key, NA.IsNearlyZero() ? Radial : NA, Col);
+		const int32 VB = AddVert(E.Value, NB.IsNearlyZero() ? Radial : NB, Col);
+		if (BestI != INDEX_NONE)
+		{
+			EmitOutward(VA, VB, BestI);
+			++SkirtTris;
+			if (BestJ != INDEX_NONE && BestJ != BestI)
+			{
+				EmitOutward(VA, BestI, BestJ);
+				EmitOutward(VB, BestJ, BestI);
+				SkirtTris += 2;
+			}
+		}
+		else
+		{
+			const FVector Flap = Mid - Radial * 0.6f;
+			const int32 VC = AddVert(Flap, Radial, Col);
+			EmitOutward(VA, VB, VC);
+			++SkirtTris;
+			++Miss;
+		}
+	}
+	if (Used > 0)
+	{
+		GX_PERF(1, TEXT("GX-skirt %d_%d_%d edges=%d tris=%d miss=%d"),
+			Coord.X, Coord.Y, Coord.Z, Used, SkirtTris, Miss);
+	}
 }
 
 void AGXVoxelWorld::RemeshIsland()

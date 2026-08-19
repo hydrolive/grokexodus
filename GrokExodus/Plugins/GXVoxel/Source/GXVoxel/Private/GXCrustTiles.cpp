@@ -783,6 +783,7 @@ void FGXCrustTiles::SubdivideTileInPlace(FTile& Tile, UMaterialInterface* Materi
 	Tile.Indices = MoveTemp(Idx);
 	Tile.FineCell = FineCellM;
 	Tile.QuadAlive.Init(true, Cells * Cells);
+	++RebuiltThisTick;
 
 	Comp->ClearMeshSection(0);
 	Comp->CreateMeshSection_LinearColor(
@@ -1225,8 +1226,8 @@ int32 FGXCrustTiles::ConsumeWhere(
 						? Tile.StampSurfM[Idx] : LiveW.Size();
 					return Dir * S;
 				};
-				const FVector SCent = (StampAt(A) + StampAt(Bv) + StampAt(C) + StampAt(D)) * 0.25f;
-				if (!Inside(SCent))
+				if (!Inside(StampAt(A)) && !Inside(StampAt(Bv))
+					&& !Inside(StampAt(C)) && !Inside(StampAt(D)))
 				{
 					continue;
 				}
@@ -1241,8 +1242,13 @@ int32 FGXCrustTiles::ConsumeWhere(
 		RebuildIndices(Tile);
 		if (Tile.Indices.Num() < 3)
 		{
-			Tile.QuadAlive.Init(true, Cells * Cells);
-			RebuildIndices(Tile);
+			// Whole tile is the hole. Do not reset QuadAlive — that put
+			// grass back on top of the cave (two meshes, 0.13.28–52).
+			Tile.bHidden = true;
+			Comp->ClearMeshSection(0);
+			Comp->SetVisibility(false);
+			Comp->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+			Changed += N;
 			continue;
 		}
 		DropNanite(Tile);
@@ -1264,6 +1270,99 @@ int32 FGXCrustTiles::ConsumeWhere(
 		GX_PERF(1, TEXT("GX-tile consume n=%d r=%.2f"), Changed, ApproxR);
 	}
 	return Changed;
+}
+
+int32 FGXCrustTiles::TakeRebuiltCount()
+{
+	const int32 N = RebuiltThisTick;
+	RebuiltThisTick = 0;
+	return N;
+}
+
+void FGXCrustTiles::CollectHoleBoundary(
+	const FVector& ApproxCenter,
+	float ApproxR,
+	TArray<TPair<FVector, FVector>>& Out) const
+{
+	if (ApproxR <= 0.0f || Live.Num() == 0)
+	{
+		return;
+	}
+	for (const auto& Pair : Live)
+	{
+		const FTile& Tile = Pair.Value;
+		const float Scale = TileM * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
+		const float TileReach2 = FMath::Square(ApproxR + Scale * 0.80f + 8.0f);
+		if (FVector::DistSquared(Tile.OriginCm * 0.01f, ApproxCenter) > TileReach2)
+		{
+			continue;
+		}
+		const int32 Dim = GridDim(Tile);
+		if (Dim < 2)
+		{
+			continue;
+		}
+		const int32 Cells = Dim - 1;
+		if (Tile.QuadAlive.Num() != Cells * Cells)
+		{
+			continue;
+		}
+		auto StampAt = [&](int32 Idx) -> FVector
+		{
+			const FVector LiveW = (Tile.OriginCm + Tile.LivePos[Idx]) * 0.01f;
+			const FVector Dir = (Tile.StampDir.IsValidIndex(Idx) && !Tile.StampDir[Idx].IsNearlyZero())
+				? Tile.StampDir[Idx] : LiveW.GetSafeNormal();
+			const float S = (Tile.StampSurfM.IsValidIndex(Idx) && Tile.StampSurfM[Idx] > 1.0f)
+				? Tile.StampSurfM[Idx] : LiveW.Size();
+			return Dir * S;
+		};
+		auto Alive = [&](int32 I, int32 J) -> bool
+		{
+			if (I < 0 || J < 0 || I >= Cells || J >= Cells)
+			{
+				return true;
+			}
+			return static_cast<bool>(Tile.QuadAlive[I + J * Cells]);
+		};
+		auto MaybeEdge = [&](int32 IA, int32 IB)
+		{
+			if (!Tile.LivePos.IsValidIndex(IA) || !Tile.LivePos.IsValidIndex(IB))
+			{
+				return;
+			}
+			Out.Emplace(StampAt(IA), StampAt(IB));
+		};
+		for (int32 J = 0; J < Cells; ++J)
+		{
+			for (int32 I = 0; I < Cells; ++I)
+			{
+				if (Tile.QuadAlive[I + J * Cells])
+				{
+					continue;
+				}
+				const int32 A = I + J * Dim;
+				const int32 Bv = (I + 1) + J * Dim;
+				const int32 C = I + (J + 1) * Dim;
+				const int32 D = (I + 1) + (J + 1) * Dim;
+				if (Alive(I, J - 1))
+				{
+					MaybeEdge(A, Bv);
+				}
+				if (Alive(I, J + 1))
+				{
+					MaybeEdge(C, D);
+				}
+				if (Alive(I - 1, J))
+				{
+					MaybeEdge(A, C);
+				}
+				if (Alive(I + 1, J))
+				{
+					MaybeEdge(Bv, D);
+				}
+			}
+		}
+	}
 }
 
 void FGXCrustTiles::CollectAliveQuadCentroidsNear(const FVector& LocalM, float RadiusM, TArray<FVector>& Out) const
@@ -2702,6 +2801,7 @@ void FGXCrustTiles::Update(
 		BuildTile(Tile, Stamp, Material, DensityAt);
 		Live.Add(Item.Value, Tile);
 		++Built;
+		++RebuiltThisTick;
 	}
 	// Ready only when the pawn's own tile exists — count-only ready was a hole.
 	const bool bWasReady = bReady;

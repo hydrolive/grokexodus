@@ -81,12 +81,19 @@ public:
 		UMaterialInterface* Material,
 		const TFunction<float(const FVector&)>& DensityAt,
 		float DiskR = 0.0f);
-	/** Hide every stamp-centroid quad inside the edit island. */
+	/** Hide every stamp quad that overlaps the edit island (any corner). */
 	int32 ConsumeWhere(
 		const FVector& ApproxCenter,
 		float ApproxR,
 		const TFunction<bool(const FVector&)>& Inside,
 		UMaterialInterface* Material);
+	/** Hole-boundary edges (stamp metres): dead quad next to a live one. */
+	void CollectHoleBoundary(
+		const FVector& ApproxCenter,
+		float ApproxR,
+		TArray<TPair<FVector, FVector>>& Out) const;
+	/** Tiles built or subdivided since the last take (re-apply island hole). */
+	int32 TakeRebuiltCount();
 	/** Alive (drawn) quad centroids in metres, for cave-lid filtering. */
 	void CollectAliveQuadCentroidsNear(const FVector& LocalM, float RadiusM, TArray<FVector>& Out) const;
 	bool HasTileAt(const FVector& LocalM) const;
@@ -141,6 +148,7 @@ private:
 	TMap<FGXCrustTileKey, FTile> Live;
 	TSet<FGXCrustTileKey> HiddenKeys;
 	AActor* OwnerCached = nullptr;
+	int32 RebuiltThisTick = 0;
 	bool bReady = false;
 	double LastNaniteCookSeconds = -1.0e9;
 	double ReadyAtSeconds = -1.0e9;
