@@ -373,6 +373,6 @@ protected:
 	void EmitCollarCells(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const;
 	void StitchIslandSkirt(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const;
 	int32 ConsumeIslandTiles();
-	int32 ConsumeIslandTilesInChunk(const FGXChunkKey& Coord, const FGXMeshBuffers& Mesh);
+	int32 ConsumeIslandTilesInChunk(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh);
 	void MarkPersistDirty();
 };

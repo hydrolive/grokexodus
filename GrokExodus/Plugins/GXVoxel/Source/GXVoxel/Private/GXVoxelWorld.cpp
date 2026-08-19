@@ -2980,13 +2980,16 @@ void AGXVoxelWorld::EmitCollarCells(const FGXChunkKey& Coord, FGXMeshBuffers& Me
 		return Mesh.Positions.Num() - 1;
 	};
 	int32 Collar = 0;
+	int32 OpenMouth = 0;
 	const float Cell = FGXEditIsland::CellM;
+	auto AirBelow = [this](const FVector& P) -> bool
+	{
+		const FVector Dir = P.GetSafeNormal();
+		const FVector Q = P - Dir * 0.30f;
+		return SampleDensityMeters(FVector3d(Q.X, Q.Y, Q.Z)) < -0.05f;
+	};
 	for (const FIntVector& CellId : EditIsland.Mask)
 	{
-		if (EditIsland.IsExcavated(CellId))
-		{
-			continue;
-		}
 		const int8 Face = static_cast<int8>(CellId.X);
 		const float UOff = ((CellId.Z & 1) != 0) ? (0.5f * Cell) : 0.0f;
 		const float U0 = static_cast<float>(CellId.Y) * Cell + UOff;
@@ -2998,14 +3001,31 @@ void AGXVoxelWorld::EmitCollarCells(const FGXChunkKey& Coord, FGXMeshBuffers& Me
 		const FVector Cent = (P00 + P10 + P01 + P11) * 0.25f;
 		const FGXChunkKey CellChunk = FGXVoxelVolume::VoxelToChunk(
 			FGXVoxelVolume::WorldToVoxel(FVector3d(Cent.X, Cent.Y, Cent.Z), VoxelSize));
-		if (CellChunk != Coord)
+		const FGXChunkKey C00 = FGXVoxelVolume::VoxelToChunk(
+			FGXVoxelVolume::WorldToVoxel(FVector3d(P00.X, P00.Y, P00.Z), VoxelSize));
+		const FGXChunkKey C11 = FGXVoxelVolume::VoxelToChunk(
+			FGXVoxelVolume::WorldToVoxel(FVector3d(P11.X, P11.Y, P11.Z), VoxelSize));
+		if (CellChunk != Coord && C00 != Coord && C11 != Coord)
 		{
+			continue;
+		}
+		// Fully air cells are the cave mouth. Partial/collar cells must keep
+		// a stamp quad or the punch shows sky (0.16.0).
+		if (AirBelow(Cent) && AirBelow(P00) && AirBelow(P10) && AirBelow(P01) && AirBelow(P11))
+		{
+			++OpenMouth;
 			continue;
 		}
 		const int32 A = PushVert(P00);
 		const int32 Bv = PushVert(P10);
 		const int32 C = PushVert(P01);
 		const int32 D = PushVert(P11);
+		Mesh.Indices.Add(A);
+		Mesh.Indices.Add(C);
+		Mesh.Indices.Add(Bv);
+		Mesh.Indices.Add(Bv);
+		Mesh.Indices.Add(C);
+		Mesh.Indices.Add(D);
 		Mesh.Indices.Add(A);
 		Mesh.Indices.Add(Bv);
 		Mesh.Indices.Add(C);
@@ -3018,21 +3038,21 @@ void AGXVoxelWorld::EmitCollarCells(const FGXChunkKey& Coord, FGXMeshBuffers& Me
 	{
 		Mesh.MaterialIds.SetNum(Mesh.Positions.Num());
 	}
-	GX_PERF(1, TEXT("GX-collar n=%d verts=%d %s"),
-		Collar, Mesh.Positions.Num(), *EditIsland.DebugString());
+	GX_PERF(1, TEXT("GX-collar n=%d open=%d verts=%d %s"),
+		Collar, OpenMouth, Mesh.Positions.Num(), *EditIsland.DebugString());
 }
 
-int32 AGXVoxelWorld::ConsumeIslandTilesInChunk(const FGXChunkKey& Coord, const FGXMeshBuffers& Mesh)
+int32 AGXVoxelWorld::ConsumeIslandTilesInChunk(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh)
 {
-	(void)Mesh;
-	if (!CrustTiles || EditIsland.IsEmpty())
+	if (!CrustTiles || !Volume || EditIsland.IsEmpty())
 	{
 		return 0;
 	}
 	const FBox IB = EditIsland.Bounds();
 	const FVector IC = IB.IsValid ? IB.GetCenter() : FVector::ZeroVector;
 	const float IR = IB.IsValid ? FMath::Max(IB.GetExtent().GetMax(), 4.0f) : 4.0f;
-	return CrustTiles->ConsumeWhere(
+	TArray<FVector> Punched;
+	const int32 N = CrustTiles->ConsumeWhere(
 		IC, IR,
 		[this](const FVector& P) { return EditIsland.Contains(P); },
 		TerrainMaterial.Get(),
@@ -3041,7 +3061,34 @@ int32 AGXVoxelWorld::ConsumeIslandTilesInChunk(const FGXChunkKey& Coord, const F
 			const FGXChunkKey CellChunk = FGXVoxelVolume::VoxelToChunk(
 				FGXVoxelVolume::WorldToVoxel(FVector3d(Cent.X, Cent.Y, Cent.Z), VoxelSize));
 			return CellChunk == Coord;
-		});
+		},
+		&Punched);
+	const FGXSphereStamp& Stamp = Volume->GetStamp();
+	auto PushVert = [&](const FVector& P)
+	{
+		const FVector Dir = P.GetSafeNormal();
+		const int32 Mid = Stamp.SampleSurfaceMaterial(FVector3f(Dir.X, Dir.Y, Dir.Z));
+		Mesh.Positions.Add(P);
+		Mesh.Normals.Add(Dir);
+		Mesh.UV0.Add(FVector2D(static_cast<float>(Mid), static_cast<float>(P.Size())));
+		Mesh.Colors.Add(FLinearColor(0.58f, 0.66f, 0.38f, 1.0f));
+		return Mesh.Positions.Num() - 1;
+	};
+	int32 Sealed = 0;
+	for (int32 Q = 0; Q + 3 < Punched.Num(); Q += 4)
+	{
+		const int32 A = PushVert(Punched[Q]);
+		const int32 Bv = PushVert(Punched[Q + 1]);
+		const int32 C = PushVert(Punched[Q + 2]);
+		const int32 D = PushVert(Punched[Q + 3]);
+		Mesh.Indices.Add(A); Mesh.Indices.Add(C); Mesh.Indices.Add(Bv);
+		Mesh.Indices.Add(Bv); Mesh.Indices.Add(C); Mesh.Indices.Add(D);
+		Mesh.Indices.Add(A); Mesh.Indices.Add(Bv); Mesh.Indices.Add(C);
+		Mesh.Indices.Add(Bv); Mesh.Indices.Add(D); Mesh.Indices.Add(C);
+		++Sealed;
+	}
+	GX_PERF(1, TEXT("GX-seal punched=%d sealed=%d"), N, Sealed);
+	return N;
 }
 
 void AGXVoxelWorld::StitchIslandSkirt(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const

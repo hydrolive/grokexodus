@@ -1168,7 +1168,8 @@ int32 FGXCrustTiles::ConsumeWhere(
 	float ApproxR,
 	const TFunction<bool(const FVector&)>& Inside,
 	UMaterialInterface* Material,
-	TFunction<bool(const FVector&)> KeepCent)
+	TFunction<bool(const FVector&)> KeepCent,
+	TArray<FVector>* OutStampQuads)
 {
 	if (ApproxR <= 0.0f || Live.Num() == 0 || !Inside)
 	{
@@ -1237,6 +1238,13 @@ int32 FGXCrustTiles::ConsumeWhere(
 					continue;
 				}
 				Tile.QuadAlive[Q] = false;
+				if (OutStampQuads)
+				{
+					OutStampQuads->Add(StampAt(A));
+					OutStampQuads->Add(StampAt(Bv));
+					OutStampQuads->Add(StampAt(C));
+					OutStampQuads->Add(StampAt(D));
+				}
 				++N;
 			}
 		}

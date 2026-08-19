@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-19** · On-screen build stamp: **GX 0.16.0**  
+Last updated: **2026-08-19** · On-screen build stamp: **GX 0.16.1**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.16.1** Punch left open sky faces: collar skipped every excavated cell, so rim cells with no cave lid were holes. Collar now emits stamp quads for every mask cell that is not fully air (both windings). Log `GX-collar n= open=`. Wiped `bak_pre_0161`.
 - **GX 0.16.0** Hole map: only excavated 1 m walk cells + 1-cell collar become voxels. First stroke is ~brush size, not a 12×48 m card that retextures the hillside. Collar copies tile stamp quads; cave keeps MC normals. Log `GX-mask` / `GX-collar`. Wiped `bak_pre_0160`.
 - **GX 0.15.10** Rim/walls still smeared and missing faces: 0.15.9 wrote radial normals onto cave verts so the PBR treated cliffs as floor (wood-grain stretch). Keep MC wall normals; mark lips OnWall at N·radial<0.88. Punch if a near-surface mesh vert is within 0.50 m, or if ≥4/5 air probes say the quad is the hole. Wiped `bak_pre_01510`.
 - **GX 0.15.9** Seam stretch + missing tris: rest-pos UV (StampR) on lip verts shared with cave walls smeared dirt; any-vert keep drew slivers onto live grass; consume punched quads the mesh did not cover. Snap+rest-pos only exclusive flat-lid verts; filter is centroid+0.5 m; punch only quads within 1.15 m of a mesh vert. Wiped `bak_pre_0159`.

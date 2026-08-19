@@ -87,7 +87,8 @@ public:
 		float ApproxR,
 		const TFunction<bool(const FVector&)>& Inside,
 		UMaterialInterface* Material,
-		TFunction<bool(const FVector&)> KeepCent = nullptr);
+		TFunction<bool(const FVector&)> KeepCent = nullptr,
+		TArray<FVector>* OutStampQuads = nullptr);
 	/** Stamp-space corners of quads that overlap the square (alive or dead). */
 	void CollectSquareStampQuads(
 		const FVector& ApproxCenter,
