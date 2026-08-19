@@ -1167,7 +1167,8 @@ int32 FGXCrustTiles::ConsumeWhere(
 	const FVector& ApproxCenter,
 	float ApproxR,
 	const TFunction<bool(const FVector&)>& Inside,
-	UMaterialInterface* Material)
+	UMaterialInterface* Material,
+	TFunction<bool(const FVector&)> KeepCent)
 {
 	if (ApproxR <= 0.0f || Live.Num() == 0 || !Inside)
 	{
@@ -1231,6 +1232,10 @@ int32 FGXCrustTiles::ConsumeWhere(
 				{
 					continue;
 				}
+				if (KeepCent && !KeepCent(SCent))
+				{
+					continue;
+				}
 				Tile.QuadAlive[Q] = false;
 				++N;
 			}
@@ -1279,12 +1284,14 @@ int32 FGXCrustTiles::TakeRebuiltCount()
 	return N;
 }
 
-void FGXCrustTiles::CollectDeadStampQuads(
+void FGXCrustTiles::CollectSquareStampQuads(
 	const FVector& ApproxCenter,
 	float ApproxR,
-	TArray<FVector>& OutCorners) const
+	const TFunction<bool(const FVector&)>& Inside,
+	TArray<FVector>& OutCorners,
+	TFunction<bool(const FVector&)> KeepCent) const
 {
-	if (ApproxR <= 0.0f || Live.Num() == 0)
+	if (ApproxR <= 0.0f || Live.Num() == 0 || !Inside)
 	{
 		return;
 	}
@@ -1307,7 +1314,7 @@ void FGXCrustTiles::CollectDeadStampQuads(
 			continue;
 		}
 		const int32 Cells = Dim - 1;
-		if (Tile.QuadAlive.Num() != Cells * Cells || Tile.LivePos.Num() == 0)
+		if (Tile.LivePos.Num() == 0)
 		{
 			continue;
 		}
@@ -1324,11 +1331,6 @@ void FGXCrustTiles::CollectDeadStampQuads(
 		{
 			for (int32 I = 0; I < Cells; ++I)
 			{
-				const int32 Q = I + J * Cells;
-				if (Tile.QuadAlive[Q])
-				{
-					continue;
-				}
 				const int32 A = I + J * Dim;
 				const int32 Bv = (I + 1) + J * Dim;
 				const int32 C = I + (J + 1) * Dim;
@@ -1338,10 +1340,23 @@ void FGXCrustTiles::CollectDeadStampQuads(
 				{
 					continue;
 				}
-				OutCorners.Add(StampAt(A));
-				OutCorners.Add(StampAt(Bv));
-				OutCorners.Add(StampAt(C));
-				OutCorners.Add(StampAt(D));
+				const FVector SA = StampAt(A);
+				const FVector SB = StampAt(Bv);
+				const FVector SC = StampAt(C);
+				const FVector SD = StampAt(D);
+				const FVector SCent = (SA + SB + SC + SD) * 0.25f;
+				if (!Inside(SCent) && !Inside(SA) && !Inside(SB) && !Inside(SC) && !Inside(SD))
+				{
+					continue;
+				}
+				if (KeepCent && !KeepCent(SCent))
+				{
+					continue;
+				}
+				OutCorners.Add(SA);
+				OutCorners.Add(SB);
+				OutCorners.Add(SC);
+				OutCorners.Add(SD);
 			}
 		}
 	}

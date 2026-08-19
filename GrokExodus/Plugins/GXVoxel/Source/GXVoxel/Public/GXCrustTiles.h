@@ -81,17 +81,20 @@ public:
 		UMaterialInterface* Material,
 		const TFunction<float(const FVector&)>& DensityAt,
 		float DiskR = 0.0f);
-	/** Hide stamp quads whose centroid is inside the edit square. */
+	/** Hide stamp quads that overlap the edit square (any corner or centroid). */
 	int32 ConsumeWhere(
 		const FVector& ApproxCenter,
 		float ApproxR,
 		const TFunction<bool(const FVector&)>& Inside,
-		UMaterialInterface* Material);
-	/** Stamp-space corners of consumed quads (groups of 4: A, B, C, D). */
-	void CollectDeadStampQuads(
+		UMaterialInterface* Material,
+		TFunction<bool(const FVector&)> KeepCent = nullptr);
+	/** Stamp-space corners of quads that overlap the square (alive or dead). */
+	void CollectSquareStampQuads(
 		const FVector& ApproxCenter,
 		float ApproxR,
-		TArray<FVector>& OutCorners) const;
+		const TFunction<bool(const FVector&)>& Inside,
+		TArray<FVector>& OutCorners,
+		TFunction<bool(const FVector&)> KeepCent = nullptr) const;
 	/** Hole-boundary edges (stamp metres): dead quad next to a live one. */
 	void CollectHoleBoundary(
 		const FVector& ApproxCenter,

@@ -372,5 +372,6 @@ protected:
 	void ConformPatchLid(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const;
 	void StitchIslandSkirt(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const;
 	int32 ConsumeIslandTiles();
+	int32 ConsumeIslandTilesInChunk(const FGXChunkKey& Coord);
 	void MarkPersistDirty();
 };

@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-18** · On-screen build stamp: **GX 0.15.7**  
+Last updated: **2026-08-18** · On-screen build stamp: **GX 0.15.8**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -8,7 +8,7 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 These are why 0.8–0.10 went in a circle. A later pass that violates one will
 reintroduce a bug we already paid for.
 
-1. **One landscape square, one voxel mesh.** A dig cuts a 1 m-snapped UV square out of the walk tiles (first hit ≥ 12 m, then +2 m whenever the brush reaches the edge). Voxels own that whole rectangle: MC cave walls plus a 1 m stamp lid on remaining solid cells (same staggered UV as the tiles). Do not stitch spheres to individual 1 m quads. Do not CaveMeshNear / CloseUncovered / live-tile pads. `QuadAlive` survives restream (re-consume after BuildTile).
+1. **One landscape square, one voxel mesh.** A dig cuts a 1 m-snapped UV square out of the walk tiles (first hit ≥ 12 m, then +2 m whenever the brush reaches the edge). Punch happens when that chunk's cave mesh is applied (not on the click). Marching cubes owns the rectangle. Do not stitch spheres to individual 1 m quads. Do not CaveMeshNear / CloseUncovered / live-tile pads. `QuadAlive` survives restream (re-apply remesh after BuildTile).
 2. **Never hide a cave mesh that backs a punched hole.** That is the black triangle (GX-shot-0130).
 3. **Never move tile verts off the planet radial.** 3D wall dent folds tris into growing black blades.
 4. **Texture:** floor uses rest-position triplanar (no crack swim). Steep walls use live WorldPosition (rest-pos smears the ground photo down the cliff).
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.15.8** Edit square left leftover quads and flashed a missing-tri border on click: consume punched the rectangle before async remesh, and the 0.15.7 extra lid grid stacked fragments. Punch is now centroid-in-square in `ApplyBuiltMesh` with that chunk's cave mesh (same tick, no flash). Dig/restream only remesh. No second stamp grid. Log `GX-island apply-consume`. Wiped `bak_pre_0158`.
 - **GX 0.15.7** Faces next to the dig were still sky: consume punches 1 m tile quads that MC does not tessellate. Each island chunk now emits the *consumed quad's own stamp corners* as the lid (skip air / other chunks). Log `GX-patch lid grid=`. Wiped `bak_pre_0157`.
 - **GX 0.15.6** Black triangles beside the dig: any-corner consume punched fringe quads the MC did not fill. Consume is centroid-in-square; MC keep is centroid + 0.5 m. Wiped `bak_pre_0156`.
 - **GX 0.15.5** Distant dual terrain: LOD0/LOD1 overlapped 20 m and LOD1 overlapped the clipmap. Bands 0–176 / 172–396, clip hole 392. Cave UV.x=2 (RockyCliff) not 6 (volcanic/mud). MC keep is inside the square (no 1 m pad over live grass). Wiped `bak_pre_0155`.
