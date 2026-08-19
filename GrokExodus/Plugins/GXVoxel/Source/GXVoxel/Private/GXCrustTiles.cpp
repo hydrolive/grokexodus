@@ -2743,8 +2743,8 @@ void FGXCrustTiles::Update(
 	// LOD1 is cube-sphere (face axes), not viewer-centered. The 16 m
 	// clipmap around the pawn turned every slope into Minecraft terraces
 	// (0.13.22 shot). 2 m cells on 128 m tiles = 65² verts — cheap.
-	AddBand(0, 0.0f, 180.0f);
-	AddBand(1, 160.0f, 420.0f);
+	AddBand(0, 0.0f, 176.0f);
+	AddBand(1, 172.0f, 396.0f);
 
 	TArray<FGXCrustTileKey> Evict;
 	for (const auto& Pair : Live)

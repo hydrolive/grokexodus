@@ -457,10 +457,10 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 		// 5×5 tiles = 320 m square. A 140 m circle stuck out past a 4×4
 		// (0.9.9 live: hole through the planet). Hole 100 m only after 5×5.
 		const float ClipInnerM = (CrustTiles && CrustTiles->NumLive() >= 24)
-			? 400.0f
+			? 392.0f
 			: ((CrustTiles && CrustTiles->HasNeighborhood(
 				WorldToLocalMeters(CachedViewerWorld), 2))
-				? 160.0f
+				? 168.0f
 				: 0.0f);
 		HorizonClipmap->Update(
 			this,
@@ -2734,7 +2734,6 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 	int32 DropOut = 0;
 	TArray<int32> Kept;
 	Kept.Reserve(Mesh.Indices.Num());
-	const float KeepPad = VoxelSize;
 	for (int32 T = 0; T + 2 < Mesh.Indices.Num(); T += 3)
 	{
 		const int32 IA = Mesh.Indices[T];
@@ -2745,18 +2744,22 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 		{
 			continue;
 		}
-		// Voxel owns the landscape square. Drop the rest of the 32 m chunk.
+		// Same occupancy as tile consume — a 1 m keep-pad drew MC on live grass.
 		const FVector Corners[3] = { Mesh.Positions[IA], Mesh.Positions[IB], Mesh.Positions[IC] };
-		bool bInMouth = false;
-		for (int32 K = 0; K < 3; ++K)
+		const FVector Cent = (Corners[0] + Corners[1] + Corners[2]) * (1.0f / 3.0f);
+		bool bInSq = EditIsland.Contains(Cent);
+		if (!bInSq)
 		{
-			if (EditIsland.ContainsPadded(Corners[K], KeepPad))
+			for (int32 K = 0; K < 3; ++K)
 			{
-				bInMouth = true;
-				break;
+				if (EditIsland.Contains(Corners[K]))
+				{
+					bInSq = true;
+					break;
+				}
 			}
 		}
-		if (!bInMouth)
+		if (!bInSq)
 		{
 			++DropOut;
 			continue;
@@ -2835,8 +2838,8 @@ void AGXVoxelWorld::ConformPatchLid(FGXMeshBuffers& Mesh) const
 		}
 		// Cave walls: live WorldPosition (UV0.y=0) so rest-pos does not
 		// smear the lawn photo down the cliff.
-		Mesh.UV0[I] = FVector2D(6.0f, 0.0f);
-		Mesh.Colors[I] = FLinearColor(0.36f, 0.30f, 0.22f, 1.0f);
+		Mesh.UV0[I] = FVector2D(2.0f, 0.0f);
+		Mesh.Colors[I] = FLinearColor(0.62f, 0.58f, 0.52f, 1.0f);
 		++Cave;
 	}
 	int32 DropLid = 0;
