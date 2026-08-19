@@ -947,49 +947,16 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	int32 Closed = 0;
 	const float BrushR = RadiusM * DigSpeedMul;
 	EditIsland.Add(L, BrushR + FGXEditIsland::CollarM);
-	{
-		const int32 SavedCreates = MaxMeshCreatesPerTick;
-		MaxMeshCreatesPerTick = MeshCreatesThisTick + 8;
-		RemeshIsland();
-		MaxMeshCreatesPerTick = SavedCreates;
-	}
-	int32 CaveTris = 0;
-	{
-		const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
-		for (const FGXChunkKey& K : CaveChunks)
-		{
-			const FVector C((K.X + 0.5f) * ChunkM, (K.Y + 0.5f) * ChunkM, (K.Z + 0.5f) * ChunkM);
-			const FBox Box(C - FVector(ChunkM * 0.5f), C + FVector(ChunkM * 0.5f));
-			if (!EditIsland.OverlapsBox(Box))
-			{
-				continue;
-			}
-			if (const FChunkVisual* V = ChunkVisuals.Find(K))
-			{
-				CaveTris += V->IndexCount / 3;
-			}
-		}
-	}
-	if (CrustTiles && CaveTris >= 12)
+	// Square punch does not wait on MC. One async remesh — the old path
+	// ran BuildChunkMeshSync twice (~140 ms × 4 chunks × 2 ≈ 1.1 s/stroke).
+	if (CrustTiles)
 	{
 		Punched = ConsumeIslandTiles();
-		// Island owns the mouth. Do not CloseUncovered / CaveMeshNear here —
-		// those predicates put tiles back inside the cut-out (0.13.28–51).
-		{
-			const int32 SavedCreates = MaxMeshCreatesPerTick;
-			MaxMeshCreatesPerTick = MeshCreatesThisTick + 8;
-			RemeshIsland();
-			MaxMeshCreatesPerTick = SavedCreates;
-		}
 	}
-	else
-	{
-		GX_PERF(1, TEXT("GX-island miss tris=%d — lid stays"), CaveTris);
-	}
+	RemeshIsland();
 	(void)HitNormal;
 	(void)Closed;
-	GX_PERF(1, TEXT("GX-island %s remesh-tris=%d consume=%d"),
-		*EditIsland.DebugString(), CaveTris, Punched);
+	GX_PERF(1, TEXT("GX-island %s consume=%d"), *EditIsland.DebugString(), Punched);
 	{
 		static double LastBoxesAt = -1.0e9;
 		const double Now = FPlatformTime::Seconds();
@@ -1354,15 +1321,18 @@ void AGXVoxelWorld::EnqueueRemeshNeighborhood(const FGXChunkKey& Coord)
 	}
 }
 
-void AGXVoxelWorld::EnqueueRemesh(const FGXChunkKey& Coord, bool bNear)
+void AGXVoxelWorld::EnqueueRemesh(const FGXChunkKey& Coord, bool bNear, bool bForce)
 {
 	HollowChunks.Remove(Coord);
 	const double Now = FPlatformTime::Seconds();
-	if (const double* Last = LastRemeshAt.Find(Coord))
+	if (!bForce)
 	{
-		if (Now - *Last < 0.40)
+		if (const double* Last = LastRemeshAt.Find(Coord))
 		{
-			return;
+			if (Now - *Last < 0.40)
+			{
+				return;
+			}
 		}
 	}
 	if (AsyncInFlight.Contains(Coord))
@@ -1757,11 +1727,13 @@ void AGXVoxelWorld::DrainPendingMeshes(int32 Budget)
 			break;
 		}
 		AsyncInFlight.Remove(P.Coord);
-		if (RemeshWhenIdle.Remove(P.Coord))
+		const bool bStale = Jobs && !Jobs->ShouldApply(P.Stamp);
+		const bool bAgain = RemeshWhenIdle.Remove(P.Coord) || bStale;
+		if (bAgain)
 		{
-			EnqueueRemesh(P.Coord, true);
+			EnqueueRemesh(P.Coord, true, true);
 		}
-		if (Jobs && !Jobs->ShouldApply(P.Stamp))
+		if (bStale)
 		{
 			continue;
 		}
@@ -2663,12 +2635,8 @@ void AGXVoxelWorld::RestoreEditedSurfaces()
 	{
 		return;
 	}
-	const int32 SavedCreates = MaxMeshCreatesPerTick;
-	MaxMeshCreatesPerTick = MeshCreatesThisTick + 8;
-	RemeshIsland();
 	int32 Hidden = ConsumeIslandTiles();
 	RemeshIsland();
-	MaxMeshCreatesPerTick = SavedCreates;
 	bLoadRestorePending = false;
 	bRevealedTileEdits = true;
 	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s restore-island consume=%d %s"),
@@ -3035,22 +3003,23 @@ void AGXVoxelWorld::RemeshIsland()
 	{
 		return;
 	}
-	const FBox IB = EditIsland.Bounds().ExpandBy(VoxelSize * 2.0f);
+	const FBox IB = EditIsland.Bounds();
 	if (!IB.IsValid)
 	{
 		return;
 	}
+	const double T0 = FPlatformTime::Seconds();
 	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
 	const FGXChunkKey A = FGXVoxelVolume::VoxelToChunk(
 		FGXVoxelVolume::WorldToVoxel(FVector3d(IB.Min.X, IB.Min.Y, IB.Min.Z), VoxelSize));
 	const FGXChunkKey B = FGXVoxelVolume::VoxelToChunk(
 		FGXVoxelVolume::WorldToVoxel(FVector3d(IB.Max.X, IB.Max.Y, IB.Max.Z), VoxelSize));
-	const int32 X0 = FMath::Min(A.X, B.X) - 1;
-	const int32 X1 = FMath::Max(A.X, B.X) + 1;
-	const int32 Y0 = FMath::Min(A.Y, B.Y) - 1;
-	const int32 Y1 = FMath::Max(A.Y, B.Y) + 1;
-	const int32 Z0 = FMath::Min(A.Z, B.Z) - 1;
-	const int32 Z1 = FMath::Max(A.Z, B.Z) + 1;
+	const int32 X0 = FMath::Min(A.X, B.X);
+	const int32 X1 = FMath::Max(A.X, B.X);
+	const int32 Y0 = FMath::Min(A.Y, B.Y);
+	const int32 Y1 = FMath::Max(A.Y, B.Y);
+	const int32 Z0 = FMath::Min(A.Z, B.Z);
+	const int32 Z1 = FMath::Max(A.Z, B.Z);
 	const FVector Focus = IB.GetCenter();
 	TArray<TPair<float, FGXChunkKey>> Cands;
 	for (int32 Z = Z0; Z <= Z1; ++Z)
@@ -3071,10 +3040,6 @@ void AGXVoxelWorld::RemeshIsland()
 				{
 					continue;
 				}
-				if (AsyncInFlight.Contains(CC))
-				{
-					continue;
-				}
 				Cands.Add(TPair<float, FGXChunkKey>(FVector::DistSquared(C, Focus), CC));
 			}
 		}
@@ -3084,10 +3049,12 @@ void AGXVoxelWorld::RemeshIsland()
 		return L.Key < R.Key;
 	});
 	int32 N = 0;
+	int32 Idle = 0;
 	const double Now = FPlatformTime::Seconds();
+	const bool bAsync = Jobs != nullptr && MeshMailbox.IsValid();
 	for (const TPair<float, FGXChunkKey>& Item : Cands)
 	{
-		if (N >= 16)
+		if (N >= 8)
 		{
 			break;
 		}
@@ -3095,17 +3062,30 @@ void AGXVoxelWorld::RemeshIsland()
 		CaveChunks.Add(CC);
 		HollowChunks.Remove(CC);
 		BrushForceLOD0.Add(CC);
-		LastRemeshAt.Remove(CC);
+		LastRemeshAt.Add(CC, Now);
 		MeshQueued.Remove(CC);
 		NearMeshQueue.Remove(CC);
 		MeshQueue.Remove(CC);
-		LastRemeshAt.Add(CC, Now);
-		BuildChunkMeshSync(CC);
+		if (AsyncInFlight.Contains(CC))
+		{
+			RemeshWhenIdle.Add(CC);
+			++Idle;
+			continue;
+		}
+		if (bAsync)
+		{
+			EnqueueChunkMeshAsync(CC);
+		}
+		else
+		{
+			BuildChunkMeshSync(CC);
+		}
 		++N;
 	}
-	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s island remesh n=%d spheres=%d"),
-		GX_VERSION_STRING, N, EditIsland.Spheres.Num());
-	GX_PERF(1, TEXT("GX-island remesh n=%d spheres=%d"), N, EditIsland.Spheres.Num());
+	const double Ms = (FPlatformTime::Seconds() - T0) * 1000.0;
+	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s island remesh n=%d idle=%d async=%d %.1fms %s"),
+		GX_VERSION_STRING, N, Idle, bAsync ? 1 : 0, Ms, *EditIsland.DebugString());
+	GX_PERF(1, TEXT("GX-island remesh n=%d idle=%d async=%d ms=%.1f"), N, Idle, bAsync ? 1 : 0, Ms);
 }
 
 void AGXVoxelWorld::RemeshCaveAt(const FVector& LocalM, float RadiusM, bool bOnlyExistingCaves)

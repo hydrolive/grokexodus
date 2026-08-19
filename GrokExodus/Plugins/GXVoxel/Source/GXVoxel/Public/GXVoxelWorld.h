@@ -329,7 +329,7 @@ protected:
 	void RebuildParams();
 	void ResetStreamingState();
 	void RefreshLoadState();
-	void EnqueueRemesh(const FGXChunkKey& Coord, bool bNear = true);
+	void EnqueueRemesh(const FGXChunkKey& Coord, bool bNear = true, bool bForce = false);
 	void EnqueueRemeshNeighborhood(const FGXChunkKey& Coord);
 	void ProcessMeshQueue(int32 Budget);
 	void BuildChunkMeshSync(const FGXChunkKey& Coord);

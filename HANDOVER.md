@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-18** · On-screen build stamp: **GX 0.15.1**  
+Last updated: **2026-08-18** · On-screen build stamp: **GX 0.15.2**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.15.2** Dig was ~1.1 s/stroke: RemeshIsland ran BuildChunkMeshSync twice (140 ms × 4 chunks × 2). Consume the square once, remesh dirty chunks async, coalesce in-flight. Log `GX-island remesh … async=1 ms=`.
 - **GX 0.15.1** Square lid sat off the stamp and used MC debug colors (dirt rectangle in the grass). Lid verts snap to stamp radius and use the same vertex colors / UV as walk tiles. Wiped `bak_pre_0151`.
 - **GX 0.15.0** Dig cuts one growing UV square from the walk tiles; voxels own that rectangle. No sphere-vs-1 m-quad skirt. First square ≥ 12 m, expand 2 m at the edge, snap 1 m, cap 48 m. Save v4 stores the square. Wiped `bak_pre_0150`.
 - **GX 0.14.4** 0.14.3 closed the bowl (skirt miss=0) but a 2.5 m attach to a lawn lid vert stretched a sliver. Skirt only targets verts below the rim. Wiped `bak_pre_0144`.
