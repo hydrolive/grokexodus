@@ -1777,7 +1777,7 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 		{
 			const int32 Before = MeshData.Indices.Num();
 			FilterMeshToCarveBalls(Coord, MeshData);
-			ConformPatchLid(MeshData);
+			ConformPatchLid(Coord, MeshData);
 			StitchIslandSkirt(Coord, MeshData);
 			GX_PERF(1, TEXT("GX-cave filter %d_%d_%d tris %d -> %d"),
 				Coord.X, Coord.Y, Coord.Z, Before / 3, MeshData.Indices.Num() / 3);
@@ -2744,9 +2744,15 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 		{
 			continue;
 		}
-		// Same occupancy as tile consume (centroid in the square).
+		// Occupancy is the square. Centroid matches tile consume; any-vert
+		// keeps cave walls whose centroid sits just outside a 1 m cell.
 		const FVector Cent = (Mesh.Positions[IA] + Mesh.Positions[IB] + Mesh.Positions[IC]) * (1.0f / 3.0f);
-		if (!EditIsland.ContainsPadded(Cent, VoxelSize * 0.5f))
+		const float Pad = VoxelSize * 0.5f;
+		const bool bIn = EditIsland.ContainsPadded(Cent, Pad)
+			|| EditIsland.ContainsPadded(Mesh.Positions[IA], Pad)
+			|| EditIsland.ContainsPadded(Mesh.Positions[IB], Pad)
+			|| EditIsland.ContainsPadded(Mesh.Positions[IC], Pad);
+		if (!bIn)
 		{
 			++DropOut;
 			continue;
@@ -2768,114 +2774,186 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 		Coord.X, Coord.Y, Coord.Z, Mesh.Indices.Num() / 3, DropOut, Mesh.Positions.Num());
 }
 
-void AGXVoxelWorld::ConformPatchLid(FGXMeshBuffers& Mesh) const
+void AGXVoxelWorld::ConformPatchLid(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const
 {
-	if (!Volume || !EditIsland.HasPatch() || Mesh.IsEmpty())
+	if (!Volume || !EditIsland.HasPatch())
 	{
 		return;
 	}
 	const FGXSphereStamp& Stamp = Volume->GetStamp();
-	const int32 N = Mesh.Positions.Num();
-	Mesh.Normals.SetNum(N);
-	Mesh.Colors.SetNum(N);
-	Mesh.UV0.SetNum(N);
+	auto LidColor = [](int32 Mid) -> FLinearColor
+	{
+		if (Mid == 2)
+		{
+			return FLinearColor(0.58f, 0.50f, 0.44f);
+		}
+		if (Mid == 4)
+		{
+			return FLinearColor(0.82f, 0.72f, 0.48f);
+		}
+		if (Mid == 5)
+		{
+			return FLinearColor(0.78f, 0.84f, 0.88f);
+		}
+		if (Mid == 6)
+		{
+			return FLinearColor(0.36f, 0.30f, 0.22f);
+		}
+		return FLinearColor(0.58f, 0.66f, 0.38f, 1.0f);
+	};
+
 	int32 Snap = 0;
 	int32 Cave = 0;
-	for (int32 I = 0; I < N; ++I)
+	if (!Mesh.IsEmpty())
 	{
-		FVector& P = Mesh.Positions[I];
-		const FVector Dir = P.GetSafeNormal();
-		if (Dir.IsNearlyZero())
+		const int32 N = Mesh.Positions.Num();
+		Mesh.Normals.SetNum(N);
+		Mesh.Colors.SetNum(N);
+		Mesh.UV0.SetNum(N);
+		for (int32 I = 0; I < N; ++I)
 		{
-			continue;
+			FVector& P = Mesh.Positions[I];
+			const FVector Dir = P.GetSafeNormal();
+			if (Dir.IsNearlyZero())
+			{
+				continue;
+			}
+			const FVector3f Df(Dir.X, Dir.Y, Dir.Z);
+			const float StampR = Stamp.SampleSurfaceRadius(Df);
+			const float Depth = StampR - static_cast<float>(P.Size());
+			const float Dens = SampleDensityMeters(FVector3d(P.X, P.Y, P.Z));
+			const bool bLid = Depth > -0.15f && Depth < 0.22f && Dens > -0.20f;
+			if (bLid)
+			{
+				P = Dir * StampR;
+				const int32 Mid = Stamp.SampleSurfaceMaterial(Df);
+				Mesh.Colors[I] = LidColor(Mid);
+				Mesh.UV0[I] = FVector2D(static_cast<float>(Mid), StampR);
+				Mesh.Normals[I] = Dir;
+				++Snap;
+				continue;
+			}
+			Mesh.UV0[I] = FVector2D(2.0f, 0.0f);
+			Mesh.Colors[I] = FLinearColor(0.62f, 0.58f, 0.52f, 1.0f);
+			++Cave;
 		}
-		const FVector3f Df(Dir.X, Dir.Y, Dir.Z);
-		const float StampR = Stamp.SampleSurfaceRadius(Df);
-		const float Depth = StampR - static_cast<float>(P.Size());
-		const float Dens = SampleDensityMeters(FVector3d(P.X, P.Y, P.Z));
-		// Stamp isosurface has Dens≈0. Do not require Dens>0.08 — that
-		// painted the whole square as cave rock (0.15.3). Deep air is cave.
-		const bool bLid = Depth > -0.15f && Depth < 0.22f && Dens > -0.20f;
-		if (bLid)
+		int32 DropLid = 0;
+		TArray<int32> Kept;
+		Kept.Reserve(Mesh.Indices.Num());
+		for (int32 T = 0; T + 2 < Mesh.Indices.Num(); T += 3)
 		{
-			P = Dir * StampR;
+			const int32 IA = Mesh.Indices[T];
+			const int32 IB = Mesh.Indices[T + 1];
+			const int32 IC = Mesh.Indices[T + 2];
+			if (!Mesh.Positions.IsValidIndex(IA) || !Mesh.Positions.IsValidIndex(IB)
+				|| !Mesh.Positions.IsValidIndex(IC))
+			{
+				continue;
+			}
+			const FVector PA = Mesh.Positions[IA];
+			const FVector PB = Mesh.Positions[IB];
+			const FVector PC = Mesh.Positions[IC];
+			const FVector Cent = (PA + PB + PC) * (1.0f / 3.0f);
+			const FVector Dir = Cent.GetSafeNormal();
+			const float StampR = Dir.IsNearlyZero() ? 0.0f
+				: Stamp.SampleSurfaceRadius(FVector3f(Dir.X, Dir.Y, Dir.Z));
+			const float Depth = StampR - static_cast<float>(Cent.Size());
+			const float Dens = SampleDensityMeters(FVector3d(Cent.X, Cent.Y, Cent.Z));
+			FVector FN = FVector::CrossProduct(PB - PA, PC - PA);
+			FN.Normalize();
+			const float RadialN = FMath::Abs(FVector::DotProduct(FN, Dir));
+			// Only a flat lid over air. Solid stamp lid stays until the
+			// consumed-quad fill covers that cell (0.15.3 drop ate the mouth).
+			if (Dens < -0.05f && Depth < 0.35f && RadialN > 0.82f)
+			{
+				++DropLid;
+				continue;
+			}
+			Kept.Add(IA);
+			Kept.Add(IB);
+			Kept.Add(IC);
+		}
+		Mesh.Indices = MoveTemp(Kept);
+		if (Mesh.Indices.Num() < 3)
+		{
+			Mesh.Reset();
+		}
+		else
+		{
+			Mesh.CompactUnusedVertices();
+		}
+		GX_PERF(1, TEXT("GX-patch dropLid=%d cave=%d snap=%d"), DropLid, Cave, Snap);
+	}
+
+	// Cover every consumed tile quad with the same stamp corners. A
+	// reconstructed UV grid sat off the staggered walk mesh (0.15.7 first).
+	int32 Grid = 0;
+	int32 SkipAir = 0;
+	int32 SkipChunk = 0;
+	if (CrustTiles)
+	{
+		const FBox IB = EditIsland.Bounds();
+		const FVector IC = IB.IsValid ? IB.GetCenter() : FVector::ZeroVector;
+		const float IR = IB.IsValid ? FMath::Max(IB.GetExtent().GetMax(), 4.0f) : 4.0f;
+		TArray<FVector> Corners;
+		CrustTiles->CollectDeadStampQuads(IC, IR, Corners);
+		auto PushVert = [&](const FVector& P)
+		{
+			const FVector Dir = P.GetSafeNormal();
+			const FVector3f Df(Dir.X, Dir.Y, Dir.Z);
 			const int32 Mid = Stamp.SampleSurfaceMaterial(Df);
-			FLinearColor Col(0.58f, 0.66f, 0.38f, 1.0f);
-			if (Mid == 2)
-			{
-				Col = FLinearColor(0.58f, 0.50f, 0.44f);
-			}
-			else if (Mid == 4)
-			{
-				Col = FLinearColor(0.82f, 0.72f, 0.48f);
-			}
-			else if (Mid == 5)
-			{
-				Col = FLinearColor(0.78f, 0.84f, 0.88f);
-			}
-			else if (Mid == 6)
-			{
-				Col = FLinearColor(0.36f, 0.30f, 0.22f);
-			}
-			Mesh.Colors[I] = Col;
-			Mesh.UV0[I] = FVector2D(static_cast<float>(Mid), StampR);
-			Mesh.Normals[I] = Dir;
-			++Snap;
-			continue;
-		}
-		// Cave walls: live WorldPosition (UV0.y=0) so rest-pos does not
-		// smear the lawn photo down the cliff.
-		Mesh.UV0[I] = FVector2D(2.0f, 0.0f);
-		Mesh.Colors[I] = FLinearColor(0.62f, 0.58f, 0.52f, 1.0f);
-		++Cave;
-	}
-	int32 DropLid = 0;
-	TArray<int32> Kept;
-	Kept.Reserve(Mesh.Indices.Num());
-	for (int32 T = 0; T + 2 < Mesh.Indices.Num(); T += 3)
-	{
-		const int32 IA = Mesh.Indices[T];
-		const int32 IB = Mesh.Indices[T + 1];
-		const int32 IC = Mesh.Indices[T + 2];
-		if (!Mesh.Positions.IsValidIndex(IA) || !Mesh.Positions.IsValidIndex(IB)
-			|| !Mesh.Positions.IsValidIndex(IC))
+			const float R = static_cast<float>(P.Size());
+			Mesh.Positions.Add(P);
+			Mesh.Normals.Add(Dir);
+			Mesh.UV0.Add(FVector2D(static_cast<float>(Mid), R));
+			Mesh.Colors.Add(LidColor(Mid));
+			return Mesh.Positions.Num() - 1;
+		};
+		for (int32 Q = 0; Q + 3 < Corners.Num(); Q += 4)
 		{
-			continue;
+			const FVector& P00 = Corners[Q];
+			const FVector& P10 = Corners[Q + 1];
+			const FVector& P01 = Corners[Q + 2];
+			const FVector& P11 = Corners[Q + 3];
+			const FVector Cent = (P00 + P10 + P01 + P11) * 0.25f;
+			const FGXChunkKey CellChunk = FGXVoxelVolume::VoxelToChunk(
+				FGXVoxelVolume::WorldToVoxel(FVector3d(Cent.X, Cent.Y, Cent.Z), VoxelSize));
+			if (CellChunk != Coord)
+			{
+				++SkipChunk;
+				continue;
+			}
+			// Stamp corners sit on the heightfield, so depth is always ~0.
+			// Probe 30 cm toward the core at the centroid: uncarved crust is
+			// solid, the dug bowl is air. All-corner tests re-roofed the hole
+			// because 1 m cells still had a solid rim corner.
+			const FVector Radial = Cent.GetSafeNormal();
+			const FVector Probe = Cent - Radial * 0.30f;
+			if (SampleDensityMeters(FVector3d(Probe.X, Probe.Y, Probe.Z)) < -0.05f)
+			{
+				++SkipAir;
+				continue;
+			}
+			const int32 A = PushVert(P00);
+			const int32 Bv = PushVert(P10);
+			const int32 C = PushVert(P01);
+			const int32 D = PushVert(P11);
+			// Same sky-clockwise winding as walk tiles (A, C, B / B, C, D).
+			Mesh.Indices.Add(A);
+			Mesh.Indices.Add(C);
+			Mesh.Indices.Add(Bv);
+			Mesh.Indices.Add(Bv);
+			Mesh.Indices.Add(C);
+			Mesh.Indices.Add(D);
+			++Grid;
 		}
-		const FVector PA = Mesh.Positions[IA];
-		const FVector PB = Mesh.Positions[IB];
-		const FVector PC = Mesh.Positions[IC];
-		const FVector Cent = (PA + PB + PC) * (1.0f / 3.0f);
-		const FVector Dir = Cent.GetSafeNormal();
-		const float StampR = Dir.IsNearlyZero() ? 0.0f
-			: Stamp.SampleSurfaceRadius(FVector3f(Dir.X, Dir.Y, Dir.Z));
-		const float Depth = StampR - static_cast<float>(Cent.Size());
-		const float Dens = SampleDensityMeters(FVector3d(Cent.X, Cent.Y, Cent.Z));
-		FVector FN = FVector::CrossProduct(PB - PA, PC - PA);
-		FN.Normalize();
-		const float RadialN = FMath::Abs(FVector::DotProduct(FN, Dir));
-		// Only a flat lid over air. Steep lip tris are the cave mouth
-		// (0.15.3 dropLid punched black wedges).
-		if (Dens < -0.05f && Depth < 0.35f && RadialN > 0.82f)
-		{
-			++DropLid;
-			continue;
-		}
-		Kept.Add(IA);
-		Kept.Add(IB);
-		Kept.Add(IC);
 	}
-	Mesh.Indices = MoveTemp(Kept);
-	if (Mesh.Indices.Num() < 3)
+	if (Mesh.MaterialIds.Num() > 0)
 	{
-		Mesh.Reset();
+		Mesh.MaterialIds.SetNum(Mesh.Positions.Num());
 	}
-	else
-	{
-		Mesh.CompactUnusedVertices();
-	}
-	GX_PERF(1, TEXT("GX-patch lid snap=%d cave=%d dropLid=%d verts=%d"),
-		Snap, Cave, DropLid, Mesh.Positions.Num());
+	GX_PERF(1, TEXT("GX-patch lid grid=%d skipAir=%d skipChunk=%d cave=%d verts=%d %s"),
+		Grid, SkipAir, SkipChunk, Cave, Mesh.Positions.Num(), *EditIsland.DebugString());
 }
 
 int32 AGXVoxelWorld::ConsumeIslandTiles()

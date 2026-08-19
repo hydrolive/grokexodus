@@ -86,7 +86,7 @@ Unedited space is **not stored**. Mesh jobs sample the stamp + overlay.
 
 ### Edit square (0.15.0)
 
-Unedited crust is 64 m tiles. A dig **cuts one square** on the cube-sphere UV grid (same 29° axes as the walk tiles), snapped to 1 m cells. First hit is at least 12×12 m; a later brush that reaches the edge expands the square 2 m. Tile quads whose stamp centroid sits in that rectangle are consumed (`QuadAlive` re-applied after restream). Marching cubes owns the whole rectangle (stamp collar + cave) and drops the rest of the 32 m chunk. No sphere-to-quad skirt — the two meshes meet only at the four square edges. Saved as GXV4 (square + density pages). Do not overlay live tiles and MC in the same cells.
+Unedited crust is 64 m tiles. A dig **cuts one square** on the cube-sphere UV grid (same 29° axes as the walk tiles), snapped to 1 m cells. First hit is at least 12×12 m; a later brush that reaches the edge expands the square 2 m. Tile quads whose stamp centroid sits in that rectangle are consumed (`QuadAlive` re-applied after restream). Marching cubes keeps cave walls in the rectangle and **fills each consumed solid quad with that quad's stamp corners** so grass next to the dig is never an empty punch. Saved as GXV4 (square + density pages). Do not overlay live tiles and MC in the same cells.
 
 ### Edits, caves, persist (0.7.58)
 

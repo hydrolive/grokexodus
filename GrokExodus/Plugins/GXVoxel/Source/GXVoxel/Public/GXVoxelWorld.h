@@ -369,7 +369,7 @@ protected:
 	bool HasCaveVisualNear(const FVector& LocalM, float RadiusM) const;
 	void CollectCavePointsNear(const FVector& LocalM, float RadiusM, TArray<FVector>& Out) const;
 	void FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const;
-	void ConformPatchLid(FGXMeshBuffers& Mesh) const;
+	void ConformPatchLid(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const;
 	void StitchIslandSkirt(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const;
 	int32 ConsumeIslandTiles();
 	void MarkPersistDirty();

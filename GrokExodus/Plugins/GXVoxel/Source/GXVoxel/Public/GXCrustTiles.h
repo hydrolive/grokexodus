@@ -87,6 +87,11 @@ public:
 		float ApproxR,
 		const TFunction<bool(const FVector&)>& Inside,
 		UMaterialInterface* Material);
+	/** Stamp-space corners of consumed quads (groups of 4: A, B, C, D). */
+	void CollectDeadStampQuads(
+		const FVector& ApproxCenter,
+		float ApproxR,
+		TArray<FVector>& OutCorners) const;
 	/** Hole-boundary edges (stamp metres): dead quad next to a live one. */
 	void CollectHoleBoundary(
 		const FVector& ApproxCenter,

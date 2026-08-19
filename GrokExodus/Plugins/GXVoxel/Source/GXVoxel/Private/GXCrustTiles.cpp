@@ -1279,6 +1279,74 @@ int32 FGXCrustTiles::TakeRebuiltCount()
 	return N;
 }
 
+void FGXCrustTiles::CollectDeadStampQuads(
+	const FVector& ApproxCenter,
+	float ApproxR,
+	TArray<FVector>& OutCorners) const
+{
+	if (ApproxR <= 0.0f || Live.Num() == 0)
+	{
+		return;
+	}
+	for (const auto& Pair : Live)
+	{
+		const FTile& Tile = Pair.Value;
+		if (Tile.Key.LOD != 0)
+		{
+			continue;
+		}
+		const float Scale = TileM * static_cast<float>(1 << FMath::Max(0, Tile.Key.LOD));
+		const float TileReach2 = FMath::Square(ApproxR + Scale * 0.80f + 8.0f);
+		if (FVector::DistSquared(Tile.OriginCm * 0.01f, ApproxCenter) > TileReach2)
+		{
+			continue;
+		}
+		const int32 Dim = GridDim(Tile);
+		if (Dim < 2)
+		{
+			continue;
+		}
+		const int32 Cells = Dim - 1;
+		if (Tile.QuadAlive.Num() != Cells * Cells || Tile.LivePos.Num() == 0)
+		{
+			continue;
+		}
+		auto StampAt = [&](int32 Idx) -> FVector
+		{
+			const FVector LiveW = (Tile.OriginCm + Tile.LivePos[Idx]) * 0.01f;
+			const FVector Dir = (Tile.StampDir.IsValidIndex(Idx) && !Tile.StampDir[Idx].IsNearlyZero())
+				? Tile.StampDir[Idx] : LiveW.GetSafeNormal();
+			const float S = (Tile.StampSurfM.IsValidIndex(Idx) && Tile.StampSurfM[Idx] > 1.0f)
+				? Tile.StampSurfM[Idx] : LiveW.Size();
+			return Dir * S;
+		};
+		for (int32 J = 0; J < Cells; ++J)
+		{
+			for (int32 I = 0; I < Cells; ++I)
+			{
+				const int32 Q = I + J * Cells;
+				if (Tile.QuadAlive[Q])
+				{
+					continue;
+				}
+				const int32 A = I + J * Dim;
+				const int32 Bv = (I + 1) + J * Dim;
+				const int32 C = I + (J + 1) * Dim;
+				const int32 D = (I + 1) + (J + 1) * Dim;
+				if (!Tile.LivePos.IsValidIndex(A) || !Tile.LivePos.IsValidIndex(Bv)
+					|| !Tile.LivePos.IsValidIndex(C) || !Tile.LivePos.IsValidIndex(D))
+				{
+					continue;
+				}
+				OutCorners.Add(StampAt(A));
+				OutCorners.Add(StampAt(Bv));
+				OutCorners.Add(StampAt(C));
+				OutCorners.Add(StampAt(D));
+			}
+		}
+	}
+}
+
 void FGXCrustTiles::CollectHoleBoundary(
 	const FVector& ApproxCenter,
 	float ApproxR,
