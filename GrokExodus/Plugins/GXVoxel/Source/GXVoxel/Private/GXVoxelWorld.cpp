@@ -967,40 +967,23 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 		const float IR = IB.IsValid ? IB.GetExtent().GetMax() : (BrushR + FGXEditIsland::CollarM);
 		Punched = CrustTiles->ConsumeWhere(
 			IC, IR,
-			[this](const FVector& P)
-			{
-				// Sphere-only consume punched hillside tiles the bowl
-				// never filled (0.13.47 sky windows). Open a quad only
-				// when the island cave mesh actually sits under it.
-				return EditIsland.Contains(P) && CaveMeshNear(P, 1.40f);
-			},
+			[this](const FVector& P) { return EditIsland.Contains(P); },
 			TerrainMaterial.Get());
-		// Lid is gone. Remesh again so MC floor/walls fill only the hole
-		// (unfiltered 32 m lid was culled or z-fought, leaving a window).
-		bFilterIslandAgainstTiles = true;
+		// Island owns the mouth. Do not CloseUncovered / CaveMeshNear here —
+		// those predicates put tiles back inside the cut-out (0.13.28–51).
 		{
 			const int32 SavedCreates = MaxMeshCreatesPerTick;
 			MaxMeshCreatesPerTick = MeshCreatesThisTick + 8;
 			RemeshIsland();
 			MaxMeshCreatesPerTick = SavedCreates;
 		}
-		bFilterIslandAgainstTiles = false;
-		// Grass back on punched quads the filtered cave no longer covers.
-		Closed = CrustTiles->CloseUncoveredBrush(
-			IC, IR, TerrainMaterial.Get(),
-			[this](const FVector& P)
-			{
-				// Contains-or-cover left punched slope tiles open onto
-				// the sky. Only a real cave vert may keep a quad hidden.
-				return CaveMeshNear(P, 1.50f);
-			});
 	}
 	else
 	{
 		GX_PERF(1, TEXT("GX-island miss tris=%d — lid stays"), CaveTris);
 	}
 	(void)HitNormal;
-	GX_PERF(1, TEXT("GX-island close-uncovered=%d"), Closed);
+	(void)Closed;
 	GX_PERF(1, TEXT("GX-island spheres=%d remesh-tris=%d consume=%d r=%.2f"),
 		EditIsland.Spheres.Num(), CaveTris, Punched, BrushR + FGXEditIsland::CollarM);
 	{
@@ -2656,7 +2639,7 @@ void AGXVoxelWorld::RestoreEditedSurfaces()
 	RemeshIsland();
 	int32 Hidden = CrustTiles->ConsumeWhere(
 		IB.GetCenter(), FMath::Max(IB.GetExtent().GetMax(), 4.0f),
-		[this](const FVector& P) { return EditIsland.Contains(P) && CaveMeshNear(P, 1.40f); },
+		[this](const FVector& P) { return EditIsland.Contains(P); },
 		TerrainMaterial.Get());
 	MaxMeshCreatesPerTick = SavedCreates;
 	bLoadRestorePending = false;
@@ -2769,12 +2752,11 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 			continue;
 		}
 		const FVector Cent = (Mesh.Positions[IA] + Mesh.Positions[IB] + Mesh.Positions[IC]) * (1.0f / 3.0f);
-		// Tight island owns the mouth: keep every MC tri inside it. Tiles
-		// in the island are consumed, so there is no live-grass XOR.
+		// Drop the rest of the 32 m chunk. Keep the island (collar+lip+cave).
 		bool bInMouth = false;
 		for (const FGXEditSphere& S : EditIsland.Spheres)
 		{
-			if (S.R > 0.0f && FVector::DistSquared(Cent, S.C) <= FMath::Square(S.R + 0.35f))
+			if (S.R > 0.0f && FVector::DistSquared(Cent, S.C) <= FMath::Square(S.R + 1.25f))
 			{
 				bInMouth = true;
 				break;

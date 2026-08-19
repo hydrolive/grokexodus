@@ -84,9 +84,9 @@ uint8 Flags     (PlayerPlaced, Deformed, Ore, Scar, Liquid)
 
 Unedited space is **not stored**. Mesh jobs sample the stamp + overlay.
 
-### Edit island (0.11.0)
+### Edit island (0.11.0, restored 0.13.52)
 
-Unedited crust is 64 m tiles. A dig **promotes** brush + 2 m into an `FGXEditIsland` (union of spheres). That region is one marching-cubes mesh (collar, lip, cave). Tile quads whose stamp centroid is inside the island are consumed. Expansion unions more spheres and consumes more lawn. The mouth is saved as those spheres plus density pages.
+Unedited crust is 64 m tiles. A dig **promotes** brush + 2 m into an `FGXEditIsland` (union of spheres, not a bounding blob). That region is **one** marching-cubes mesh (collar, lip, cave). Tile quads whose stamp centroid is inside the island are consumed. The 32 m chunk filter keeps only tris inside the island. Do not overlay live tiles and MC in the same cells (`CaveMeshNear`, live-tile pads, `CloseUncoveredBrush`). Expansion adds more spheres and consumes more lawn. The mouth is saved as those spheres plus density pages.
 
 ### Edits, caves, persist (0.7.58)
 

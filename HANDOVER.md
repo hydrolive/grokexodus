@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-18** · On-screen build stamp: **GX 0.13.51**  
+Last updated: **2026-08-18** · On-screen build stamp: **GX 0.13.52**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -8,7 +8,7 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 These are why 0.8–0.10 went in a circle. A later pass that violates one will
 reintroduce a bug we already paid for.
 
-1. **The edit island owns the mouth.** Brush + 2 m collar is one voxel MC (collar, lip, cave). Do not hide tile quads with air/disk/sliver predicates. Consume stamp centroids **inside the island** only after remesh has ≥12 tris.
+1. **The edit island owns the mouth.** Brush + 2 m collar is one voxel MC (collar, lip, cave). Consume stamp centroids **inside the island** only after remesh has ≥12 tris. Do not hide tiles with CaveMeshNear / live-tile pad / CloseUncovered / depth-gap — that is two meshes in one place (0.13.28–51).
 2. **Never hide a cave mesh that backs a punched hole.** That is the black triangle (GX-shot-0130).
 3. **Never move tile verts off the planet radial.** 3D wall dent folds tris into growing black blades.
 4. **Texture:** floor uses rest-position triplanar (no crack swim). Steep walls use live WorldPosition (rest-pos smears the ground photo down the cliff).
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.13.52** Restored 0.11.0 island ownership. Two 1 m meshes cannot XOR. Collar 2 m; consume = Contains; filter keeps island only (drop 32 m remainder); no CaveMeshNear / CloseUncovered on dig. Union of spheres (no bounding merge). Wiped `bak_pre_01352`.
 - **GX 0.13.51** Same as 0.13.49 (consume 1.40, close 1.50, lid verts count, depth gap 1.15/0.70). 0.13.50's tighter gap left a jagged black pit from above. Wiped `bak_pre_01351`.
 - **GX 0.13.50** 0.13.49 bowl is closed except a sky tri on the far lip: a slope tile 1.4 m from a wall 1 m below counted as covered. Depth gap is 0.80 m / 0.65 m. Wiped `bak_pre_01350`.
 - **GX 0.13.49** 0.13.48 punched at 1.05 m then restored at 0.90 m (net zero) and skipped lid verts so opening tiles stayed grass. Consume 1.40 m, close-uncovered 1.50 m, island lid verts count as cover. Wiped `bak_pre_01349`.
