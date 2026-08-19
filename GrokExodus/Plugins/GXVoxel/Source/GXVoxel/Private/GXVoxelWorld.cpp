@@ -2834,8 +2834,9 @@ void AGXVoxelWorld::ConformPatchLid(const FGXChunkKey& Coord, FGXMeshBuffers& Me
 		Kept.Add(IA);
 		Kept.Add(IB);
 		Kept.Add(IC);
-		// Steep or excavated: do not rest-pos snap shared verts (seam smear).
-		if (RadialN < 0.82f || Depth > 0.22f)
+		// Lip and cave: do not rest-pos snap. 0.88 catches 28° ramps that
+		// still smeared the lawn photo down the wall (0.15.9).
+		if (RadialN < 0.88f || Depth > 0.15f)
 		{
 			OnWall[IA] = true;
 			OnWall[IB] = true;
@@ -2859,7 +2860,7 @@ void AGXVoxelWorld::ConformPatchLid(const FGXChunkKey& Coord, FGXMeshBuffers& Me
 		const float StampR = Stamp.SampleSurfaceRadius(Df);
 		const float Depth = StampR - static_cast<float>(P.Size());
 		const float Dens = SampleDensityMeters(FVector3d(P.X, P.Y, P.Z));
-		const bool bExclusiveLid = !OnWall[I] && Depth > -0.15f && Depth < 0.22f && Dens > -0.20f;
+		const bool bExclusiveLid = !OnWall[I] && Depth > -0.15f && Depth < 0.12f && Dens > -0.20f;
 		if (bExclusiveLid)
 		{
 			P = Dir * StampR;
@@ -2870,9 +2871,10 @@ void AGXVoxelWorld::ConformPatchLid(const FGXChunkKey& Coord, FGXMeshBuffers& Me
 			++Snap;
 			continue;
 		}
+		// Keep MC SDF normals. Radial N made the material treat walls as
+		// floor and smear the ground photo down the cliff (0.15.9).
 		Mesh.UV0[I] = FVector2D(2.0f, 0.0f);
 		Mesh.Colors[I] = FLinearColor(0.62f, 0.58f, 0.52f, 1.0f);
-		Mesh.Normals[I] = Dir;
 		++Cave;
 	}
 	if (Mesh.Indices.Num() < 3)
@@ -2904,19 +2906,21 @@ int32 AGXVoxelWorld::ConsumeIslandTiles()
 
 int32 AGXVoxelWorld::ConsumeIslandTilesInChunk(const FGXChunkKey& Coord, const FGXMeshBuffers& Mesh)
 {
-	if (!CrustTiles || EditIsland.IsEmpty())
+	if (!CrustTiles || !Volume || EditIsland.IsEmpty())
 	{
 		return 0;
 	}
 	const FBox IB = EditIsland.Bounds();
 	const FVector IC = IB.IsValid ? IB.GetCenter() : FVector::ZeroVector;
 	const float IR = IB.IsValid ? FMath::Max(IB.GetExtent().GetMax(), 4.0f) : 4.0f;
-	const float Cover2 = FMath::Square(1.15f);
+	const float SurfCover2 = FMath::Square(0.50f);
+	const float AnyCover2 = FMath::Square(1.00f);
+	const FGXSphereStamp& Stamp = Volume->GetStamp();
 	return CrustTiles->ConsumeWhere(
 		IC, IR,
 		[this](const FVector& P) { return EditIsland.Contains(P); },
 		TerrainMaterial.Get(),
-		[this, Coord, &Mesh, Cover2](const FVector& Cent)
+		[this, Coord, &Mesh, SurfCover2, AnyCover2, &Stamp](const FVector& Cent)
 		{
 			const FGXChunkKey CellChunk = FGXVoxelVolume::VoxelToChunk(
 				FGXVoxelVolume::WorldToVoxel(FVector3d(Cent.X, Cent.Y, Cent.Z), VoxelSize));
@@ -2924,14 +2928,51 @@ int32 AGXVoxelWorld::ConsumeIslandTilesInChunk(const FGXChunkKey& Coord, const F
 			{
 				return false;
 			}
+			bool bNearSurf = false;
+			bool bNearAny = false;
 			for (const FVector& P : Mesh.Positions)
 			{
-				if (FVector::DistSquared(P, Cent) <= Cover2)
+				const float D2 = FVector::DistSquared(P, Cent);
+				if (D2 > AnyCover2)
 				{
-					return true;
+					continue;
+				}
+				bNearAny = true;
+				const FVector Dir = P.GetSafeNormal();
+				const float StampR = Dir.IsNearlyZero() ? 0.0f
+					: Stamp.SampleSurfaceRadius(FVector3f(Dir.X, Dir.Y, Dir.Z));
+				if (D2 <= SurfCover2 && StampR - static_cast<float>(P.Size()) < 0.40f)
+				{
+					bNearSurf = true;
+					break;
 				}
 			}
-			return false;
+			if (bNearSurf)
+			{
+				return true;
+			}
+			if (!bNearAny)
+			{
+				return false;
+			}
+			// Hole only if the quad is mostly air. A single 30 cm probe at
+			// the rim punched lawn and left sky tris (0.15.10 first shot).
+			const FVector Radial = Cent.GetSafeNormal();
+			FVector T, B;
+			Radial.FindBestAxisVectors(T, B);
+			int32 Air = 0;
+			const FVector Off[5] = {
+				FVector::ZeroVector, T * 0.35f, T * -0.35f, B * 0.35f, B * -0.35f
+			};
+			for (const FVector& O : Off)
+			{
+				const FVector Q = Cent + O - Radial * 0.30f;
+				if (SampleDensityMeters(FVector3d(Q.X, Q.Y, Q.Z)) < -0.05f)
+				{
+					++Air;
+				}
+			}
+			return Air >= 4;
 		});
 }
 
