@@ -2790,6 +2790,7 @@ void AGXVoxelWorld::ConformPatchLid(FGXMeshBuffers& Mesh) const
 	Mesh.Colors.SetNum(N);
 	Mesh.UV0.SetNum(N);
 	int32 Snap = 0;
+	int32 Cave = 0;
 	for (int32 I = 0; I < N; ++I)
 	{
 		FVector& P = Mesh.Positions[I];
@@ -2801,36 +2802,90 @@ void AGXVoxelWorld::ConformPatchLid(FGXMeshBuffers& Mesh) const
 		const FVector3f Df(Dir.X, Dir.Y, Dir.Z);
 		const float StampR = Stamp.SampleSurfaceRadius(Df);
 		const float Depth = StampR - static_cast<float>(P.Size());
-		// Only the unedited lid. Snapping the CSG lip flattened the crater.
-		if (Depth <= -0.20f || Depth >= 0.32f)
+		const float Dens = SampleDensityMeters(FVector3d(P.X, P.Y, P.Z));
+		// Stamp isosurface has Dens≈0. Do not require Dens>0.08 — that
+		// painted the whole square as cave rock (0.15.3). Deep air is cave.
+		const bool bLid = Depth > -0.15f && Depth < 0.22f && Dens > -0.20f;
+		if (bLid)
+		{
+			P = Dir * StampR;
+			const int32 Mid = Stamp.SampleSurfaceMaterial(Df);
+			FLinearColor Col(0.58f, 0.66f, 0.38f, 1.0f);
+			if (Mid == 2)
+			{
+				Col = FLinearColor(0.58f, 0.50f, 0.44f);
+			}
+			else if (Mid == 4)
+			{
+				Col = FLinearColor(0.82f, 0.72f, 0.48f);
+			}
+			else if (Mid == 5)
+			{
+				Col = FLinearColor(0.78f, 0.84f, 0.88f);
+			}
+			else if (Mid == 6)
+			{
+				Col = FLinearColor(0.36f, 0.30f, 0.22f);
+			}
+			Mesh.Colors[I] = Col;
+			Mesh.UV0[I] = FVector2D(static_cast<float>(Mid), StampR);
+			Mesh.Normals[I] = Dir;
+			++Snap;
+			continue;
+		}
+		// Cave walls: live WorldPosition (UV0.y=0) so rest-pos does not
+		// smear the lawn photo down the cliff.
+		Mesh.UV0[I] = FVector2D(6.0f, 0.0f);
+		Mesh.Colors[I] = FLinearColor(0.36f, 0.30f, 0.22f, 1.0f);
+		++Cave;
+	}
+	int32 DropLid = 0;
+	TArray<int32> Kept;
+	Kept.Reserve(Mesh.Indices.Num());
+	for (int32 T = 0; T + 2 < Mesh.Indices.Num(); T += 3)
+	{
+		const int32 IA = Mesh.Indices[T];
+		const int32 IB = Mesh.Indices[T + 1];
+		const int32 IC = Mesh.Indices[T + 2];
+		if (!Mesh.Positions.IsValidIndex(IA) || !Mesh.Positions.IsValidIndex(IB)
+			|| !Mesh.Positions.IsValidIndex(IC))
 		{
 			continue;
 		}
-		P = Dir * StampR;
-		const int32 Mid = Stamp.SampleSurfaceMaterial(Df);
-		FLinearColor Col(0.58f, 0.66f, 0.38f, 1.0f);
-		if (Mid == 2)
+		const FVector PA = Mesh.Positions[IA];
+		const FVector PB = Mesh.Positions[IB];
+		const FVector PC = Mesh.Positions[IC];
+		const FVector Cent = (PA + PB + PC) * (1.0f / 3.0f);
+		const FVector Dir = Cent.GetSafeNormal();
+		const float StampR = Dir.IsNearlyZero() ? 0.0f
+			: Stamp.SampleSurfaceRadius(FVector3f(Dir.X, Dir.Y, Dir.Z));
+		const float Depth = StampR - static_cast<float>(Cent.Size());
+		const float Dens = SampleDensityMeters(FVector3d(Cent.X, Cent.Y, Cent.Z));
+		FVector FN = FVector::CrossProduct(PB - PA, PC - PA);
+		FN.Normalize();
+		const float RadialN = FMath::Abs(FVector::DotProduct(FN, Dir));
+		// Only a flat lid over air. Steep lip tris are the cave mouth
+		// (0.15.3 dropLid punched black wedges).
+		if (Dens < -0.05f && Depth < 0.35f && RadialN > 0.82f)
 		{
-			Col = FLinearColor(0.58f, 0.50f, 0.44f);
+			++DropLid;
+			continue;
 		}
-		else if (Mid == 4)
-		{
-			Col = FLinearColor(0.82f, 0.72f, 0.48f);
-		}
-		else if (Mid == 5)
-		{
-			Col = FLinearColor(0.78f, 0.84f, 0.88f);
-		}
-		else if (Mid == 6)
-		{
-			Col = FLinearColor(0.36f, 0.30f, 0.22f);
-		}
-		Mesh.Colors[I] = Col;
-		Mesh.UV0[I] = FVector2D(static_cast<float>(Mid), StampR);
-		Mesh.Normals[I] = Dir;
-		++Snap;
+		Kept.Add(IA);
+		Kept.Add(IB);
+		Kept.Add(IC);
 	}
-	GX_PERF(1, TEXT("GX-patch lid snap=%d/%d"), Snap, N);
+	Mesh.Indices = MoveTemp(Kept);
+	if (Mesh.Indices.Num() < 3)
+	{
+		Mesh.Reset();
+	}
+	else
+	{
+		Mesh.CompactUnusedVertices();
+	}
+	GX_PERF(1, TEXT("GX-patch lid snap=%d cave=%d dropLid=%d verts=%d"),
+		Snap, Cave, DropLid, Mesh.Positions.Num());
 }
 
 int32 AGXVoxelWorld::ConsumeIslandTiles()

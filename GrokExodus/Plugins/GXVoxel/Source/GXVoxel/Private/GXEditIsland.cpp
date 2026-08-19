@@ -60,6 +60,10 @@ bool FGXEditIsland::ContainsPadded(const FVector& P, float PadM) const
 {
 	if (HasPatch())
 	{
+		if (FaceOf(P) != PatchFace)
+		{
+			return false;
+		}
 		float U = 0.0f, V = 0.0f;
 		ProjectUV(P, U, V);
 		return U >= PatchU0 - PadM && U <= PatchU1 + PadM
