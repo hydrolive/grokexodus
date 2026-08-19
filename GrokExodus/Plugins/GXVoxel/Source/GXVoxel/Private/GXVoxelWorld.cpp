@@ -1805,6 +1805,7 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 		{
 			const int32 Before = MeshData.Indices.Num();
 			FilterMeshToCarveBalls(Coord, MeshData);
+			ConformPatchLid(MeshData);
 			StitchIslandSkirt(Coord, MeshData);
 			GX_PERF(1, TEXT("GX-cave filter %d_%d_%d tris %d -> %d"),
 				Coord.X, Coord.Y, Coord.Z, Before / 3, MeshData.Indices.Num() / 3);
@@ -2807,6 +2808,61 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 	Mesh.CompactUnusedVertices();
 	GX_PERF(1, TEXT("GX-filter keep %d_%d_%d tris=%d dropOut=%d verts=%d"),
 		Coord.X, Coord.Y, Coord.Z, Mesh.Indices.Num() / 3, DropOut, Mesh.Positions.Num());
+}
+
+void AGXVoxelWorld::ConformPatchLid(FGXMeshBuffers& Mesh) const
+{
+	if (!Volume || !EditIsland.HasPatch() || Mesh.IsEmpty())
+	{
+		return;
+	}
+	const FGXSphereStamp& Stamp = Volume->GetStamp();
+	const int32 N = Mesh.Positions.Num();
+	Mesh.Normals.SetNum(N);
+	Mesh.Colors.SetNum(N);
+	Mesh.UV0.SetNum(N);
+	int32 Snap = 0;
+	for (int32 I = 0; I < N; ++I)
+	{
+		FVector& P = Mesh.Positions[I];
+		const FVector Dir = P.GetSafeNormal();
+		if (Dir.IsNearlyZero())
+		{
+			continue;
+		}
+		const FVector3f Df(Dir.X, Dir.Y, Dir.Z);
+		const float StampR = Stamp.SampleSurfaceRadius(Df);
+		const float Depth = StampR - static_cast<float>(P.Size());
+		// Only the unedited lid. Snapping the CSG lip flattened the crater.
+		if (Depth <= -0.20f || Depth >= 0.32f)
+		{
+			continue;
+		}
+		P = Dir * StampR;
+		const int32 Mid = Stamp.SampleSurfaceMaterial(Df);
+		FLinearColor Col(0.58f, 0.66f, 0.38f, 1.0f);
+		if (Mid == 2)
+		{
+			Col = FLinearColor(0.58f, 0.50f, 0.44f);
+		}
+		else if (Mid == 4)
+		{
+			Col = FLinearColor(0.82f, 0.72f, 0.48f);
+		}
+		else if (Mid == 5)
+		{
+			Col = FLinearColor(0.78f, 0.84f, 0.88f);
+		}
+		else if (Mid == 6)
+		{
+			Col = FLinearColor(0.36f, 0.30f, 0.22f);
+		}
+		Mesh.Colors[I] = Col;
+		Mesh.UV0[I] = FVector2D(static_cast<float>(Mid), StampR);
+		Mesh.Normals[I] = Dir;
+		++Snap;
+	}
+	GX_PERF(1, TEXT("GX-patch lid snap=%d/%d"), Snap, N);
 }
 
 int32 AGXVoxelWorld::ConsumeIslandTiles()
