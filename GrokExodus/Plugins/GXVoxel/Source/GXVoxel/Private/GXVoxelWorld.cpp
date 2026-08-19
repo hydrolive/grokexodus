@@ -2754,9 +2754,9 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 		{
 			continue;
 		}
-		// Drop the rest of the 32 m chunk. Keep if any vert is in the island
-		// plus one voxel so the keep covers any-corner tile holes.
-		const float KeepPad = VoxelSize;
+		// Drop the 32 m stamp lid. Keep excavated tris in the island.
+		// Pad 1.75 m so any-corner tile holes still have MC behind them.
+		const float KeepPad = VoxelSize * 2.0f;
 		bool bInMouth = false;
 		const FVector Corners[3] = { Mesh.Positions[IA], Mesh.Positions[IB], Mesh.Positions[IC] };
 		for (const FGXEditSphere& S : EditIsland.Spheres)
@@ -2834,7 +2834,8 @@ void AGXVoxelWorld::StitchIslandSkirt(const FGXChunkKey& Coord, FGXMeshBuffers& 
 		return;
 	}
 	const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
-	const float Reach2 = FMath::Square(1.5f);
+	const FVector BoxMin(Coord.X * ChunkM, Coord.Y * ChunkM, Coord.Z * ChunkM);
+	const FVector BoxMax = BoxMin + FVector(ChunkM);
 	auto AddVert = [&](const FVector& P, const FVector& N, const FLinearColor& C) -> int32
 	{
 		const int32 I = Mesh.Positions.Add(P);
@@ -2851,59 +2852,83 @@ void AGXVoxelWorld::StitchIslandSkirt(const FGXChunkKey& Coord, FGXMeshBuffers& 
 		}
 		return I;
 	};
-	auto EmitOutward = [&](int32 IA, int32 IB, int32 IC)
+	auto SegDist2 = [](const FVector& P, const FVector& A, const FVector& B) -> float
+	{
+		const FVector AB = B - A;
+		const float L2 = AB.SizeSquared();
+		if (L2 < 1.0e-8f)
+		{
+			return FVector::DistSquared(P, A);
+		}
+		const float T = FMath::Clamp(FVector::DotProduct(P - A, AB) / L2, 0.0f, 1.0f);
+		return FVector::DistSquared(P, A + AB * T);
+	};
+	auto EmitOutward = [&](int32 IA, int32 IB, int32 IC) -> bool
 	{
 		if (!Mesh.Positions.IsValidIndex(IA) || !Mesh.Positions.IsValidIndex(IB)
 			|| !Mesh.Positions.IsValidIndex(IC))
 		{
-			return;
+			return false;
 		}
-		const FVector& PA = Mesh.Positions[IA];
-		const FVector& PB = Mesh.Positions[IB];
-		const FVector& PC = Mesh.Positions[IC];
+		const FVector PA = Mesh.Positions[IA];
+		const FVector PB = Mesh.Positions[IB];
+		const FVector PC = Mesh.Positions[IC];
+		if (FVector::DistSquared(PA, PB) < 0.0016f || FVector::DistSquared(PA, PC) < 0.0016f
+			|| FVector::DistSquared(PB, PC) < 0.0016f)
+		{
+			return false;
+		}
 		FVector FN = FVector::CrossProduct(PB - PA, PC - PA);
+		if (FN.SizeSquared() < 1.0e-8f)
+		{
+			return false;
+		}
 		const FVector Mid = (PA + PB + PC) * (1.0f / 3.0f);
-		if (!FN.IsNearlyZero() && FVector::DotProduct(FN, Mid) < 0.0f)
+		if (FVector::DotProduct(FN, Mid) < 0.0f)
 		{
 			Swap(IB, IC);
 		}
 		Mesh.Indices.Add(IA);
 		Mesh.Indices.Add(IB);
 		Mesh.Indices.Add(IC);
+		return true;
 	};
 	int32 SkirtTris = 0;
 	int32 Miss = 0;
 	int32 Used = 0;
+	const float NearSeg2 = FMath::Square(2.50f);
+	const float AlreadySealed2 = FMath::Square(0.08f);
+	const int32 SrcVertN = Mesh.Positions.Num();
 	for (const TPair<FVector, FVector>& E : Edges)
 	{
 		const FVector Mid = (E.Key + E.Value) * 0.5f;
-		const FGXChunkKey EdgeChunk(
-			FMath::FloorToInt(Mid.X / ChunkM),
-			FMath::FloorToInt(Mid.Y / ChunkM),
-			FMath::FloorToInt(Mid.Z / ChunkM));
-		if (EdgeChunk.X != Coord.X || EdgeChunk.Y != Coord.Y || EdgeChunk.Z != Coord.Z)
+		if (Mid.X < BoxMin.X - 2.0f || Mid.X > BoxMax.X + 2.0f
+			|| Mid.Y < BoxMin.Y - 2.0f || Mid.Y > BoxMax.Y + 2.0f
+			|| Mid.Z < BoxMin.Z - 2.0f || Mid.Z > BoxMax.Z + 2.0f)
+		{
+			continue;
+		}
+		if (FVector::DistSquared(E.Key, E.Value) < 0.0025f)
 		{
 			continue;
 		}
 		++Used;
 		int32 BestI = INDEX_NONE;
-		int32 BestJ = INDEX_NONE;
-		float BestD2 = Reach2;
-		float BestD2b = Reach2;
-		for (int32 I = 0; I < Mesh.Positions.Num(); ++I)
+		float BestD2 = NearSeg2;
+		const float MidR = Mid.Size();
+		for (int32 I = 0; I < SrcVertN; ++I)
 		{
-			const float D2 = FVector::DistSquared(Mesh.Positions[I], Mid);
+			// Only attach down into the pit. A lid vert 2.5 m along the
+			// lawn stretched a sliver across the crater (0.14.3).
+			if (Mesh.Positions[I].Size() > MidR - 0.15f)
+			{
+				continue;
+			}
+			const float D2 = SegDist2(Mesh.Positions[I], E.Key, E.Value);
 			if (D2 <= BestD2)
 			{
-				BestJ = BestI;
-				BestD2b = BestD2;
 				BestI = I;
 				BestD2 = D2;
-			}
-			else if (D2 <= BestD2b)
-			{
-				BestJ = I;
-				BestD2b = D2;
 			}
 		}
 		const FVector Radial = Mid.GetSafeNormal();
@@ -2913,24 +2938,23 @@ void AGXVoxelWorld::StitchIslandSkirt(const FGXChunkKey& Coord, FGXMeshBuffers& 
 			? Mesh.Colors[BestI] : FLinearColor(0.36f, 0.30f, 0.22f);
 		const int32 VA = AddVert(E.Key, NA.IsNearlyZero() ? Radial : NA, Col);
 		const int32 VB = AddVert(E.Value, NB.IsNearlyZero() ? Radial : NB, Col);
-		if (BestI != INDEX_NONE)
+		if (BestI != INDEX_NONE && BestD2 <= AlreadySealed2)
 		{
-			EmitOutward(VA, VB, BestI);
+			continue;
+		}
+		if (BestI != INDEX_NONE && EmitOutward(VA, VB, BestI))
+		{
 			++SkirtTris;
-			if (BestJ != INDEX_NONE && BestJ != BestI)
-			{
-				EmitOutward(VA, BestI, BestJ);
-				EmitOutward(VB, BestJ, BestI);
-				SkirtTris += 2;
-			}
 		}
 		else
 		{
-			const FVector Flap = Mid - Radial * 0.6f;
+			const FVector Flap = Mid - Radial * 0.45f;
 			const int32 VC = AddVert(Flap, Radial, Col);
-			EmitOutward(VA, VB, VC);
-			++SkirtTris;
-			++Miss;
+			if (EmitOutward(VA, VB, VC))
+			{
+				++SkirtTris;
+				++Miss;
+			}
 		}
 	}
 	if (Used > 0)

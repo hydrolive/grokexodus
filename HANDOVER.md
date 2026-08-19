@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-18** · On-screen build stamp: **GX 0.14.0**  
+Last updated: **2026-08-18** · On-screen build stamp: **GX 0.14.4**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,10 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.14.4** 0.14.3 closed the bowl (skirt miss=0) but a 2.5 m attach to a lawn lid vert stretched a sliver. Skirt only targets verts below the rim. Wiped `bak_pre_0144`.
+- **GX 0.14.3** 0.14.2 bowl was closed except a rim sky tri and a window through the pit wall: skirt only reached 0.90 m so ~20 hole edges got a 0.45 m flap. Skirt reach 2.50 m, sealed skip 0.08 m, keep pad 2 m. Wiped `bak_pre_0143`.
+- **GX 0.14.2** 0.14.1 lid-drop gutted the bowl (12 tris/chunk, globe through the mouth). Keep the island MC including the collar lid. Skirt searches only original MC verts (added rim verts were marking every later edge “sealed”). One local tri per hole edge, keep pad 1.75 m. Wiped `bak_pre_0142`.
+- **GX 0.14.1** 0.14.0 still had sky at the rim and grass sheets in the pit: MC kept the stamp lid and the skirt stretched 3 tris per edge (Chaos bad triangles). Filter drops stamp-lid (all verts <0.28 m of stamp); keep pad 1.75 m; one local skirt tri per hole edge (or a 0.45 m flap). Wiped `bak_pre_0141`.
 - **GX 0.14.0** Dig join is a discrete hole + MC + rim skirt, not two 1 m grids XOR. Any-corner consume; keep any-vert +1 voxel; skirt stitches hole-boundary tile edges to the cave rim; QuadAlive re-applied after tile rebuild. Wiped `bak_pre_0140`.
 - **GX 0.13.52** Restored 0.11.0 island ownership. Two 1 m meshes cannot XOR. Collar 2 m; consume = Contains; filter keeps island only (drop 32 m remainder); no CaveMeshNear / CloseUncovered on dig. Union of spheres (no bounding merge). Wiped `bak_pre_01352`.
 - **GX 0.13.51** Same as 0.13.49 (consume 1.40, close 1.50, lid verts count, depth gap 1.15/0.70). 0.13.50's tighter gap left a jagged black pit from above. Wiped `bak_pre_01351`.
