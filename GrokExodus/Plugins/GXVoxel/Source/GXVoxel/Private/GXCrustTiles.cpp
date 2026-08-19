@@ -1226,8 +1226,8 @@ int32 FGXCrustTiles::ConsumeWhere(
 						? Tile.StampSurfM[Idx] : LiveW.Size();
 					return Dir * S;
 				};
-				if (!Inside(StampAt(A)) && !Inside(StampAt(Bv))
-					&& !Inside(StampAt(C)) && !Inside(StampAt(D)))
+				const FVector SCent = (StampAt(A) + StampAt(Bv) + StampAt(C) + StampAt(D)) * 0.25f;
+				if (!Inside(SCent))
 				{
 					continue;
 				}

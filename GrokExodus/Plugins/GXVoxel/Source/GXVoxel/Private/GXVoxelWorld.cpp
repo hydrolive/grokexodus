@@ -2744,22 +2744,9 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 		{
 			continue;
 		}
-		// Same occupancy as tile consume — a 1 m keep-pad drew MC on live grass.
-		const FVector Corners[3] = { Mesh.Positions[IA], Mesh.Positions[IB], Mesh.Positions[IC] };
-		const FVector Cent = (Corners[0] + Corners[1] + Corners[2]) * (1.0f / 3.0f);
-		bool bInSq = EditIsland.Contains(Cent);
-		if (!bInSq)
-		{
-			for (int32 K = 0; K < 3; ++K)
-			{
-				if (EditIsland.Contains(Corners[K]))
-				{
-					bInSq = true;
-					break;
-				}
-			}
-		}
-		if (!bInSq)
+		// Same occupancy as tile consume (centroid in the square).
+		const FVector Cent = (Mesh.Positions[IA] + Mesh.Positions[IB] + Mesh.Positions[IC]) * (1.0f / 3.0f);
+		if (!EditIsland.ContainsPadded(Cent, VoxelSize * 0.5f))
 		{
 			++DropOut;
 			continue;

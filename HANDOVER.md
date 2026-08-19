@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-18** · On-screen build stamp: **GX 0.15.5**  
+Last updated: **2026-08-18** · On-screen build stamp: **GX 0.15.6**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.15.6** Black triangles beside the dig: any-corner consume punched fringe quads the MC did not fill. Consume is centroid-in-square; MC keep is centroid + 0.5 m. Wiped `bak_pre_0156`.
 - **GX 0.15.5** Distant dual terrain: LOD0/LOD1 overlapped 20 m and LOD1 overlapped the clipmap. Bands 0–176 / 172–396, clip hole 392. Cave UV.x=2 (RockyCliff) not 6 (volcanic/mud). MC keep is inside the square (no 1 m pad over live grass). Wiped `bak_pre_0155`.
 - **GX 0.15.4** 0.15.3 required Dens>0.08 so the square lid never snapped (all cave rock) and dropLid ate the mouth (black wedges). Lid = depth<0.22 and Dens>-0.20; drop only *flat* air-backed tris (N·radial>0.82). Wiped `bak_pre_0154`.
 - **GX 0.15.3** Dig-through second mesh + stretched grass walls: lid snap pulled cave verts onto the stamp (232/297) so a grass sheet sat over the hole. Snap only solid lid (depth<0.14 and density>0); cave UV0.y=0 (live triplanar, rock); drop air-backed lid tris. Consume any-corner in the square. Wiped `bak_pre_0153`.
