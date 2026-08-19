@@ -81,7 +81,7 @@ public:
 		UMaterialInterface* Material,
 		const TFunction<float(const FVector&)>& DensityAt,
 		float DiskR = 0.0f);
-	/** Hide every stamp quad that overlaps the edit island (any corner). */
+	/** Hide stamp quads whose centroid is inside the edit square. */
 	int32 ConsumeWhere(
 		const FVector& ApproxCenter,
 		float ApproxR,

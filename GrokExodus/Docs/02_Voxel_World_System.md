@@ -84,9 +84,9 @@ uint8 Flags     (PlayerPlaced, Deformed, Ore, Scar, Liquid)
 
 Unedited space is **not stored**. Mesh jobs sample the stamp + overlay.
 
-### Edit island (0.11.0, join 0.14.0)
+### Edit square (0.15.0)
 
-Unedited crust is 64 m tiles. A dig **promotes** brush + 2 m into an `FGXEditIsland` (union of spheres, not a bounding blob). Tile quads die if **any stamp corner** is inside (discrete hole; `QuadAlive` is re-applied after restream). Marching cubes keeps any vert in the island + 1 voxel and drops the rest of the 32 m chunk. A **rim skirt** triangulates each hole-boundary tile edge to the nearest MC verts so the rotated 1 m lawn and the axis-aligned voxel grid share a polyline. Do not overlay live tiles and MC in the same cells (`CaveMeshNear`, live-tile pads, `CloseUncoveredBrush`, cover radii). Expansion adds more spheres and consumes more lawn. The mouth is saved as those spheres plus density pages.
+Unedited crust is 64 m tiles. A dig **cuts one square** on the cube-sphere UV grid (same 29° axes as the walk tiles), snapped to 1 m cells. First hit is at least 12×12 m; a later brush that reaches the edge expands the square 2 m. Tile quads whose stamp centroid sits in that rectangle are consumed (`QuadAlive` re-applied after restream). Marching cubes owns the whole rectangle (stamp collar + cave) and drops the rest of the 32 m chunk. No sphere-to-quad skirt — the two meshes meet only at the four square edges. Saved as GXV4 (square + density pages). Do not overlay live tiles and MC in the same cells.
 
 ### Edits, caves, persist (0.7.58)
 

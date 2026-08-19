@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-18** · On-screen build stamp: **GX 0.14.4**  
+Last updated: **2026-08-18** · On-screen build stamp: **GX 0.15.0**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -8,7 +8,7 @@ Branch: `main` (local, several commits ahead of origin; do not push unless asked
 These are why 0.8–0.10 went in a circle. A later pass that violates one will
 reintroduce a bug we already paid for.
 
-1. **Hole mask + voxel mesh + rim skirt.** Brush + 2 m collar is `FGXEditIsland`. Tiles punch if **any stamp corner** is inside. MC keeps any vert in island+1 voxel. A skirt welds hole-boundary tile edges to the MC rim. `QuadAlive` survives restream (re-consume after BuildTile). Do not hide tiles with CaveMeshNear / live-tile pad / CloseUncovered / depth-gap — that is two meshes in one place (0.13.28–51). Do not try to make rotated 1 m tiles share vertices with axis-aligned MC via a radius.
+1. **One landscape square, one voxel mesh.** A dig cuts a 1 m-snapped UV square out of the walk tiles (first hit ≥ 12 m, then +2 m whenever the brush reaches the edge). Marching cubes owns that whole rectangle (collar + cave). Do not stitch spheres to individual 1 m quads. Do not CaveMeshNear / CloseUncovered / live-tile pads. `QuadAlive` survives restream (re-consume after BuildTile).
 2. **Never hide a cave mesh that backs a punched hole.** That is the black triangle (GX-shot-0130).
 3. **Never move tile verts off the planet radial.** 3D wall dent folds tris into growing black blades.
 4. **Texture:** floor uses rest-position triplanar (no crack swim). Steep walls use live WorldPosition (rest-pos smears the ground photo down the cliff).
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.15.0** Dig cuts one growing UV square from the walk tiles; voxels own that rectangle. No sphere-vs-1 m-quad skirt. First square ≥ 12 m, expand 2 m at the edge, snap 1 m, cap 48 m. Save v4 stores the square. Wiped `bak_pre_0150`.
 - **GX 0.14.4** 0.14.3 closed the bowl (skirt miss=0) but a 2.5 m attach to a lawn lid vert stretched a sliver. Skirt only targets verts below the rim. Wiped `bak_pre_0144`.
 - **GX 0.14.3** 0.14.2 bowl was closed except a rim sky tri and a window through the pit wall: skirt only reached 0.90 m so ~20 hole edges got a 0.45 m flap. Skirt reach 2.50 m, sealed skip 0.08 m, keep pad 2 m. Wiped `bak_pre_0143`.
 - **GX 0.14.2** 0.14.1 lid-drop gutted the bowl (12 tris/chunk, globe through the mouth). Keep the island MC including the collar lid. Skirt searches only original MC verts (added rim verts were marking every later edge “sealed”). One local tri per hole edge, keep pad 1.75 m. Wiped `bak_pre_0142`.

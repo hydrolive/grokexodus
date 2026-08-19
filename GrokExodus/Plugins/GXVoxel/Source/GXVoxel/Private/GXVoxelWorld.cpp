@@ -39,8 +39,8 @@ static constexpr float GUUToMeters = 0.01f;
 namespace GXPersist
 {
 	static constexpr uint32 Magic = 0x31565847; // GXV1
-	/** 3 = island as explicit float xyzr (v2 wrote 4 bytes of FVector doubles). */
-	static constexpr uint32 Version = 3;
+	/** 4 = UV edit square after v3 island spheres. */
+	static constexpr uint32 Version = 4;
 }
 
 AGXVoxelWorld::AGXVoxelWorld()
@@ -988,8 +988,8 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	}
 	(void)HitNormal;
 	(void)Closed;
-	GX_PERF(1, TEXT("GX-island spheres=%d remesh-tris=%d consume=%d r=%.2f"),
-		EditIsland.Spheres.Num(), CaveTris, Punched, BrushR + FGXEditIsland::CollarM);
+	GX_PERF(1, TEXT("GX-island %s remesh-tris=%d consume=%d"),
+		*EditIsland.DebugString(), CaveTris, Punched);
 	{
 		static double LastBoxesAt = -1.0e9;
 		const double Now = FPlatformTime::Seconds();
@@ -2406,6 +2406,13 @@ bool AGXVoxelWorld::SaveWorld()
 		const float R = S.R;
 		Write(&X, 4); Write(&Y, 4); Write(&Z, 4); Write(&R, 4);
 	}
+	{
+		int32 Face = EditIsland.PatchFace;
+		float U0 = EditIsland.PatchU0, U1 = EditIsland.PatchU1;
+		float V0 = EditIsland.PatchV0, V1 = EditIsland.PatchV1;
+		Write(&Face, 4);
+		Write(&U0, 4); Write(&U1, 4); Write(&V0, 4); Write(&V1, 4);
+	}
 	const FString Path = GetSavePath();
 	IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
 	if (!FFileHelper::SaveArrayToFile(Buf, *Path))
@@ -2526,6 +2533,28 @@ bool AGXVoxelWorld::LoadWorld()
 				}
 			}
 		}
+		if (Ver >= 4)
+		{
+			int32 Face = -1;
+			float U0 = 0.f, U1 = 0.f, V0 = 0.f, V1 = 0.f;
+			if (Read(&Face, 4) && Read(&U0, 4) && Read(&U1, 4) && Read(&V0, 4) && Read(&V1, 4))
+			{
+				EditIsland.PatchFace = static_cast<int8>(FMath::Clamp(Face, -1, 5));
+				EditIsland.PatchU0 = U0;
+				EditIsland.PatchU1 = U1;
+				EditIsland.PatchV0 = V0;
+				EditIsland.PatchV1 = V1;
+			}
+		}
+		if (!EditIsland.HasPatch() && EditIsland.Spheres.Num() > 0)
+		{
+			const TArray<FGXEditSphere> Copy = EditIsland.Spheres;
+			EditIsland.Reset();
+			for (const FGXEditSphere& S : Copy)
+			{
+				EditIsland.Add(S.C, S.R);
+			}
+		}
 	}
 	RebuildEditedPageBoxes();
 	if (!EditIsland.LooksValid(PlanetRadius, MaxRelief) && PageCount > 0)
@@ -2555,13 +2584,7 @@ bool AGXVoxelWorld::LoadWorld()
 
 FString AGXVoxelWorld::IslandDebugString() const
 {
-	if (EditIsland.IsEmpty())
-	{
-		return TEXT("n=0");
-	}
-	const FGXEditSphere& S = EditIsland.Spheres[0];
-	return FString::Printf(TEXT("n=%d r0=%.2f |c0|=%.1f"),
-		EditIsland.Spheres.Num(), S.R, S.C.Size());
+	return EditIsland.DebugString();
 }
 
 void AGXVoxelWorld::ReconstructIslandFromEdits()
@@ -2735,15 +2758,14 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 	{
 		return;
 	}
-	if (EditIsland.Spheres.Num() > 0)
+	if (EditIsland.HasPatch())
 	{
-		const FGXEditSphere& S0 = EditIsland.Spheres[0];
-		GX_PERF(1, TEXT("GX-filter isle n=%d r=%.2f c=%.1f"),
-			EditIsland.Spheres.Num(), S0.R, S0.C.Size());
+		GX_PERF(1, TEXT("GX-filter %s"), *EditIsland.DebugString());
 	}
 	int32 DropOut = 0;
 	TArray<int32> Kept;
 	Kept.Reserve(Mesh.Indices.Num());
+	const float KeepPad = VoxelSize;
 	for (int32 T = 0; T + 2 < Mesh.Indices.Num(); T += 3)
 	{
 		const int32 IA = Mesh.Indices[T];
@@ -2754,28 +2776,14 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 		{
 			continue;
 		}
-		// Drop the 32 m stamp lid. Keep excavated tris in the island.
-		// Pad 1.75 m so any-corner tile holes still have MC behind them.
-		const float KeepPad = VoxelSize * 2.0f;
-		bool bInMouth = false;
+		// Voxel owns the landscape square. Drop the rest of the 32 m chunk.
 		const FVector Corners[3] = { Mesh.Positions[IA], Mesh.Positions[IB], Mesh.Positions[IC] };
-		for (const FGXEditSphere& S : EditIsland.Spheres)
+		bool bInMouth = false;
+		for (int32 K = 0; K < 3; ++K)
 		{
-			if (S.R <= 0.0f)
+			if (EditIsland.ContainsPadded(Corners[K], KeepPad))
 			{
-				continue;
-			}
-			const float KeepR2 = FMath::Square(S.R + KeepPad);
-			for (int32 K = 0; K < 3; ++K)
-			{
-				if (FVector::DistSquared(Corners[K], S.C) <= KeepR2)
-				{
-					bInMouth = true;
-					break;
-				}
-			}
-			if (bInMouth)
-			{
+				bInMouth = true;
 				break;
 			}
 		}
@@ -2818,7 +2826,8 @@ int32 AGXVoxelWorld::ConsumeIslandTiles()
 
 void AGXVoxelWorld::StitchIslandSkirt(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const
 {
-	if (!CrustTiles || EditIsland.IsEmpty())
+	// Square hole: voxel mesh owns the rectangle. No sphere-skirt slivers.
+	if (EditIsland.HasPatch() || !CrustTiles || EditIsland.IsEmpty())
 	{
 		return;
 	}
