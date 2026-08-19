@@ -969,7 +969,10 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			IC, IR,
 			[this](const FVector& P)
 			{
-				return EditIsland.Contains(P);
+				// Sphere-only consume punched hillside tiles the bowl
+				// never filled (0.13.47 sky windows). Open a quad only
+				// when the island cave mesh actually sits under it.
+				return EditIsland.Contains(P) && CaveMeshNear(P, 1.40f);
 			},
 			TerrainMaterial.Get());
 		// Lid is gone. Remesh again so MC floor/walls fill only the hole
@@ -987,7 +990,9 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 			IC, IR, TerrainMaterial.Get(),
 			[this](const FVector& P)
 			{
-				return EditIsland.Contains(P) || CaveMeshNear(P, 0.80f);
+				// Contains-or-cover left punched slope tiles open onto
+				// the sky. Only a real cave vert may keep a quad hidden.
+				return CaveMeshNear(P, 1.50f);
 			});
 	}
 	else
@@ -1962,7 +1967,6 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 bool AGXVoxelWorld::CaveMeshNear(const FVector& LocalM, float RadiusM) const
 {
 	const float R2 = FMath::Square(FMath::Max(RadiusM, 0.25f));
-	const FGXSphereStamp* Stamp = Volume ? &Volume->GetStamp() : nullptr;
 	for (const auto& Pair : ChunkActors)
 	{
 		const AGXVoxelChunkProxy* Proxy = Pair.Value.Get();
@@ -1991,16 +1995,8 @@ bool AGXVoxelWorld::CaveMeshNear(const FVector& LocalM, float RadiusM) const
 			{
 				continue;
 			}
-			// Skip the true stamp lid. After compact the buffer is island-only.
-			if (Stamp)
-			{
-				const FVector3f D(P.GetSafeNormal());
-				const float StampR = Stamp->SampleSurfaceRadius(D);
-				if (StampR - P.Size() < 0.18f)
-				{
-					continue;
-				}
-			}
+			// Island mesh is already compacted. Lid verts punch the mouth
+			// opening (0.13.48 skipped them and left grass in the hole).
 			return true;
 		}
 	}
@@ -2660,7 +2656,7 @@ void AGXVoxelWorld::RestoreEditedSurfaces()
 	RemeshIsland();
 	int32 Hidden = CrustTiles->ConsumeWhere(
 		IB.GetCenter(), FMath::Max(IB.GetExtent().GetMax(), 4.0f),
-		[this](const FVector& P) { return EditIsland.Contains(P); },
+		[this](const FVector& P) { return EditIsland.Contains(P) && CaveMeshNear(P, 1.40f); },
 		TerrainMaterial.Get());
 	MaxMeshCreatesPerTick = SavedCreates;
 	bLoadRestorePending = false;
@@ -2778,7 +2774,7 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 		bool bInMouth = false;
 		for (const FGXEditSphere& S : EditIsland.Spheres)
 		{
-			if (S.R > 0.0f && FVector::DistSquared(Cent, S.C) <= FMath::Square(S.R + 0.15f))
+			if (S.R > 0.0f && FVector::DistSquared(Cent, S.C) <= FMath::Square(S.R + 0.35f))
 			{
 				bInMouth = true;
 				break;
