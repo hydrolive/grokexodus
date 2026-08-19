@@ -154,7 +154,7 @@ void AGXVoxelWorld::ConfigurePlanet(float InRadius, float InRelief, float InStre
 	MaxRelief = InRelief;
 	StreamRadius = FMath::Clamp(InStream, 120.0f, 900.0f);
 	UnloadRadius = StreamRadius + 220.0f;
-	NearFieldRadius = FMath::Clamp(NearFieldRadius, 80.0f, StreamRadius * 0.5f);
+	NearFieldRadius = FMath::Clamp(NearFieldRadius, 80.0f, StreamRadius);
 	CollisionRadius = FMath::Max(CollisionRadius, NearFieldRadius);
 	if (InSeed != 0)
 	{
@@ -186,19 +186,19 @@ void AGXVoxelWorld::ApplyEarthPlayDefaults()
 	const FGXPlanetStampParams E = FGXPlanetStampParams::Earth();
 	StreamRadius = 140.0f;
 	UnloadRadius = 260.0f;
-	NearFieldRadius = 90.0f;
+	NearFieldRadius = 140.0f;
 	CollisionRadius = 90.0f;
 	StreamInterval = 0.45f;
 	// 0.8: transvoxel skirts stitch LOD0/1. Keep detail underfoot.
 	bForceLOD0 = false;
-	bDrawVoxelVisuals = false;
+	bDrawVoxelVisuals = true;
 	HorizonOuterM = 10000.0f;
 	bAsyncMeshing = true;
-	WarmupSeconds = 1.5f;
-	WarmupMeshBuildsPerFrame = 4;
+	WarmupSeconds = 2.5f;
+	WarmupMeshBuildsPerFrame = 8;
 	MaxMeshBuildsPerFrame = 2;
 	MeshTimeBudgetMs = 6.0f;
-	MaxMeshCreatesPerTick = 1;
+	MaxMeshCreatesPerTick = 2;
 	MaxAsyncInFlight = 16;
 	bAutoLoadOnBeginPlay = true;
 	ConfigurePlanet(E.Radius, E.MaxRelief, StreamRadius, static_cast<int32>(E.Seed));
@@ -425,6 +425,18 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	const double MeshMs = (FPlatformTime::Seconds() - M0) * 1000.0;
 	if (CrustTiles && Volume && bAtlasReady)
 	{
+		if (bDrawVoxelVisuals)
+		{
+			CrustTiles->Lod0OuterM = 0.0f;
+			CrustTiles->Lod1InnerM = FMath::Max(0.0f, StreamRadius - 4.0f);
+			CrustTiles->Lod1OuterM = 396.0f;
+		}
+		else
+		{
+			CrustTiles->Lod0OuterM = 176.0f;
+			CrustTiles->Lod1InnerM = 172.0f;
+			CrustTiles->Lod1OuterM = 396.0f;
+		}
 		CrustTiles->Update(
 			this,
 			Volume->GetStamp(),
@@ -442,7 +454,7 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 		{
 			RestoreEditedSurfaces();
 		}
-		else if (TilesRebuilt > 0 && !EditIsland.IsEmpty() && CrustTiles->IsReady())
+		else if (!bDrawVoxelVisuals && TilesRebuilt > 0 && !EditIsland.IsEmpty() && CrustTiles->IsReady())
 		{
 			RemeshIsland();
 			GX_PERF(1, TEXT("GX-island reapply rebuilt=%d"), TilesRebuilt);
@@ -452,12 +464,20 @@ void AGXVoxelWorld::Tick(float DeltaSeconds)
 	{
 		// 5×5 tiles = 320 m square. A 140 m circle stuck out past a 4×4
 		// (0.9.9 live: hole through the planet). Hole 100 m only after 5×5.
-		const float ClipInnerM = (CrustTiles && CrustTiles->NumLive() >= 24)
-			? 392.0f
-			: ((CrustTiles && CrustTiles->HasNeighborhood(
-				WorldToLocalMeters(CachedViewerWorld), 2))
-				? 168.0f
-				: 0.0f);
+		float ClipInnerM = 0.0f;
+		if (bDrawVoxelVisuals && LastMeshedNear >= 2)
+		{
+			ClipInnerM = StreamRadius;
+		}
+		if (CrustTiles && CrustTiles->NumLive() >= 24)
+		{
+			ClipInnerM = 392.0f;
+		}
+		else if (CrustTiles && CrustTiles->HasNeighborhood(
+			WorldToLocalMeters(CachedViewerWorld), 2))
+		{
+			ClipInnerM = FMath::Max(ClipInnerM, 168.0f);
+		}
 		HorizonClipmap->Update(
 			this,
 			Volume->GetStamp(),
@@ -940,16 +960,22 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
 	}
 	const float BrushR = RadiusM * DigSpeedMul;
-	EditIsland.Add(L, BrushR + FGXEditIsland::CollarM);
-	EditIsland.MarkBrush(
-		L,
-		BrushR,
-		[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); },
-		[this](const FVector3f& D) { return Volume->GetStamp().SampleSurfaceRadius(D); });
-	// Punch on apply with the collar, not on the click (0.15.7 flash).
-	RemeshIsland();
 	(void)HitNormal;
-	GX_PERF(1, TEXT("GX-island %s"), *EditIsland.DebugString());
+	if (bDrawVoxelVisuals)
+	{
+		RemeshDirtyChunks(Brush.DirtyChunks);
+	}
+	else
+	{
+		EditIsland.Add(L, BrushR + FGXEditIsland::CollarM);
+		EditIsland.MarkBrush(
+			L,
+			BrushR,
+			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); },
+			[this](const FVector3f& D) { return Volume->GetStamp().SampleSurfaceRadius(D); });
+		RemeshIsland();
+		GX_PERF(1, TEXT("GX-island %s"), *EditIsland.DebugString());
+	}
 	{
 		static double LastBoxesAt = -1.0e9;
 		const double Now = FPlatformTime::Seconds();
@@ -960,7 +986,7 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 		}
 	}
 	MarkPersistDirty();
-	if (HorizonClipmap && !(CrustTiles && CrustTiles->HasTileAt(L)))
+	if (!bDrawVoxelVisuals && HorizonClipmap && !(CrustTiles && CrustTiles->HasTileAt(L)))
 	{
 		HorizonClipmap->NotifyBrush(
 			L,
@@ -994,12 +1020,20 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 	Out.bSuccess = Brush.VolumeChanged > 0.0f;
 	Out.MaterialId = MaterialId;
 	if (Jobs) Jobs->BumpStamp();
-	if (CrustTiles && !EditIsland.Contains(L))
+	if (bDrawVoxelVisuals)
+	{
+		RemeshDirtyChunks(Brush.DirtyChunks);
+	}
+	else if (CrustTiles && !EditIsland.Contains(L))
 	{
 		CrustTiles->NotifyBrush(
 			L, RadiusM, false, Volume->GetStamp(), TerrainMaterial.Get(),
 			[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); },
 			nullptr, false, nullptr, MaterialId);
+		for (const FGXChunkKey& C : Brush.DirtyChunks)
+		{
+			FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
+		}
 	}
 	else if (!EditIsland.IsEmpty())
 	{
@@ -1007,10 +1041,17 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 		MaxMeshCreatesPerTick = MeshCreatesThisTick + 6;
 		RemeshIsland();
 		MaxMeshCreatesPerTick = SavedCreates;
+		for (const FGXChunkKey& C : Brush.DirtyChunks)
+		{
+			FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
+		}
 	}
-	for (const FGXChunkKey& C : Brush.DirtyChunks)
+	else
 	{
-		FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
+		for (const FGXChunkKey& C : Brush.DirtyChunks)
+		{
+			FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
+		}
 	}
 	{
 		static double LastBoxesAt = -1.0e9;
@@ -1022,7 +1063,7 @@ FGXDigOutcome AGXVoxelWorld::PlaceSphere(FVector WorldCenter, float RadiusM, int
 		}
 	}
 	MarkPersistDirty();
-	if (HorizonClipmap && !(CrustTiles && CrustTiles->HasTileAt(L)))
+	if (!bDrawVoxelVisuals && HorizonClipmap && !(CrustTiles && CrustTiles->HasTileAt(L)))
 	{
 		HorizonClipmap->NotifyBrush(
 			L,
@@ -1075,7 +1116,7 @@ void AGXVoxelWorld::RefreshLoadState()
 
 	for (const auto& Pair : ChunkVisuals)
 	{
-		if (IsNear(Pair.Key) && Pair.Value.Bank >= 0)
+		if (IsNear(Pair.Key) && (Pair.Value.Bank >= 0 || Pair.Value.IndexCount >= 3))
 		{
 			++LastMeshedNear;
 		}
@@ -1149,7 +1190,7 @@ void AGXVoxelWorld::RefreshLoadState()
 	const bool bHaveGround = bDrawVoxelVisuals
 		? (LastMeshedNear >= 2)
 		: (bTilesReady || bClipReady);
-	if (bAtlasReady && bHaveGround && (bTilesReady || !CrustTiles.IsValid()))
+	if (bAtlasReady && bHaveGround && (bDrawVoxelVisuals || bTilesReady || !CrustTiles.IsValid()))
 	{
 		if (!bWorldReady)
 		{
@@ -1390,25 +1431,26 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 					++SkippedAir;
 					continue;
 				}
-				// Unedited crust is tiles unless the edit island owns it.
-				if (ChunkOverlapsSurface(CC, ChunkM) && !bDrawVoxelVisuals && !bEdited
-					&& !CaveChunks.Contains(CC))
+				if (!bDrawVoxelVisuals)
 				{
-					continue;
-				}
-				if (bEdited && ChunkOverlapsSurface(CC, ChunkM) && CrustTiles
-					&& CrustTiles->HasTileAt(ChunkCenter) && !CaveChunks.Contains(CC))
-				{
-					continue;
-				}
-				// Lid-only cave chunks (filter emptied) must not remesh every tick.
-				if (CaveChunks.Contains(CC) && HollowChunks.Contains(CC))
-				{
-					continue;
-				}
-				if (!bEdited && !bDrawVoxelVisuals && !CaveChunks.Contains(CC))
-				{
-					continue;
+					// Legacy hybrid: unedited crust is tiles; only island caves mesh.
+					if (ChunkOverlapsSurface(CC, ChunkM) && !bEdited && !CaveChunks.Contains(CC))
+					{
+						continue;
+					}
+					if (bEdited && ChunkOverlapsSurface(CC, ChunkM) && CrustTiles
+						&& CrustTiles->HasTileAt(ChunkCenter) && !CaveChunks.Contains(CC))
+					{
+						continue;
+					}
+					if (CaveChunks.Contains(CC) && HollowChunks.Contains(CC))
+					{
+						continue;
+					}
+					if (!bEdited && !CaveChunks.Contains(CC))
+					{
+						continue;
+					}
 				}
 				Desired.Add(CC);
 				if (Dist <= NearFieldRadius)
@@ -1456,24 +1498,6 @@ void AGXVoxelWorld::UpdateStreaming(FVector WorldViewerLocation)
 				}
 			}
 		}
-	}
-
-	TArray<FGXChunkKey> DropOnTile;
-	for (const auto& Pair : ChunkVisuals)
-	{
-		const FVector CC(
-			(Pair.Key.X + 0.5f) * ChunkM,
-			(Pair.Key.Y + 0.5f) * ChunkM,
-			(Pair.Key.Z + 0.5f) * ChunkM);
-		if (Volume && Volume->ChunkHasEdits(Pair.Key) && ChunkOverlapsSurface(Pair.Key, ChunkM)
-			&& CrustTiles && CrustTiles->HasTileAt(CC) && !CaveChunks.Contains(Pair.Key))
-		{
-			DropOnTile.Add(Pair.Key);
-		}
-	}
-	for (const FGXChunkKey& K : DropOnTile)
-	{
-		ReleaseVisual(K);
 	}
 
 	TArray<FGXChunkKey> ToRemove;
@@ -1762,6 +1786,16 @@ void AGXVoxelWorld::DeferMeshApply(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 
 bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshBuffers&& MeshData)
 {
+	if (bDrawVoxelVisuals)
+	{
+		ConformStampUVs(MeshData);
+		if (MeshData.IsEmpty())
+		{
+			MarkChunkEmpty(Coord, LOD, TEXT("mesh"));
+			return true;
+		}
+		return ApplyCaveProxyMesh(Coord, LOD, MoveTemp(MeshData));
+	}
 	if (CaveChunks.Contains(Coord))
 	{
 		const float ChunkM = VoxelSize * static_cast<float>(FGXVoxelConstants::ChunkSize);
@@ -2005,7 +2039,11 @@ bool AGXVoxelWorld::ApplyCaveProxyMesh(const FGXChunkKey& Coord, int32 LOD, FGXM
 	}
 	// Do not flip FN·Pos>0. That inverted the cave floor (air-facing) and
 	// punched black triangles in the pit (0.13.28 frag shot).
-	Proxy->ApplyMesh(MeshData, OriginM, GMetersToUU, TerrainMaterial.Get(), true);
+	const FVector ViewerLocal = WorldToLocalMeters(
+		CachedViewerWorld.IsNearlyZero() ? GetPrimaryInvokerLocation() : CachedViewerWorld);
+	const bool bNearCol = FVector::Dist(OriginM, ViewerLocal) <= CollisionRadius;
+	Proxy->ApplyMesh(MeshData, OriginM, GMetersToUU, TerrainMaterial.Get(), bNearCol);
+	++MeshCreatesThisTick;
 	HollowChunks.Remove(Coord);
 	EmptyRetries.Remove(Coord);
 	NextEmptyRetryAt.Remove(Coord);
@@ -2016,8 +2054,8 @@ bool AGXVoxelWorld::ApplyCaveProxyMesh(const FGXChunkKey& Coord, int32 LOD, FGXM
 	V.VertCount = MeshData.Positions.Num();
 	V.IndexCount = MeshData.Indices.Num();
 	MeshQueued.Remove(Coord);
-	GX_PERF(1, TEXT("GX-cave proxy %d_%d_%d verts=%d tris=%d"),
-		Coord.X, Coord.Y, Coord.Z, V.VertCount, V.IndexCount / 3);
+	GX_PERF(1, TEXT("GX-chunk proxy %d_%d_%d verts=%d tris=%d col=%d"),
+		Coord.X, Coord.Y, Coord.Z, V.VertCount, V.IndexCount / 3, bNearCol ? 1 : 0);
 	return true;
 }
 
@@ -2048,7 +2086,7 @@ bool AGXVoxelWorld::PlacePawnOnSurface(APawn* Pawn, FVector RadialHint)
 	if (bAtlasReady && bDrawVoxelVisuals)
 	{
 		UpdateStreaming(SpawnLoc);
-		FlushMeshQueue(8);
+		FlushMeshQueue(24);
 	}
 
 	Pawn->SetActorLocation(SpawnLoc, false, nullptr, ETeleportType::TeleportPhysics);
@@ -2601,6 +2639,12 @@ void AGXVoxelWorld::ReconstructIslandFromEdits()
 
 void AGXVoxelWorld::RestoreEditedSurfaces()
 {
+	if (bDrawVoxelVisuals)
+	{
+		bLoadRestorePending = false;
+		bRevealedTileEdits = true;
+		return;
+	}
 	if (!CrustTiles || !CrustTiles->IsReady())
 	{
 		return;
@@ -2783,6 +2827,83 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 	Mesh.CompactUnusedVertices();
 	GX_PERF(1, TEXT("GX-filter keep %d_%d_%d tris=%d dropOut=%d verts=%d"),
 		Coord.X, Coord.Y, Coord.Z, Mesh.Indices.Num() / 3, DropOut, Mesh.Positions.Num());
+}
+
+void AGXVoxelWorld::ConformStampUVs(FGXMeshBuffers& Mesh) const
+{
+	if (!Volume || Mesh.IsEmpty())
+	{
+		return;
+	}
+	const FGXSphereStamp& Stamp = Volume->GetStamp();
+	const int32 N = Mesh.Positions.Num();
+	Mesh.UV0.SetNum(N);
+	Mesh.Colors.SetNum(N);
+	if (Mesh.Normals.Num() < N)
+	{
+		Mesh.Normals.SetNum(N);
+	}
+	auto AtlasOf = [](int32 MatId) -> int32
+	{
+		int32 A = MatId;
+		if (A <= 0)
+		{
+			A = 1;
+		}
+		if (A == 8 || A == 9 || A == 12)
+		{
+			A = 2;
+		}
+		if (A == 10)
+		{
+			A = 3;
+		}
+		if (A == 11)
+		{
+			A = 5;
+		}
+		return FMath::Clamp(A, 0, 7);
+	};
+	int32 LidN = 0;
+	int32 CaveN = 0;
+	for (int32 I = 0; I < N; ++I)
+	{
+		const FVector P = Mesh.Positions[I];
+		const FVector Dir = P.GetSafeNormal();
+		if (Dir.IsNearlyZero())
+		{
+			continue;
+		}
+		const float StampR = Stamp.SampleSurfaceRadius(FVector3f(Dir.X, Dir.Y, Dir.Z));
+		const float Depth = StampR - static_cast<float>(P.Size());
+		const FVector Radial = Dir;
+		FVector Nrm = Mesh.Normals[I];
+		if (Nrm.IsNearlyZero())
+		{
+			Nrm = Radial;
+		}
+		const float RadialN = static_cast<float>(FVector::DotProduct(Nrm, Radial));
+		const bool bLid = Depth < 0.20f && RadialN > 0.88f;
+		int32 MatId = Mesh.MaterialIds.IsValidIndex(I) ? Mesh.MaterialIds[I] : 1;
+		if (bLid)
+		{
+			MatId = Stamp.SampleSurfaceMaterial(FVector3f(Dir.X, Dir.Y, Dir.Z));
+			Mesh.UV0[I] = FVector2D(static_cast<float>(AtlasOf(MatId)), StampR);
+			Mesh.Normals[I] = Radial;
+			++LidN;
+		}
+		else
+		{
+			if (MatId == 1)
+			{
+				MatId = 2;
+			}
+			Mesh.UV0[I] = FVector2D(static_cast<float>(AtlasOf(MatId)), 0.0f);
+			++CaveN;
+		}
+		Mesh.Colors[I] = GXMaterialDebugColor(MatId);
+	}
+	GX_PERF(2, TEXT("GX-stamp uv lid=%d cave=%d"), LidN, CaveN);
 }
 
 void AGXVoxelWorld::ConformPatchLid(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const
@@ -3238,6 +3359,29 @@ void AGXVoxelWorld::StitchIslandSkirt(const FGXChunkKey& Coord, FGXMeshBuffers& 
 		GX_PERF(1, TEXT("GX-skirt %d_%d_%d edges=%d tris=%d miss=%d"),
 			Coord.X, Coord.Y, Coord.Z, Used, SkirtTris, Miss);
 	}
+}
+
+void AGXVoxelWorld::RemeshDirtyChunks(const TArray<FGXChunkKey>& Dirty)
+{
+	int32 Queued = 0;
+	for (const FGXChunkKey& C : Dirty)
+	{
+		if (Volume)
+		{
+			FGXCrustCache::InvalidateChunk(Volume->GetStamp().GetParams(), C);
+		}
+		static const int32 Off[7][3] = {
+			{0,0,0},{1,0,0},{-1,0,0},{0,1,0},{0,-1,0},{0,0,1},{0,0,-1}
+		};
+		for (int32 I = 0; I < 7; ++I)
+		{
+			const FGXChunkKey N(C.X + Off[I][0], C.Y + Off[I][1], C.Z + Off[I][2]);
+			BrushForceLOD0.Add(N);
+			EnqueueRemesh(N, true, true);
+			++Queued;
+		}
+	}
+	GX_PERF(1, TEXT("GX-dig remesh dirty=%d queued=%d"), Dirty.Num(), Queued);
 }
 
 void AGXVoxelWorld::RemeshIsland()

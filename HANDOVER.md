@@ -1,18 +1,18 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-19** · On-screen build stamp: **GX 0.16.1**  
+Last updated: **2026-08-19** · On-screen build stamp: **GX 0.17.0**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
 
-These are why 0.8–0.10 went in a circle. A later pass that violates one will
+These are why 0.8–0.16 went in a circle. A later pass that violates one will
 reintroduce a bug we already paid for.
 
-1. **Discrete hole map, one voxel mesh.** Occupancy is excavated walk-grid cells dilated by 1 (collar). No 12–48 m UV rectangle. Punch those cells when the cave+collar mesh is applied. Collar tris are the hidden tile quads (shared edge). Do not CaveMeshNear / CloseUncovered / live-tile pads. `QuadAlive` survives restream (re-apply remesh after BuildTile).
-2. **Never hide a cave mesh that backs a punched hole.** That is the black triangle (GX-shot-0130).
-3. **Never move tile verts off the planet radial.** 3D wall dent folds tris into growing black blades.
-4. **Texture:** floor uses rest-position triplanar (no crack swim). Steep walls use live WorldPosition (rest-pos smears the ground photo down the cliff).
-5. **Do not use page AABBs as the consume shape.** That was the 6 m square lawn (GX-shot-0139). Island = union of spheres.
+1. **One mesh underfoot.** Near field is marching-cubes voxel chunks (local proxies). Dig is CSG + remesh dirty chunks. Do not punch LOD0 tiles and spawn a second cave mesh. Two 1 m grids cannot XOR (0.10.34–0.16.1).
+2. **Never hide a cave mesh that backs a hole.** That is the black triangle (GX-shot-0130). With 0.17 there is no punch; the hole is the remeshed isosurface.
+3. **Never move tile verts off the planet radial.** 3D wall dent folds tris into growing black blades. LOD1 tiles still exist as HLOD — leave them radial.
+4. **Texture:** stamp lid uses rest-position triplanar (no crack swim). Steep walls use live WorldPosition (rest-pos smears the ground photo down the cliff). Do not mix StampR and 0 on one triangle.
+5. **Do not use page AABBs as a consume shape.** That was the 6 m square lawn (GX-shot-0139). 0.17 does not consume tiles.
 
 ## Reset the voxel save on major gen / handling changes
 
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.17.0** Walk mesh is voxel MC (local chunk proxies, ~140 m LOD0). Dig remeshes dirty chunks — no tile punch, no cave collar, no island filter. LOD1 tiles 136–396 m, clip hole 392 m. Log `GX-chunk proxy` / `GX-dig remesh`. Wiped `bak_pre_0170`.
 - **GX 0.16.1** Punch left open sky faces: collar skipped every excavated cell, so rim cells with no cave lid were holes. Collar now emits stamp quads for every mask cell that is not fully air (both windings). Log `GX-collar n= open=`. Wiped `bak_pre_0161`.
 - **GX 0.16.0** Hole map: only excavated 1 m walk cells + 1-cell collar become voxels. First stroke is ~brush size, not a 12×48 m card that retextures the hillside. Collar copies tile stamp quads; cave keeps MC normals. Log `GX-mask` / `GX-collar`. Wiped `bak_pre_0160`.
 - **GX 0.15.10** Rim/walls still smeared and missing faces: 0.15.9 wrote radial normals onto cave verts so the PBR treated cliffs as floor (wood-grain stretch). Keep MC wall normals; mark lips OnWall at N·radial<0.88. Punch if a near-surface mesh vert is within 0.50 m, or if ≥4/5 air probes say the quad is the hole. Wiped `bak_pre_01510`.

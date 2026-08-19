@@ -129,6 +129,10 @@ public:
 	static constexpr float FineCellM = 1.00f;
 	static constexpr float StreamM = 560.0f;
 	static constexpr int32 ReadyMin = 9;
+	/** LOD0 band. 0 = do not spawn walk tiles (voxel MC owns the disk). */
+	float Lod0OuterM = 176.0f;
+	float Lod1InnerM = 172.0f;
+	float Lod1OuterM = 396.0f;
 
 private:
 	struct FTile

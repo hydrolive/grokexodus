@@ -84,9 +84,9 @@ uint8 Flags     (PlayerPlaced, Deformed, Ore, Scar, Liquid)
 
 Unedited space is **not stored**. Mesh jobs sample the stamp + overlay.
 
-### Edit hole map (0.16.0)
+### One mesh underfoot (0.17.0)
 
-Unedited crust is 64 m tiles. A dig marks **excavated 1 m walk cells** (air 0.30 m under the stamp) and dilates by 1 cell (collar). Those cells are punched when the cave mesh is applied. Voxel mesh is cave walls (MC, live UV) plus collar tris that copy the hidden tile quads (shared edge). No 12–48 m UV rectangle — a downhill dig does not remesh the hillside above. Reconstruct the mask from auth air pages on load.
+Near-field walkable crust is **marching-cubes voxels** (local `AGXVoxelChunkProxy`, 32 m chunks, LOD0 to ~140 m). Dig/place writes density pages and remeshes those dirty chunks. There is no tile punch and no second cave mesh. Stamp-surface verts use rest-pos UV (`UV0.y = StampR`); cave/cliff verts use live WorldPosition (`UV0.y = 0`). LOD1 cube-sphere tiles start at ~136 m; clipmap hole stays 392 m. Density pages remain the save.
 
 ### Edits, caves, persist (0.7.58)
 

@@ -138,9 +138,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
 	bool bForceLOD0 = false;
 
-	/** Draw marching-cubes voxel shells. Off: clipmap is the only crust (no layering, no island cliff). */
+	/** Near-field walk mesh is marching-cubes voxels (local chunk proxies). Off: LOD0 tiles. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
-	bool bDrawVoxelVisuals = false;
+	bool bDrawVoxelVisuals = true;
 
 	/** Far clipmap outer radius (meters). Independent of voxel stream. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Streaming")
@@ -363,12 +363,14 @@ protected:
 	void RemeshAroundLocal(const FVector& LocalM, float RadiusM);
 	void RemeshCaveAt(const FVector& LocalM, float RadiusM, bool bOnlyExistingCaves);
 	void RemeshIsland();
+	void RemeshDirtyChunks(const TArray<FGXChunkKey>& Dirty);
 	void RestoreEditedSurfaces();
 	void ReconstructIslandFromEdits();
 	FString IslandDebugString() const;
 	bool HasCaveVisualNear(const FVector& LocalM, float RadiusM) const;
 	void CollectCavePointsNear(const FVector& LocalM, float RadiusM, TArray<FVector>& Out) const;
 	void FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const;
+	void ConformStampUVs(FGXMeshBuffers& Mesh) const;
 	void ConformPatchLid(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const;
 	void EmitCollarCells(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const;
 	void StitchIslandSkirt(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const;
