@@ -1,6 +1,6 @@
 # HANDOVER — Grok Exodus
 
-Last updated: **2026-08-18** · On-screen build stamp: **GX 0.15.8**  
+Last updated: **2026-08-19** · On-screen build stamp: **GX 0.15.9**  
 Branch: `main` (local, several commits ahead of origin; do not push unless asked)
 
 ## Dig invariants (do not break these)
@@ -36,6 +36,7 @@ pages (`RestoreEditedSurfaces`) so a cave comes back with its mouth.
 
 - Play **`/Game/Voxel/Maps/Lvl_VoxelPlanet`**. Do not use `Lvl_FirstPerson`.
 - `AVoxelGameMode` (map override) now spawns `AGrokExodusSurvivor` + `AGXVoxelWorld` and destroys `AVoxelPlanetActor`.
+- **GX 0.15.9** Seam stretch + missing tris: rest-pos UV (StampR) on lip verts shared with cave walls smeared dirt; any-vert keep drew slivers onto live grass; consume punched quads the mesh did not cover. Snap+rest-pos only exclusive flat-lid verts; filter is centroid+0.5 m; punch only quads within 1.15 m of a mesh vert. Wiped `bak_pre_0159`.
 - **GX 0.15.8** Edit square left leftover quads and flashed a missing-tri border on click: consume punched the rectangle before async remesh, and the 0.15.7 extra lid grid stacked fragments. Punch is now centroid-in-square in `ApplyBuiltMesh` with that chunk's cave mesh (same tick, no flash). Dig/restream only remesh. No second stamp grid. Log `GX-island apply-consume`. Wiped `bak_pre_0158`.
 - **GX 0.15.7** Faces next to the dig were still sky: consume punches 1 m tile quads that MC does not tessellate. Each island chunk now emits the *consumed quad's own stamp corners* as the lid (skip air / other chunks). Log `GX-patch lid grid=`. Wiped `bak_pre_0157`.
 - **GX 0.15.6** Black triangles beside the dig: any-corner consume punched fringe quads the MC did not fill. Consume is centroid-in-square; MC keep is centroid + 0.5 m. Wiped `bak_pre_0156`.

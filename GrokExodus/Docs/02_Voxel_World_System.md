@@ -86,7 +86,7 @@ Unedited space is **not stored**. Mesh jobs sample the stamp + overlay.
 
 ### Edit square (0.15.0)
 
-Unedited crust is 64 m tiles. A dig **cuts one square** on the cube-sphere UV grid (same 29° axes as the walk tiles), snapped to 1 m cells. First hit is at least 12×12 m; a later brush that reaches the edge expands the square 2 m. Tile quads whose stamp centroid sits in that rectangle are consumed when that chunk's cave mesh is applied — not on the click. That avoids a one-frame missing-tri border. Marching cubes keeps the rectangle (collar + cave). Saved as GXV4 (square + density pages). Do not overlay live tiles and MC in the same cells.
+Unedited crust is 64 m tiles. A dig **cuts one square** on the cube-sphere UV grid (same 29° axes as the walk tiles), snapped to 1 m cells. First hit is at least 12×12 m; a later brush that reaches the edge expands the square 2 m. Tile quads whose stamp centroid sits in that rectangle **and** a cave-mesh vert is within 1.15 m are consumed when that chunk's mesh is applied — not on the click. Rest-pos triplanar only on exclusive flat lid verts; lip/wall verts stay live WorldPosition so the seam does not smear. Marching cubes keep is centroid + 0.5 m (no any-vert slivers on live grass). Saved as GXV4.
 
 ### Edits, caves, persist (0.7.58)
 

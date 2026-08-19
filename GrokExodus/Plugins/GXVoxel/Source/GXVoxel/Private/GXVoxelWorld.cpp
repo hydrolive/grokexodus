@@ -1768,7 +1768,7 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 			const int32 Before = MeshData.Indices.Num();
 			FilterMeshToCarveBalls(Coord, MeshData);
 			ConformPatchLid(Coord, MeshData);
-			const int32 Punched = ConsumeIslandTilesInChunk(Coord);
+			const int32 Punched = ConsumeIslandTilesInChunk(Coord, MeshData);
 			StitchIslandSkirt(Coord, MeshData);
 			if (Punched > 0)
 			{
@@ -2739,15 +2739,10 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 		{
 			continue;
 		}
-		// Occupancy is the square. Centroid matches tile consume; any-vert
-		// keeps cave walls whose centroid sits just outside a 1 m cell.
+		// Centroid + half-voxel matches tile consume. Any-vert keep drew
+		// stretched slivers onto live grass at the square seam (0.15.8).
 		const FVector Cent = (Mesh.Positions[IA] + Mesh.Positions[IB] + Mesh.Positions[IC]) * (1.0f / 3.0f);
-		const float Pad = VoxelSize * 0.5f;
-		const bool bIn = EditIsland.ContainsPadded(Cent, Pad)
-			|| EditIsland.ContainsPadded(Mesh.Positions[IA], Pad)
-			|| EditIsland.ContainsPadded(Mesh.Positions[IB], Pad)
-			|| EditIsland.ContainsPadded(Mesh.Positions[IC], Pad);
-		if (!bIn)
+		if (!EditIsland.ContainsPadded(Cent, VoxelSize * 0.5f))
 		{
 			++DropOut;
 			continue;
@@ -2781,52 +2776,31 @@ void AGXVoxelWorld::ConformPatchLid(const FGXChunkKey& Coord, FGXMeshBuffers& Me
 	Mesh.Normals.SetNum(N);
 	Mesh.Colors.SetNum(N);
 	Mesh.UV0.SetNum(N);
-	int32 Snap = 0;
-	int32 Cave = 0;
-	for (int32 I = 0; I < N; ++I)
+
+	auto LidColor = [](int32 Mid) -> FLinearColor
 	{
-		FVector& P = Mesh.Positions[I];
-		const FVector Dir = P.GetSafeNormal();
-		if (Dir.IsNearlyZero())
+		if (Mid == 2)
 		{
-			continue;
+			return FLinearColor(0.58f, 0.50f, 0.44f);
 		}
-		const FVector3f Df(Dir.X, Dir.Y, Dir.Z);
-		const float StampR = Stamp.SampleSurfaceRadius(Df);
-		const float Depth = StampR - static_cast<float>(P.Size());
-		const float Dens = SampleDensityMeters(FVector3d(P.X, P.Y, P.Z));
-		const bool bLid = Depth > -0.15f && Depth < 0.22f && Dens > -0.20f;
-		if (bLid)
+		if (Mid == 4)
 		{
-			P = Dir * StampR;
-			const int32 Mid = Stamp.SampleSurfaceMaterial(Df);
-			FLinearColor Col(0.58f, 0.66f, 0.38f, 1.0f);
-			if (Mid == 2)
-			{
-				Col = FLinearColor(0.58f, 0.50f, 0.44f);
-			}
-			else if (Mid == 4)
-			{
-				Col = FLinearColor(0.82f, 0.72f, 0.48f);
-			}
-			else if (Mid == 5)
-			{
-				Col = FLinearColor(0.78f, 0.84f, 0.88f);
-			}
-			else if (Mid == 6)
-			{
-				Col = FLinearColor(0.36f, 0.30f, 0.22f);
-			}
-			Mesh.Colors[I] = Col;
-			Mesh.UV0[I] = FVector2D(static_cast<float>(Mid), StampR);
-			Mesh.Normals[I] = Dir;
-			++Snap;
-			continue;
+			return FLinearColor(0.82f, 0.72f, 0.48f);
 		}
-		Mesh.UV0[I] = FVector2D(2.0f, 0.0f);
-		Mesh.Colors[I] = FLinearColor(0.62f, 0.58f, 0.52f, 1.0f);
-		++Cave;
-	}
+		if (Mid == 5)
+		{
+			return FLinearColor(0.78f, 0.84f, 0.88f);
+		}
+		if (Mid == 6)
+		{
+			return FLinearColor(0.36f, 0.30f, 0.22f);
+		}
+		return FLinearColor(0.58f, 0.66f, 0.38f, 1.0f);
+	};
+
+	TBitArray<> OnWall;
+	OnWall.Init(false, N);
+	int32 WallN = 0;
 	int32 DropLid = 0;
 	TArray<int32> Kept;
 	Kept.Reserve(Mesh.Indices.Num());
@@ -2852,7 +2826,6 @@ void AGXVoxelWorld::ConformPatchLid(const FGXChunkKey& Coord, FGXMeshBuffers& Me
 		FVector FN = FVector::CrossProduct(PB - PA, PC - PA);
 		FN.Normalize();
 		const float RadialN = FMath::Abs(FVector::DotProduct(FN, Dir));
-		// Only a flat lid over air. Steep lip tris are the cave mouth.
 		if (Dens < -0.05f && Depth < 0.35f && RadialN > 0.82f)
 		{
 			++DropLid;
@@ -2861,8 +2834,47 @@ void AGXVoxelWorld::ConformPatchLid(const FGXChunkKey& Coord, FGXMeshBuffers& Me
 		Kept.Add(IA);
 		Kept.Add(IB);
 		Kept.Add(IC);
+		// Steep or excavated: do not rest-pos snap shared verts (seam smear).
+		if (RadialN < 0.82f || Depth > 0.22f)
+		{
+			OnWall[IA] = true;
+			OnWall[IB] = true;
+			OnWall[IC] = true;
+			WallN += 3;
+		}
 	}
 	Mesh.Indices = MoveTemp(Kept);
+
+	int32 Snap = 0;
+	int32 Cave = 0;
+	for (int32 I = 0; I < N; ++I)
+	{
+		FVector& P = Mesh.Positions[I];
+		const FVector Dir = P.GetSafeNormal();
+		if (Dir.IsNearlyZero())
+		{
+			continue;
+		}
+		const FVector3f Df(Dir.X, Dir.Y, Dir.Z);
+		const float StampR = Stamp.SampleSurfaceRadius(Df);
+		const float Depth = StampR - static_cast<float>(P.Size());
+		const float Dens = SampleDensityMeters(FVector3d(P.X, P.Y, P.Z));
+		const bool bExclusiveLid = !OnWall[I] && Depth > -0.15f && Depth < 0.22f && Dens > -0.20f;
+		if (bExclusiveLid)
+		{
+			P = Dir * StampR;
+			const int32 Mid = Stamp.SampleSurfaceMaterial(Df);
+			Mesh.Colors[I] = LidColor(Mid);
+			Mesh.UV0[I] = FVector2D(static_cast<float>(Mid), StampR);
+			Mesh.Normals[I] = Dir;
+			++Snap;
+			continue;
+		}
+		Mesh.UV0[I] = FVector2D(2.0f, 0.0f);
+		Mesh.Colors[I] = FLinearColor(0.62f, 0.58f, 0.52f, 1.0f);
+		Mesh.Normals[I] = Dir;
+		++Cave;
+	}
 	if (Mesh.Indices.Num() < 3)
 	{
 		Mesh.Reset();
@@ -2871,8 +2883,8 @@ void AGXVoxelWorld::ConformPatchLid(const FGXChunkKey& Coord, FGXMeshBuffers& Me
 	{
 		Mesh.CompactUnusedVertices();
 	}
-	GX_PERF(1, TEXT("GX-patch lid snap=%d cave=%d dropLid=%d verts=%d"),
-		Snap, Cave, DropLid, Mesh.Positions.Num());
+	GX_PERF(1, TEXT("GX-patch lid snap=%d cave=%d dropLid=%d wallMark=%d verts=%d"),
+		Snap, Cave, DropLid, WallN, Mesh.Positions.Num());
 }
 
 int32 AGXVoxelWorld::ConsumeIslandTiles()
@@ -2890,7 +2902,7 @@ int32 AGXVoxelWorld::ConsumeIslandTiles()
 		TerrainMaterial.Get());
 }
 
-int32 AGXVoxelWorld::ConsumeIslandTilesInChunk(const FGXChunkKey& Coord)
+int32 AGXVoxelWorld::ConsumeIslandTilesInChunk(const FGXChunkKey& Coord, const FGXMeshBuffers& Mesh)
 {
 	if (!CrustTiles || EditIsland.IsEmpty())
 	{
@@ -2899,15 +2911,27 @@ int32 AGXVoxelWorld::ConsumeIslandTilesInChunk(const FGXChunkKey& Coord)
 	const FBox IB = EditIsland.Bounds();
 	const FVector IC = IB.IsValid ? IB.GetCenter() : FVector::ZeroVector;
 	const float IR = IB.IsValid ? FMath::Max(IB.GetExtent().GetMax(), 4.0f) : 4.0f;
+	const float Cover2 = FMath::Square(1.15f);
 	return CrustTiles->ConsumeWhere(
 		IC, IR,
 		[this](const FVector& P) { return EditIsland.Contains(P); },
 		TerrainMaterial.Get(),
-		[this, Coord](const FVector& Cent)
+		[this, Coord, &Mesh, Cover2](const FVector& Cent)
 		{
 			const FGXChunkKey CellChunk = FGXVoxelVolume::VoxelToChunk(
 				FGXVoxelVolume::WorldToVoxel(FVector3d(Cent.X, Cent.Y, Cent.Z), VoxelSize));
-			return CellChunk == Coord;
+			if (CellChunk != Coord)
+			{
+				return false;
+			}
+			for (const FVector& P : Mesh.Positions)
+			{
+				if (FVector::DistSquared(P, Cent) <= Cover2)
+				{
+					return true;
+				}
+			}
+			return false;
 		});
 }
 
