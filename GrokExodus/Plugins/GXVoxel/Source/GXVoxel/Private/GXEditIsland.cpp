@@ -1,12 +1,15 @@
 // Copyright Grok Exodus. All Rights Reserved.
 
 #include "GXEditIsland.h"
+#include "Templates/Function.h"
 
 void FGXEditIsland::Reset()
 {
 	Spheres.Reset();
 	PatchFace = -1;
 	PatchU0 = PatchU1 = PatchV0 = PatchV1 = 0.0f;
+	Mask.Reset();
+	Excavated.Reset();
 }
 
 int8 FGXEditIsland::FaceOf(const FVector& Dir)
@@ -46,9 +49,48 @@ void FGXEditIsland::FaceAxes(int8 Face, FVector& OutN, FVector& OutT, FVector& O
 void FGXEditIsland::ProjectUV(const FVector& P, float& OutU, float& OutV) const
 {
 	FVector N, T, B;
-	FaceAxes(HasPatch() ? PatchFace : FaceOf(P), N, T, B);
+	const int8 Face = (PatchFace >= 0) ? PatchFace : FaceOf(P);
+	FaceAxes(Face, N, T, B);
 	OutU = static_cast<float>(FVector::DotProduct(P, T));
 	OutV = static_cast<float>(FVector::DotProduct(P, B));
+}
+
+FIntVector FGXEditIsland::WalkCellOf(const FVector& P) const
+{
+	const int8 Face = FaceOf(P);
+	FVector N, T, B;
+	FaceAxes(Face, N, T, B);
+	const float U = static_cast<float>(FVector::DotProduct(P, T));
+	const float V = static_cast<float>(FVector::DotProduct(P, B));
+	const int32 J = FMath::FloorToInt(V / CellM);
+	const float UOff = ((J & 1) != 0) ? (0.5f * CellM) : 0.0f;
+	const int32 I = FMath::FloorToInt((U - UOff) / CellM);
+	return FIntVector(static_cast<int32>(Face), I, J);
+}
+
+FVector FGXEditIsland::CellStampCenter(const FIntVector& Cell, float Mag, float StampR) const
+{
+	FVector N, T, B;
+	FaceAxes(static_cast<int8>(Cell.X), N, T, B);
+	const float UOff = ((Cell.Z & 1) != 0) ? (0.5f * CellM) : 0.0f;
+	const float U = (static_cast<float>(Cell.Y) + 0.5f) * CellM + UOff;
+	const float V = (static_cast<float>(Cell.Z) + 0.5f) * CellM;
+	FVector Dir = (N * Mag + T * U + B * V).GetSafeNormal();
+	if (Dir.IsNearlyZero())
+	{
+		Dir = N;
+	}
+	return Dir * StampR;
+}
+
+bool FGXEditIsland::ContainsCell(const FIntVector& Cell) const
+{
+	return Mask.Contains(Cell);
+}
+
+bool FGXEditIsland::IsExcavated(const FIntVector& Cell) const
+{
+	return Excavated.Contains(Cell);
 }
 
 bool FGXEditIsland::Contains(const FVector& P) const
@@ -58,7 +100,29 @@ bool FGXEditIsland::Contains(const FVector& P) const
 
 bool FGXEditIsland::ContainsPadded(const FVector& P, float PadM) const
 {
-	if (HasPatch())
+	if (HasMask())
+	{
+		if (PadM <= 0.0f)
+		{
+			return Mask.Contains(WalkCellOf(P));
+		}
+		if (Mask.Contains(WalkCellOf(P)))
+		{
+			return true;
+		}
+		FVector N, T, B;
+		FaceAxes(FaceOf(P), N, T, B);
+		const FVector Off[4] = { T * PadM, T * -PadM, B * PadM, B * -PadM };
+		for (const FVector& O : Off)
+		{
+			if (Mask.Contains(WalkCellOf(P + O)))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+	if (PatchFace >= 0 && PatchU1 > PatchU0 + 0.5f)
 	{
 		if (FaceOf(P) != PatchFace)
 		{
@@ -106,7 +170,24 @@ bool FGXEditIsland::OverlapsBox(const FBox& Box) const
 			return true;
 		}
 	}
-	if (HasPatch())
+	if (HasMask())
+	{
+		float Mag = 60000.0f;
+		if (Spheres.Num() > 0)
+		{
+			Mag = static_cast<float>(Spheres[0].C.Size());
+		}
+		for (const FIntVector& Cell : Mask)
+		{
+			const FVector P = CellStampCenter(Cell, Mag, Mag);
+			if (Box.IsInsideOrOn(P))
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+	if (PatchFace >= 0 && PatchU1 > PatchU0 + 0.5f)
 	{
 		float U0 = 1.0e12f, U1 = -1.0e12f, V0 = 1.0e12f, V1 = -1.0e12f;
 		for (int32 I = 0; I < 8; ++I)
@@ -169,7 +250,6 @@ void FGXEditIsland::Add(const FVector& Center, float RadiusM)
 	{
 		return;
 	}
-	GrowPatch(Center, RadiusM);
 	for (FGXEditSphere& S : Spheres)
 	{
 		const float D = FVector::Dist(Center, S.C);
@@ -196,7 +276,20 @@ void FGXEditIsland::Add(const FVector& Center, float RadiusM)
 FBox FGXEditIsland::Bounds() const
 {
 	FBox Box(ForceInit);
-	if (HasPatch())
+	if (HasMask())
+	{
+		float Mag = 60000.0f;
+		if (Spheres.Num() > 0)
+		{
+			Mag = static_cast<float>(Spheres[0].C.Size());
+		}
+		for (const FIntVector& Cell : Mask)
+		{
+			Box += CellStampCenter(Cell, Mag, Mag);
+		}
+		Box = Box.ExpandBy(8.0f);
+	}
+	else if (PatchFace >= 0 && PatchU1 > PatchU0 + 0.5f)
 	{
 		FVector N, T, B;
 		FaceAxes(PatchFace, N, T, B);
@@ -228,9 +321,13 @@ FBox FGXEditIsland::Bounds() const
 
 bool FGXEditIsland::LooksValid(float PlanetRadiusM, float MaxReliefM) const
 {
-	if (HasPatch())
+	if (HasMask())
 	{
-		if (PatchFace < 0 || PatchFace > 5)
+		return Mask.Num() <= MaxCells && (PatchFace < 0 || (PatchFace >= 0 && PatchFace <= 5));
+	}
+	if (PatchFace >= 0 && PatchU1 > PatchU0 + 0.5f)
+	{
+		if (PatchFace > 5)
 		{
 			return false;
 		}
@@ -290,7 +387,12 @@ void FGXEditIsland::Serialize(FArchive& Ar)
 
 FString FGXEditIsland::DebugString() const
 {
-	if (HasPatch())
+	if (HasMask())
+	{
+		return FString::Printf(TEXT("mask n=%d exc=%d face=%d sph=%d"),
+			Mask.Num(), Excavated.Num(), (int32)PatchFace, Spheres.Num());
+	}
+	if (PatchFace >= 0 && PatchU1 > PatchU0 + 0.5f)
 	{
 		return FString::Printf(TEXT("sq face=%d u=[%.0f,%.0f] v=[%.0f,%.0f] n=%d"),
 			(int32)PatchFace, PatchU0, PatchU1, PatchV0, PatchV1, Spheres.Num());
@@ -302,3 +404,128 @@ FString FGXEditIsland::DebugString() const
 	return FString::Printf(TEXT("n=%d r0=%.2f |c0|=%.1f"),
 		Spheres.Num(), Spheres[0].R, Spheres[0].C.Size());
 }
+
+void FGXEditIsland::DilateNew(const TArray<FIntVector>& NewExc)
+{
+	for (const FIntVector& C : NewExc)
+	{
+		if (Mask.Num() >= MaxCells)
+		{
+			return;
+		}
+		for (int32 DJ = -1; DJ <= 1; ++DJ)
+		{
+			for (int32 DI = -1; DI <= 1; ++DI)
+			{
+				Mask.Add(FIntVector(C.X, C.Y + DI, C.Z + DJ));
+			}
+		}
+	}
+}
+
+void FGXEditIsland::RefreshPatchBounds(float Mag)
+{
+	if (Mask.Num() == 0)
+	{
+		return;
+	}
+	int32 I0 = TNumericLimits<int32>::Max(), I1 = TNumericLimits<int32>::Lowest();
+	int32 J0 = TNumericLimits<int32>::Max(), J1 = TNumericLimits<int32>::Lowest();
+	int8 Face = -1;
+	for (const FIntVector& C : Mask)
+	{
+		Face = static_cast<int8>(C.X);
+		I0 = FMath::Min(I0, C.Y);
+		I1 = FMath::Max(I1, C.Y);
+		J0 = FMath::Min(J0, C.Z);
+		J1 = FMath::Max(J1, C.Z);
+	}
+	PatchFace = Face;
+	PatchU0 = static_cast<float>(I0) * CellM;
+	PatchU1 = static_cast<float>(I1 + 1) * CellM;
+	PatchV0 = static_cast<float>(J0) * CellM;
+	PatchV1 = static_cast<float>(J1 + 1) * CellM;
+	(void)Mag;
+}
+
+void FGXEditIsland::MarkBrush(
+	const FVector& Center,
+	float RadiusM,
+	TFunctionRef<float(const FVector&)> DensityAt,
+	TFunctionRef<float(const FVector3f&)> StampRadiusAt)
+{
+	if (RadiusM <= 0.0f || Mask.Num() >= MaxCells)
+	{
+		return;
+	}
+	const int8 Face = FaceOf(Center);
+	FVector N, T, B;
+	FaceAxes(Face, N, T, B);
+	const float Mag = static_cast<float>(Center.Size());
+	const float U = static_cast<float>(FVector::DotProduct(Center, T));
+	const float V = static_cast<float>(FVector::DotProduct(Center, B));
+	const float Reach = RadiusM + CellM;
+	const int32 IU0 = FMath::FloorToInt((U - Reach) / CellM);
+	const int32 IU1 = FMath::CeilToInt((U + Reach) / CellM);
+	const int32 IV0 = FMath::FloorToInt((V - Reach) / CellM);
+	const int32 IV1 = FMath::CeilToInt((V + Reach) / CellM);
+	TArray<FIntVector> NewExc;
+	const float Reach2 = FMath::Square(RadiusM + CellM * 0.75f);
+	for (int32 J = IV0; J <= IV1; ++J)
+	{
+		const float UOff = ((J & 1) != 0) ? (0.5f * CellM) : 0.0f;
+		for (int32 I = IU0; I <= IU1; ++I)
+		{
+			const FIntVector Cell(static_cast<int32>(Face), I, J);
+			if (Excavated.Contains(Cell))
+			{
+				continue;
+			}
+			const float Uc = (static_cast<float>(I) + 0.5f) * CellM + UOff;
+			const float Vc = (static_cast<float>(J) + 0.5f) * CellM;
+			FVector Dir = (N * Mag + T * Uc + B * Vc).GetSafeNormal();
+			if (Dir.IsNearlyZero())
+			{
+				Dir = N;
+			}
+			const float StampR = StampRadiusAt(FVector3f(Dir.X, Dir.Y, Dir.Z));
+			const FVector P = Dir * StampR;
+			if (FVector::DistSquared(P, Center) > Reach2)
+			{
+				continue;
+			}
+			const FVector Probe = Dir * (StampR - 0.30f);
+			if (DensityAt(Probe) >= -0.05f)
+			{
+				continue;
+			}
+			Excavated.Add(Cell);
+			NewExc.Add(Cell);
+		}
+	}
+	DilateNew(NewExc);
+	if (PatchFace < 0)
+	{
+		PatchFace = Face;
+	}
+	RefreshPatchBounds(Mag);
+}
+
+void FGXEditIsland::MarkExcavatedWorld(const FVector& P)
+{
+	const FIntVector Cell = WalkCellOf(P);
+	if (Excavated.Contains(Cell) || Mask.Num() >= MaxCells)
+	{
+		return;
+	}
+	Excavated.Add(Cell);
+	TArray<FIntVector> NewExc;
+	NewExc.Add(Cell);
+	DilateNew(NewExc);
+	if (PatchFace < 0)
+	{
+		PatchFace = static_cast<int8>(Cell.X);
+	}
+	RefreshPatchBounds(static_cast<float>(P.Size()));
+}
+

@@ -370,6 +370,7 @@ protected:
 	void CollectCavePointsNear(const FVector& LocalM, float RadiusM, TArray<FVector>& Out) const;
 	void FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const;
 	void ConformPatchLid(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const;
+	void EmitCollarCells(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const;
 	void StitchIslandSkirt(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const;
 	int32 ConsumeIslandTiles();
 	int32 ConsumeIslandTilesInChunk(const FGXChunkKey& Coord, const FGXMeshBuffers& Mesh);

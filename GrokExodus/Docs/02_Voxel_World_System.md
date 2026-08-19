@@ -84,9 +84,9 @@ uint8 Flags     (PlayerPlaced, Deformed, Ore, Scar, Liquid)
 
 Unedited space is **not stored**. Mesh jobs sample the stamp + overlay.
 
-### Edit square (0.15.0)
+### Edit hole map (0.16.0)
 
-Unedited crust is 64 m tiles. A dig **cuts one square** on the cube-sphere UV grid (same 29° axes as the walk tiles), snapped to 1 m cells. First hit is at least 12×12 m; a later brush that reaches the edge expands the square 2 m. Tile quads whose stamp centroid sits in that rectangle **and** a cave-mesh vert is within 1.15 m are consumed when that chunk's mesh is applied — not on the click. Rest-pos triplanar only on exclusive flat lid verts; lip/wall verts stay live WorldPosition so the seam does not smear. Marching cubes keep is centroid + 0.5 m (no any-vert slivers on live grass). Saved as GXV4.
+Unedited crust is 64 m tiles. A dig marks **excavated 1 m walk cells** (air 0.30 m under the stamp) and dilates by 1 cell (collar). Those cells are punched when the cave mesh is applied. Voxel mesh is cave walls (MC, live UV) plus collar tris that copy the hidden tile quads (shared edge). No 12–48 m UV rectangle — a downhill dig does not remesh the hillside above. Reconstruct the mask from auth air pages on load.
 
 ### Edits, caves, persist (0.7.58)
 

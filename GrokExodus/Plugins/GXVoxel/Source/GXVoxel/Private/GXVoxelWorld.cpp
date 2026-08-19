@@ -941,9 +941,12 @@ FGXDigOutcome AGXVoxelWorld::DigSphere(FVector WorldCenter, float RadiusM, float
 	}
 	const float BrushR = RadiusM * DigSpeedMul;
 	EditIsland.Add(L, BrushR + FGXEditIsland::CollarM);
-	// Do not punch tiles here. Consume-then-async-remesh flashed a
-	// square of missing tris until the lid arrived (0.15.7). Remesh
-	// applies the lid and punches that chunk's quads in the same tick.
+	EditIsland.MarkBrush(
+		L,
+		BrushR,
+		[this](const FVector& P) { return SampleDensityMeters(FVector3d(P.X, P.Y, P.Z)); },
+		[this](const FVector3f& D) { return Volume->GetStamp().SampleSurfaceRadius(D); });
+	// Punch on apply with the collar, not on the click (0.15.7 flash).
 	RemeshIsland();
 	(void)HitNormal;
 	GX_PERF(1, TEXT("GX-island %s"), *EditIsland.DebugString());
@@ -1768,6 +1771,7 @@ bool AGXVoxelWorld::ApplyBuiltMesh(const FGXChunkKey& Coord, int32 LOD, FGXMeshB
 			const int32 Before = MeshData.Indices.Num();
 			FilterMeshToCarveBalls(Coord, MeshData);
 			ConformPatchLid(Coord, MeshData);
+			EmitCollarCells(Coord, MeshData);
 			const int32 Punched = ConsumeIslandTilesInChunk(Coord, MeshData);
 			StitchIslandSkirt(Coord, MeshData);
 			if (Punched > 0)
@@ -2526,11 +2530,11 @@ bool AGXVoxelWorld::LoadWorld()
 		}
 	}
 	RebuildEditedPageBoxes();
-	if (!EditIsland.LooksValid(PlanetRadius, MaxRelief) && PageCount > 0)
+	if (PageCount > 0)
 	{
 		UE_LOG(LogGXVoxel, Warning,
-			TEXT("GX-%s load island invalid (ver=%u n=%d) — rebuild from air cells"),
-			GX_VERSION_STRING, Ver, EditIsland.Spheres.Num());
+			TEXT("GX-%s load rebuild mask from air (ver=%u pages=%d)"),
+			GX_VERSION_STRING, Ver, PageCount);
 		ReconstructIslandFromEdits();
 	}
 	if (HorizonClipmap)
@@ -2586,7 +2590,8 @@ void AGXVoxelWorld::ReconstructIslandFromEdits()
 		{
 			return;
 		}
-		EditIsland.Add(P, VS * 1.5f + FGXEditIsland::CollarM);
+		EditIsland.Add(P, VS * 1.5f);
+		EditIsland.MarkExcavatedWorld(P);
 		++AirN;
 	});
 	UE_LOG(LogGXVoxel, Warning, TEXT("GX-%s rebuild-island air=%d %s"),
@@ -2739,13 +2744,29 @@ void AGXVoxelWorld::FilterMeshToCarveBalls(const FGXChunkKey& Coord, FGXMeshBuff
 		{
 			continue;
 		}
-		// Centroid + half-voxel matches tile consume. Any-vert keep drew
-		// stretched slivers onto live grass at the square seam (0.15.8).
 		const FVector Cent = (Mesh.Positions[IA] + Mesh.Positions[IB] + Mesh.Positions[IC]) * (1.0f / 3.0f);
-		if (!EditIsland.ContainsPadded(Cent, VoxelSize * 0.5f))
+		if (!EditIsland.Contains(Cent))
 		{
 			++DropOut;
 			continue;
+		}
+		if (EditIsland.HasMask() && Volume)
+		{
+			const FVector Dir = Cent.GetSafeNormal();
+			const float StampR = Dir.IsNearlyZero() ? 0.0f
+				: Volume->GetStamp().SampleSurfaceRadius(FVector3f(Dir.X, Dir.Y, Dir.Z));
+			const float Depth = StampR - static_cast<float>(Cent.Size());
+			FVector FN = FVector::CrossProduct(
+				Mesh.Positions[IB] - Mesh.Positions[IA],
+				Mesh.Positions[IC] - Mesh.Positions[IA]);
+			FN.Normalize();
+			const float RadialN = FMath::Abs(FVector::DotProduct(FN, Dir));
+			// Flat stamp lid is the collar, not MC. Keep cave only.
+			if (Depth < 0.20f && RadialN > 0.88f)
+			{
+				++DropOut;
+				continue;
+			}
 		}
 		Kept.Add(IA);
 		Kept.Add(IB);
@@ -2769,6 +2790,20 @@ void AGXVoxelWorld::ConformPatchLid(const FGXChunkKey& Coord, FGXMeshBuffers& Me
 	(void)Coord;
 	if (!Volume || !EditIsland.HasPatch() || Mesh.IsEmpty())
 	{
+		return;
+	}
+	// Mask path: remaining tris are cave. Live UV, keep MC normals.
+	if (EditIsland.HasMask())
+	{
+		const int32 N = Mesh.Positions.Num();
+		Mesh.Colors.SetNum(N);
+		Mesh.UV0.SetNum(N);
+		for (int32 I = 0; I < N; ++I)
+		{
+			Mesh.UV0[I] = FVector2D(2.0f, 0.0f);
+			Mesh.Colors[I] = FLinearColor(0.62f, 0.58f, 0.52f, 1.0f);
+		}
+		GX_PERF(1, TEXT("GX-patch cave verts=%d %s"), N, *EditIsland.DebugString());
 		return;
 	}
 	const FGXSphereStamp& Stamp = Volume->GetStamp();
@@ -2904,75 +2939,108 @@ int32 AGXVoxelWorld::ConsumeIslandTiles()
 		TerrainMaterial.Get());
 }
 
+void AGXVoxelWorld::EmitCollarCells(const FGXChunkKey& Coord, FGXMeshBuffers& Mesh) const
+{
+	if (!Volume || !EditIsland.HasMask())
+	{
+		return;
+	}
+	const FGXSphereStamp& Stamp = Volume->GetStamp();
+	float Mag = PlanetRadius;
+	if (EditIsland.Spheres.Num() > 0)
+	{
+		Mag = static_cast<float>(EditIsland.Spheres[0].C.Size());
+	}
+	auto StampAt = [&](int8 Face, float U, float V) -> FVector
+	{
+		FVector N, T, B;
+		FGXEditIsland::FaceAxes(Face, N, T, B);
+		FVector Dir = (N * Mag + T * U + B * V).GetSafeNormal();
+		if (Dir.IsNearlyZero())
+		{
+			Dir = N;
+		}
+		const float R = Stamp.SampleSurfaceRadius(FVector3f(Dir.X, Dir.Y, Dir.Z));
+		return Dir * R;
+	};
+	auto PushVert = [&](const FVector& P)
+	{
+		const FVector Dir = P.GetSafeNormal();
+		const FVector3f Df(Dir.X, Dir.Y, Dir.Z);
+		const int32 Mid = Stamp.SampleSurfaceMaterial(Df);
+		const float R = static_cast<float>(P.Size());
+		Mesh.Positions.Add(P);
+		Mesh.Normals.Add(Dir);
+		Mesh.UV0.Add(FVector2D(static_cast<float>(Mid), R));
+		Mesh.Colors.Add(FLinearColor(0.58f, 0.66f, 0.38f, 1.0f));
+		if (Mid == 2)
+		{
+			Mesh.Colors.Last() = FLinearColor(0.58f, 0.50f, 0.44f);
+		}
+		return Mesh.Positions.Num() - 1;
+	};
+	int32 Collar = 0;
+	const float Cell = FGXEditIsland::CellM;
+	for (const FIntVector& CellId : EditIsland.Mask)
+	{
+		if (EditIsland.IsExcavated(CellId))
+		{
+			continue;
+		}
+		const int8 Face = static_cast<int8>(CellId.X);
+		const float UOff = ((CellId.Z & 1) != 0) ? (0.5f * Cell) : 0.0f;
+		const float U0 = static_cast<float>(CellId.Y) * Cell + UOff;
+		const float V0 = static_cast<float>(CellId.Z) * Cell;
+		const FVector P00 = StampAt(Face, U0, V0);
+		const FVector P10 = StampAt(Face, U0 + Cell, V0);
+		const FVector P01 = StampAt(Face, U0, V0 + Cell);
+		const FVector P11 = StampAt(Face, U0 + Cell, V0 + Cell);
+		const FVector Cent = (P00 + P10 + P01 + P11) * 0.25f;
+		const FGXChunkKey CellChunk = FGXVoxelVolume::VoxelToChunk(
+			FGXVoxelVolume::WorldToVoxel(FVector3d(Cent.X, Cent.Y, Cent.Z), VoxelSize));
+		if (CellChunk != Coord)
+		{
+			continue;
+		}
+		const int32 A = PushVert(P00);
+		const int32 Bv = PushVert(P10);
+		const int32 C = PushVert(P01);
+		const int32 D = PushVert(P11);
+		Mesh.Indices.Add(A);
+		Mesh.Indices.Add(Bv);
+		Mesh.Indices.Add(C);
+		Mesh.Indices.Add(Bv);
+		Mesh.Indices.Add(D);
+		Mesh.Indices.Add(C);
+		++Collar;
+	}
+	if (Mesh.MaterialIds.Num() > 0)
+	{
+		Mesh.MaterialIds.SetNum(Mesh.Positions.Num());
+	}
+	GX_PERF(1, TEXT("GX-collar n=%d verts=%d %s"),
+		Collar, Mesh.Positions.Num(), *EditIsland.DebugString());
+}
+
 int32 AGXVoxelWorld::ConsumeIslandTilesInChunk(const FGXChunkKey& Coord, const FGXMeshBuffers& Mesh)
 {
-	if (!CrustTiles || !Volume || EditIsland.IsEmpty())
+	(void)Mesh;
+	if (!CrustTiles || EditIsland.IsEmpty())
 	{
 		return 0;
 	}
 	const FBox IB = EditIsland.Bounds();
 	const FVector IC = IB.IsValid ? IB.GetCenter() : FVector::ZeroVector;
 	const float IR = IB.IsValid ? FMath::Max(IB.GetExtent().GetMax(), 4.0f) : 4.0f;
-	const float SurfCover2 = FMath::Square(0.50f);
-	const float AnyCover2 = FMath::Square(1.00f);
-	const FGXSphereStamp& Stamp = Volume->GetStamp();
 	return CrustTiles->ConsumeWhere(
 		IC, IR,
 		[this](const FVector& P) { return EditIsland.Contains(P); },
 		TerrainMaterial.Get(),
-		[this, Coord, &Mesh, SurfCover2, AnyCover2, &Stamp](const FVector& Cent)
+		[this, Coord](const FVector& Cent)
 		{
 			const FGXChunkKey CellChunk = FGXVoxelVolume::VoxelToChunk(
 				FGXVoxelVolume::WorldToVoxel(FVector3d(Cent.X, Cent.Y, Cent.Z), VoxelSize));
-			if (CellChunk != Coord)
-			{
-				return false;
-			}
-			bool bNearSurf = false;
-			bool bNearAny = false;
-			for (const FVector& P : Mesh.Positions)
-			{
-				const float D2 = FVector::DistSquared(P, Cent);
-				if (D2 > AnyCover2)
-				{
-					continue;
-				}
-				bNearAny = true;
-				const FVector Dir = P.GetSafeNormal();
-				const float StampR = Dir.IsNearlyZero() ? 0.0f
-					: Stamp.SampleSurfaceRadius(FVector3f(Dir.X, Dir.Y, Dir.Z));
-				if (D2 <= SurfCover2 && StampR - static_cast<float>(P.Size()) < 0.40f)
-				{
-					bNearSurf = true;
-					break;
-				}
-			}
-			if (bNearSurf)
-			{
-				return true;
-			}
-			if (!bNearAny)
-			{
-				return false;
-			}
-			// Hole only if the quad is mostly air. A single 30 cm probe at
-			// the rim punched lawn and left sky tris (0.15.10 first shot).
-			const FVector Radial = Cent.GetSafeNormal();
-			FVector T, B;
-			Radial.FindBestAxisVectors(T, B);
-			int32 Air = 0;
-			const FVector Off[5] = {
-				FVector::ZeroVector, T * 0.35f, T * -0.35f, B * 0.35f, B * -0.35f
-			};
-			for (const FVector& O : Off)
-			{
-				const FVector Q = Cent + O - Radial * 0.30f;
-				if (SampleDensityMeters(FVector3d(Q.X, Q.Y, Q.Z)) < -0.05f)
-				{
-					++Air;
-				}
-			}
-			return Air >= 4;
+			return CellChunk == Coord;
 		});
 }
 
